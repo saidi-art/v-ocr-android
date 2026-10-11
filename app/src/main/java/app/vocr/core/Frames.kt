@@ -44,16 +44,23 @@ object Pipeline {
         val sb = StripBuilder(overlapPx = (36 * dw / 720.0).toInt().coerceAtLeast(12))
         val strips = ArrayList<StripInfo>()
         var last: YuvFrame? = null; var lastT = 0.0; var got = 0
+        val pool = java.util.concurrent.Executors.newSingleThreadExecutor()
+        val slots = java.util.concurrent.Semaphore(4)
         fun save(f: YuvFrame, top: Int, bot: Int, t: Double, kind: String) {
-            val px = f.argb(fw, fh)
-            val bm = Bitmap.createBitmap(px, fw, fh, Bitmap.Config.ARGB_8888)
-            val c = if (top == 0 && bot == fh) bm else Bitmap.createBitmap(bm, 0, top, fw, bot - top)
             val file = File(dir, "s%04d_%s.jpg".format(strips.size, kind))
-            file.outputStream().use { c.compress(Bitmap.CompressFormat.JPEG, 80, it) }
-            if (c !== bm) c.recycle(); bm.recycle()
             strips.add(StripInfo(file, t, kind))
+            slots.acquireUninterruptibly()
+            pool.execute {
+                try {
+                    val px = f.argb(fw, fh)
+                    val bm = Bitmap.createBitmap(px, fw, fh, Bitmap.Config.ARGB_8888)
+                    val c = if (top == 0 && bot == fh) bm else Bitmap.createBitmap(bm, 0, top, fw, bot - top)
+                    file.outputStream().use { c.compress(Bitmap.CompressFormat.JPEG, 75, it) }
+                    if (c !== bm) c.recycle(); bm.recycle()
+                } finally { slots.release() }
+            }
         }
-        var analysisMs = 0L; var saveMs = 0L
+        var analysisMs = 0L; var saveMs = 0L; var grayMs = 0L; var hashMs = 0L; var matchMs = 0L
         val ok = Decoder.decode(ctx, uri, fps, cancelled) { t, f ->
             got++
             val ta = System.nanoTime()
@@ -83,9 +90,12 @@ object Pipeline {
             val top = (fin.top * sc).toInt().coerceIn(0, fh - 1); val bot = (fin.bottom * sc).toInt().coerceIn(top + 1, fh)
             save(lf, top, bot, lastT, "crop")
         }
+        val tw = System.currentTimeMillis()
+        pool.shutdown(); pool.awaitTermination(120, java.util.concurrent.TimeUnit.SECONDS)
+        val waitMs = System.currentTimeMillis() - tw
         onProgress(Progress("Done", 100, 100))
         val total = System.currentTimeMillis() - t0
-        return Result(strips, sb.total, sb.dup, sb.full, sb.cropped, seconds, total, "analysis ${analysisMs}ms, saving ${saveMs}ms, decode+other ${total - analysisMs - saveMs}ms")
+        return Result(strips, sb.total, sb.dup, sb.full, sb.cropped, seconds, total, "analysis ${analysisMs}ms (gray ${grayMs}, hash ${hashMs}, match ${matchMs}), save queue ${saveMs}ms + final wait ${waitMs}ms, decode+other ${total - analysisMs - saveMs - waitMs}ms")
     }
 
     private fun runRetriever(ctx: Context, uri: Uri?, onProgress: (Progress) -> Unit, cancelled: () -> Boolean): Result {
