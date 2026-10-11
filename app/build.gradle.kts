@@ -10,8 +10,8 @@ android {
         applicationId = "app.vocr"
         minSdk = 29
         targetSdk = 34
-        versionCode = 3
-        versionName = "0.2.1-m1b"
+        versionCode = 4
+        versionName = "0.2.2-m1c"
     }
     buildTypes { release { isMinifyEnabled = false } }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
