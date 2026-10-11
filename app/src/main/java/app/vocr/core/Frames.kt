@@ -10,7 +10,7 @@ import kotlin.math.min
 
 data class StripInfo(val file: File, val t: Double, val kind: String)
 data class Progress(val stage: String, val done: Int, val total: Int)
-data class Result(val strips: List<StripInfo>, val framesTotal: Int, val dup: Int, val full: Int, val cropped: Int, val seconds: Int, val ms: Long)
+data class Result(val strips: List<StripInfo>, val framesTotal: Int, val dup: Int, val full: Int, val cropped: Int, val seconds: Int, val ms: Long, val timing: String = "")
 
 object Pipeline {
     const val FRAME_W = 720      // frames are decoded at this width
@@ -53,12 +53,16 @@ object Pipeline {
             if (c !== bm) c.recycle(); bm.recycle()
             strips.add(StripInfo(file, t, kind))
         }
+        var analysisMs = 0L; var saveMs = 0L
         val ok = Decoder.decode(ctx, uri, fps, cancelled) { t, f ->
             got++
+            val ta = System.nanoTime()
             onProgress(Progress("Reading frames", (t / seconds * 100).toInt().coerceAtMost(100), 100))
             val g = f.gray(dw, dh)
             val s32 = f.gray(32, 32)
-            when (val dec = sb.push(Hash.phash(s32), g)) {
+            val dec = sb.push(Hash.phash(s32), g)
+            val tb = System.nanoTime(); analysisMs += (tb - ta) / 1_000_000
+            when (dec) {
                 is Decision.Skip -> {}
                 is Decision.Full -> save(f, 0, fh, t, "full")
                 is Decision.Crop -> {
@@ -67,7 +71,10 @@ object Pipeline {
                     save(f, top, bot, t, "crop")
                 }
             }
+            saveMs += (System.nanoTime() - tb) / 1_000_000
             last = f; lastT = t
+            // a changed frame we couldn't match (fast scroll) means we skipped content: sample faster until matching again
+            if (sb.lastFailed) 12.0 else fps
         }
         if (!ok && got == 0) return null
         val fin = sb.flush(); val lf = last
@@ -77,7 +84,8 @@ object Pipeline {
             save(lf, top, bot, lastT, "crop")
         }
         onProgress(Progress("Done", 100, 100))
-        return Result(strips, sb.total, sb.dup, sb.full, sb.cropped, seconds, System.currentTimeMillis() - t0)
+        val total = System.currentTimeMillis() - t0
+        return Result(strips, sb.total, sb.dup, sb.full, sb.cropped, seconds, total, "analysis ${analysisMs}ms, saving ${saveMs}ms, decode+other ${total - analysisMs - saveMs}ms")
     }
 
     private fun runRetriever(ctx: Context, uri: Uri?, onProgress: (Progress) -> Unit, cancelled: () -> Boolean): Result {
