@@ -37,7 +37,7 @@ class DedupTest {
     @Test fun detectsScrollAndFooter() {
         val dy = StripBuilder.detectScroll(frame(0), frame(120))
         assertEquals(120, dy)
-        assertEquals(FOOT, StripBuilder.footerHeight(frame(0), frame(120)))
+        assertEquals(FOOT, StripBuilder.footerRows(frame(0), frame(120)))
     }
 
     @Test fun scrollingCoversAllNewContentWithoutRefeeding() {
@@ -62,5 +62,25 @@ class DedupTest {
         assertEquals("uncovered rows", 0, missing)
         // and far fewer strips than frames
         assertTrue("strips=${sb.full + sb.cropped} frames=${sb.total}", sb.full + sb.cropped < sb.total / 2)
+    }
+
+    // page with big blank areas (like a document with a hero section)
+    private val sparse = FloatArray(W * 6000).also { for (y in 0 until 6000) { val block = (y / 400) % 2 == 0; for (x in 0 until W) it[y * W + x] = if (block && y % 40 < 14 && x in 30..330 && (x / 5 + y / 7) % 3 != 0) 40f else 235f } }
+    private fun sframe(offset: Int): Gray {
+        val d = FloatArray(W * H)
+        for (y in 0 until H - FOOT) for (x in 0 until W) d[y * W + x] = sparse[(offset + y) * W + x]
+        for (y in H - FOOT until H) for (x in 0 until W) d[y * W + x] = 128f
+        return Gray(W, H, d)
+    }
+    @Test fun detectsScrollOnSparsePage() {
+        for (dy in intArrayOf(37, 150, 300, 500)) assertEquals("dy=$dy", dy, StripBuilder.detectScroll(sframe(1200), sframe(1200 + dy)))
+    }
+    @Test fun refusesWhenScrollTooFastToMatch() {
+        // 800 px window, 760 px jump: almost no overlap
+        assertEquals(0, StripBuilder.detectScroll(frame(0), frame(900)))
+    }
+    @Test fun handlesFixedHeader() {
+        fun hf(off: Int): Gray { val g = frame(off); for (y in 0 until 60) for (x in 0 until W) g.d[y * W + x] = 200f + (x % 7); return g }
+        assertEquals(110, StripBuilder.detectScroll(hf(500), hf(610)))
     }
 }
