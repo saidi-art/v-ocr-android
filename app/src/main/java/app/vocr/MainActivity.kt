@@ -136,7 +136,7 @@ fun Home(preview: Picked? = null) {
             ) { Text(if (picked == null) "Choose video" else "Choose another", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
         }
         Spacer(Modifier.height(16.dp))
-        Text("v0.2.1-m1b  -  frame extraction test", color = Muted, fontSize = 12.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
+        Text("v0.2.2-m1c  -  frame extraction test", color = Muted, fontSize = 12.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
     }
 }
 
@@ -146,7 +146,7 @@ fun Strips(res: Result, onBack: () -> Unit) {
         Text("Kept ${res.strips.size} strips", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
         Text(
             "${res.seconds}s video, ${res.framesTotal} frames read, ${res.dup} skipped (dup/accumulating), ${res.full} full, ${res.cropped} cropped. " +
-                "Took ${res.ms / 1000.0}s",
+                "Took ${res.ms / 1000.0}s  ${res.timing}",
             color = Muted, fontSize = 13.sp
         )
         Spacer(Modifier.height(8.dp))
