@@ -9,7 +9,14 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import android.graphics.BitmapFactory
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import app.vocr.core.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -39,7 +46,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-data class Picked(val name: String, val seconds: Int, val w: Int, val h: Int)
+data class Picked(val uri: Uri?, val name: String, val seconds: Int, val w: Int, val h: Int)
 
 fun describe(ctx: android.content.Context, uri: Uri): Picked {
     var name = "recording"
@@ -50,7 +57,7 @@ fun describe(ctx: android.content.Context, uri: Uri): Picked {
     val r = MediaMetadataRetriever()
     r.setDataSource(ctx, uri)
     fun meta(k: Int) = r.extractMetadata(k)?.toIntOrNull() ?: 0
-    val p = Picked(name, meta(MediaMetadataRetriever.METADATA_KEY_DURATION) / 1000,
+    val p = Picked(uri, name, meta(MediaMetadataRetriever.METADATA_KEY_DURATION) / 1000,
         meta(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH), meta(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT))
     r.release(); return p
 }
@@ -59,9 +66,29 @@ fun describe(ctx: android.content.Context, uri: Uri): Picked {
 fun Home(preview: Picked? = null) {
     val ctx = LocalContext.current
     var picked by remember { mutableStateOf(preview) }
+    var progress by remember { mutableStateOf<Progress?>(null) }
+    var result by remember { mutableStateOf<Result?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        if (uri != null) picked = runCatching { describe(ctx, uri) }.getOrNull()
+        if (uri != null) { result = null; error = null; picked = runCatching { describe(ctx, uri) }.getOrNull() }
     }
+    fun start(p: Picked) {
+        progress = Progress("Starting", 0, 1); result = null; error = null
+        Thread {
+            try {
+                val r = Pipeline.run(ctx, p.uri, { pr -> progress = pr })
+                result = r
+            } catch (e: Throwable) { error = e.message ?: e.javaClass.simpleName }
+            progress = null
+        }.start()
+    }
+    LaunchedEffect(Unit) {
+        if ((ctx as? android.app.Activity)?.intent?.getBooleanExtra("demo", false) == true && progress == null && result == null) {
+            val p = Picked(null, "demo.mp4 (built-in test video)", 9, 540, 960); picked = p; start(p)
+        }
+    }
+    val res = result
+    if (res != null) { Strips(res) { result = null }; return }
     Column(
         Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Ink, Color(0xFF111631)))).systemBarsPadding().padding(24.dp),
         horizontalAlignment = Alignment.Start
@@ -82,14 +109,57 @@ fun Home(preview: Picked? = null) {
                 picked?.let { "${it.seconds / 60}m ${it.seconds % 60}s  -  ${it.w}x${it.h}" } ?: "Free, offline and private. Nothing leaves your phone.",
                 color = Muted, fontSize = 14.sp
             )
+            val pr = progress
+            if (pr != null) {
+                Spacer(Modifier.height(16.dp))
+                LinearProgressIndicator(progress = { pr.done / pr.total.coerceAtLeast(1).toFloat() }, modifier = Modifier.fillMaxWidth(), color = Violet, trackColor = Ink)
+                Spacer(Modifier.height(6.dp))
+                Text("${pr.stage}  ${pr.done}/${pr.total}", color = Muted, fontSize = 13.sp)
+            }
+            error?.let { Spacer(Modifier.height(8.dp)); Text(it, color = Color(0xFFFF7A7A), fontSize = 13.sp) }
             Spacer(Modifier.height(20.dp))
+            val p = picked
+            if (p != null && progress == null) {
+                Button(
+                    onClick = { start(p) },
+                    modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Violet, contentColor = Color.White)
+                ) { Text("Extract strips (M1 test)", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
+                Spacer(Modifier.height(10.dp))
+            }
             Button(
                 onClick = { launcher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)) },
+                enabled = progress == null,
                 modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Violet)
+                colors = if (picked == null) ButtonDefaults.buttonColors(containerColor = Violet, contentColor = Color.White)
+                         else ButtonDefaults.buttonColors(containerColor = Color(0xFF232A45), contentColor = Color.White)
             ) { Text(if (picked == null) "Choose video" else "Choose another", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
         }
         Spacer(Modifier.height(16.dp))
-        Text("v0.1.0-m0  -  skeleton build", color = Muted, fontSize = 12.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
+        Text("v0.2.0-m1  -  frame extraction test", color = Muted, fontSize = 12.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
+    }
+}
+
+@Composable
+fun Strips(res: Result, onBack: () -> Unit) {
+    Column(Modifier.fillMaxSize().background(Ink).systemBarsPadding().padding(16.dp)) {
+        Text("Kept ${res.strips.size} strips", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+        Text(
+            "${res.seconds}s video, ${res.framesTotal} frames read, ${res.dup} skipped (dup/accumulating), ${res.full} full, ${res.cropped} cropped. " +
+                "Took ${res.ms / 1000.0}s",
+            color = Muted, fontSize = 13.sp
+        )
+        Spacer(Modifier.height(8.dp))
+        Button(onClick = onBack, colors = ButtonDefaults.buttonColors(containerColor = Violet, contentColor = Color.White)) { Text("Back") }
+        Spacer(Modifier.height(8.dp))
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            items(res.strips) { s ->
+                val bm = remember(s.file) { BitmapFactory.decodeFile(s.file.path, BitmapFactory.Options().apply { inSampleSize = 2 }) }
+                Column(Modifier.clip(RoundedCornerShape(12.dp)).background(Card).padding(8.dp)) {
+                    Text("${s.kind}  t=${"%.1f".format(s.t)}s  ${bm.width * 2}x${bm.height * 2}", color = Lilac, fontSize = 12.sp)
+                    Image(bm.asImageBitmap(), null, Modifier.fillMaxWidth(), contentScale = ContentScale.FillWidth)
+                }
+            }
+        }
     }
 }
