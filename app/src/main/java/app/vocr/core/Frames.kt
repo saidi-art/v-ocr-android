@@ -60,14 +60,18 @@ object Pipeline {
                 } finally { slots.release() }
             }
         }
-        var analysisMs = 0L; var saveMs = 0L; var grayMs = 0L; var hashMs = 0L; var matchMs = 0L
+        var analysisMs = 0L; var saveMs = 0L; var grayN = 0L; var hashN = 0L; var matchN = 0L; var progN = 0L
         val ok = Decoder.decode(ctx, uri, fps, cancelled) { t, f ->
             got++
             val ta = System.nanoTime()
             onProgress(Progress("Reading frames", (t / seconds * 100).toInt().coerceAtMost(100), 100))
+            val tp = System.nanoTime(); progN += tp - ta
             val g = f.gray(dw, dh)
-            val s32 = YuvFrame.shrink(g, 32, 32)
-            val dec = sb.push(Hash.phash(s32), g)
+            val t1 = System.nanoTime()
+            val hh = Hash.phash(YuvFrame.shrink(g, 32, 32))
+            val t2 = System.nanoTime()
+            val dec = sb.push(hh, g)
+            grayN += t1 - tp; hashN += t2 - t1; matchN += System.nanoTime() - t2
             val tb = System.nanoTime(); analysisMs += (tb - ta) / 1_000_000
             when (dec) {
                 is Decision.Skip -> {}
@@ -95,7 +99,7 @@ object Pipeline {
         val waitMs = System.currentTimeMillis() - tw
         onProgress(Progress("Done", 100, 100))
         val total = System.currentTimeMillis() - t0
-        return Result(strips, sb.total, sb.dup, sb.full, sb.cropped, seconds, total, "analysis ${analysisMs}ms (gray ${grayMs}, hash ${hashMs}, match ${matchMs}), save queue ${saveMs}ms + final wait ${waitMs}ms, decode+other ${total - analysisMs - saveMs - waitMs}ms")
+        return Result(strips, sb.total, sb.dup, sb.full, sb.cropped, seconds, total, "analysis ${analysisMs}ms (progress cb ${progN/1_000_000}, gray ${grayN/1_000_000}, hash ${hashN/1_000_000}, match ${matchN/1_000_000}), save queue ${saveMs}ms + final wait ${waitMs}ms, decode+other ${total - analysisMs - saveMs - waitMs}ms")
     }
 
     private fun runRetriever(ctx: Context, uri: Uri?, onProgress: (Progress) -> Unit, cancelled: () -> Boolean): Result {
