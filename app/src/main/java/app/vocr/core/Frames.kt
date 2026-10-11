@@ -1,0 +1,87 @@
+package app.vocr.core
+
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Color
+import android.media.MediaMetadataRetriever
+import android.net.Uri
+import java.io.File
+import kotlin.math.min
+
+data class StripInfo(val file: File, val t: Double, val kind: String)
+data class Progress(val stage: String, val done: Int, val total: Int)
+data class Result(val strips: List<StripInfo>, val framesTotal: Int, val dup: Int, val full: Int, val cropped: Int, val seconds: Int, val ms: Long)
+
+object Pipeline {
+    const val FRAME_W = 720      // frames are decoded at this width
+    const val DET_W = 360        // scroll detection runs at this width
+
+    fun toGray(bm: Bitmap): Gray {
+        val w = bm.width; val h = bm.height
+        val px = IntArray(w * h); bm.getPixels(px, 0, w, 0, 0, w, h)
+        val d = FloatArray(w * h)
+        for (i in px.indices) { val c = px[i]; d[i] = 0.299f * Color.red(c) + 0.587f * Color.green(c) + 0.114f * Color.blue(c) }
+        return Gray(w, h, d)
+    }
+
+    fun run(ctx: Context, uri: Uri?, onProgress: (Progress) -> Unit, cancelled: () -> Boolean = { false }): Result {
+        val t0 = System.currentTimeMillis()
+        val dir = File(ctx.cacheDir, "job").apply { deleteRecursively(); mkdirs() }
+        val r = MediaMetadataRetriever()
+        if (uri != null) r.setDataSource(ctx, uri)
+        else ctx.assets.openFd("demo.mp4").use { r.setDataSource(it.fileDescriptor, it.startOffset, it.length) }
+        val durMs = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+        val vw = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: FRAME_W
+        val vh = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 1600
+        val rot = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull() ?: 0
+        val (ow, oh) = if (rot == 90 || rot == 270) vh to vw else vw to vh
+        val fw = min(FRAME_W, ow); val fh = (oh.toLong() * fw / ow).toInt()
+        val dw = DET_W.coerceAtMost(fw); val dh = (fh.toLong() * dw / fw).toInt()
+        val seconds = (durMs / 1000).toInt().coerceAtLeast(1)
+        // same budget as web v1: up to 3 fps, at most ~700 frames, at least 1 fps
+        val fps = maxOf(1.0, min(3.0, 700.0 / seconds))
+        val n = (seconds * fps).toInt().coerceAtLeast(1)
+        val sb = StripBuilder(overlapPx = (36 * dw / 720.0).toInt().coerceAtLeast(12))
+        val strips = ArrayList<StripInfo>()
+        var lastFrame: Bitmap? = null
+        var lastT = 0.0
+        fun save(bm: Bitmap, t: Double, kind: String) {
+            val f = File(dir, "s%04d_%s.jpg".format(strips.size, kind))
+            f.outputStream().use { bm.compress(Bitmap.CompressFormat.JPEG, 85, it) }
+            strips.add(StripInfo(f, t, kind))
+        }
+        for (i in 0 until n) {
+            if (cancelled()) break
+            val t = i / fps
+            onProgress(Progress("Reading frames", i, n))
+            val frame = r.getScaledFrameAtTime((t * 1_000_000).toLong(), MediaMetadataRetriever.OPTION_CLOSEST, fw, fh) ?: continue
+            val det = Bitmap.createScaledBitmap(frame, dw, dh, true)
+            val g = toGray(det); if (det !== frame) det.recycle()
+            val small = Bitmap.createScaledBitmap(frame, 32, 32, true)
+            val hash = Hash.phash(toGray(small)); small.recycle()
+            when (val dec = sb.push(hash, g)) {
+                is Decision.Skip -> { lastFrame?.recycle(); lastFrame = frame }
+                is Decision.Full -> { save(frame, t, "full"); lastFrame?.recycle(); lastFrame = frame }
+                is Decision.Crop -> {
+                    val sc = frame.height.toFloat() / dh
+                    val top = (dec.top * sc).toInt().coerceIn(0, frame.height - 1)
+                    val bot = (dec.bottom * sc).toInt().coerceIn(top + 1, frame.height)
+                    save(Bitmap.createBitmap(frame, 0, top, frame.width, bot - top), t, "crop")
+                    lastFrame?.recycle(); lastFrame = frame
+                }
+            }
+            lastT = t
+        }
+        val fin = sb.flush()
+        val lf = lastFrame
+        if (fin is Decision.Crop && lf != null && !lf.isRecycled) {
+            val sc = lf.height.toFloat() / dh
+            val top = (fin.top * sc).toInt().coerceIn(0, lf.height - 1)
+            val bot = (fin.bottom * sc).toInt().coerceIn(top + 1, lf.height)
+            save(Bitmap.createBitmap(lf, 0, top, lf.width, bot - top), lastT, "crop")
+        }
+        lf?.recycle(); r.release()
+        onProgress(Progress("Done", n, n))
+        return Result(strips, sb.total, sb.dup, sb.full, sb.cropped, seconds, System.currentTimeMillis() - t0)
+    }
+}
