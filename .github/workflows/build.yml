@@ -36,7 +36,7 @@ jobs:
             adb exec-out screencap -p > shots/home.png
             adb shell am force-stop app.vocr
             adb shell am start -n app.vocr/.MainActivity --ez demo true
-            sleep 45
+            sleep 150
             adb exec-out screencap -p > shots/strips.png
       - name: Name artifacts
         run: |
