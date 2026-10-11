@@ -25,6 +25,62 @@ object Pipeline {
     }
 
     fun run(ctx: Context, uri: Uri?, onProgress: (Progress) -> Unit, cancelled: () -> Boolean = { false }): Result {
+        val info = runCatching { Decoder.probe(ctx, uri) }.getOrNull()
+        if (info != null && info.rotation == 0) {
+            val r = runDecoded(ctx, uri, info, onProgress, cancelled)
+            if (r != null) return r
+        }
+        return runRetriever(ctx, uri, onProgress, cancelled)
+    }
+
+    /** Sequential MediaCodec path: one decode pass, luma-only analysis, RGB only for kept strips. */
+    private fun runDecoded(ctx: Context, uri: Uri?, info: Decoder.Info, onProgress: (Progress) -> Unit, cancelled: () -> Boolean): Result? {
+        val t0 = System.currentTimeMillis()
+        val dir = File(ctx.cacheDir, "job").apply { deleteRecursively(); mkdirs() }
+        val fw = min(FRAME_W, info.width); val fh = (info.height.toLong() * fw / info.width).toInt()
+        val dw = DET_W.coerceAtMost(fw); val dh = (fh.toLong() * dw / fw).toInt()
+        val seconds = (info.durationUs / 1_000_000).toInt().coerceAtLeast(1)
+        val fps = maxOf(1.0, min(3.0, 700.0 / seconds))
+        val sb = StripBuilder(overlapPx = (36 * dw / 720.0).toInt().coerceAtLeast(12))
+        val strips = ArrayList<StripInfo>()
+        var last: YuvFrame? = null; var lastT = 0.0; var got = 0
+        fun save(f: YuvFrame, top: Int, bot: Int, t: Double, kind: String) {
+            val px = f.argb(fw, fh)
+            val bm = Bitmap.createBitmap(px, fw, fh, Bitmap.Config.ARGB_8888)
+            val c = if (top == 0 && bot == fh) bm else Bitmap.createBitmap(bm, 0, top, fw, bot - top)
+            val file = File(dir, "s%04d_%s.jpg".format(strips.size, kind))
+            file.outputStream().use { c.compress(Bitmap.CompressFormat.JPEG, 85, it) }
+            if (c !== bm) c.recycle(); bm.recycle()
+            strips.add(StripInfo(file, t, kind))
+        }
+        val ok = Decoder.decode(ctx, uri, fps, cancelled) { t, f ->
+            got++
+            onProgress(Progress("Reading frames", (t / seconds * 100).toInt().coerceAtMost(100), 100))
+            val g = f.gray(dw, dh)
+            val s32 = f.gray(32, 32)
+            when (val dec = sb.push(Hash.phash(s32), g)) {
+                is Decision.Skip -> {}
+                is Decision.Full -> save(f, 0, fh, t, "full")
+                is Decision.Crop -> {
+                    val sc = fh.toFloat() / dh
+                    val top = (dec.top * sc).toInt().coerceIn(0, fh - 1); val bot = (dec.bottom * sc).toInt().coerceIn(top + 1, fh)
+                    save(f, top, bot, t, "crop")
+                }
+            }
+            last = f; lastT = t
+        }
+        if (!ok && got == 0) return null
+        val fin = sb.flush(); val lf = last
+        if (fin is Decision.Crop && lf != null) {
+            val sc = fh.toFloat() / dh
+            val top = (fin.top * sc).toInt().coerceIn(0, fh - 1); val bot = (fin.bottom * sc).toInt().coerceIn(top + 1, fh)
+            save(lf, top, bot, lastT, "crop")
+        }
+        onProgress(Progress("Done", 100, 100))
+        return Result(strips, sb.total, sb.dup, sb.full, sb.cropped, seconds, System.currentTimeMillis() - t0)
+    }
+
+    private fun runRetriever(ctx: Context, uri: Uri?, onProgress: (Progress) -> Unit, cancelled: () -> Boolean): Result {
         val t0 = System.currentTimeMillis()
         val dir = File(ctx.cacheDir, "job").apply { deleteRecursively(); mkdirs() }
         val r = MediaMetadataRetriever()
