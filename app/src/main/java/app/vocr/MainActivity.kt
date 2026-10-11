@@ -136,7 +136,7 @@ fun Home(preview: Picked? = null) {
             ) { Text(if (picked == null) "Choose video" else "Choose another", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
         }
         Spacer(Modifier.height(16.dp))
-        Text("v0.2.0-m1  -  frame extraction test", color = Muted, fontSize = 12.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
+        Text("v0.2.1-m1b  -  frame extraction test", color = Muted, fontSize = 12.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
     }
 }
 
