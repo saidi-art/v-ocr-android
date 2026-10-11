@@ -49,7 +49,7 @@ object Pipeline {
             val bm = Bitmap.createBitmap(px, fw, fh, Bitmap.Config.ARGB_8888)
             val c = if (top == 0 && bot == fh) bm else Bitmap.createBitmap(bm, 0, top, fw, bot - top)
             val file = File(dir, "s%04d_%s.jpg".format(strips.size, kind))
-            file.outputStream().use { c.compress(Bitmap.CompressFormat.JPEG, 85, it) }
+            file.outputStream().use { c.compress(Bitmap.CompressFormat.JPEG, 80, it) }
             if (c !== bm) c.recycle(); bm.recycle()
             strips.add(StripInfo(file, t, kind))
         }
@@ -59,7 +59,7 @@ object Pipeline {
             val ta = System.nanoTime()
             onProgress(Progress("Reading frames", (t / seconds * 100).toInt().coerceAtMost(100), 100))
             val g = f.gray(dw, dh)
-            val s32 = f.gray(32, 32)
+            val s32 = YuvFrame.shrink(g, 32, 32)
             val dec = sb.push(Hash.phash(s32), g)
             val tb = System.nanoTime(); analysisMs += (tb - ta) / 1_000_000
             when (dec) {
@@ -111,7 +111,7 @@ object Pipeline {
         var lastT = 0.0
         fun save(bm: Bitmap, t: Double, kind: String) {
             val f = File(dir, "s%04d_%s.jpg".format(strips.size, kind))
-            f.outputStream().use { bm.compress(Bitmap.CompressFormat.JPEG, 85, it) }
+            f.outputStream().use { bm.compress(Bitmap.CompressFormat.JPEG, 80, it) }
             strips.add(StripInfo(f, t, kind))
         }
         for (i in 0 until n) {
