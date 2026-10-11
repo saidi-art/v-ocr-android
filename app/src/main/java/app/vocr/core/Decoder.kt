@@ -48,7 +48,13 @@ object Decoder {
         fun plane(p: Image.Plane): ByteArray {
             val out = ByteArray(cw * ch); val b = p.buffer
             if (p.pixelStride == 1) { for (r in 0 until ch) { b.position(r * p.rowStride); b.get(out, r * cw, cw) } }
-            else { for (r in 0 until ch) for (c in 0 until cw) out[r * cw + c] = b.get(r * p.rowStride + c * p.pixelStride) }
+            else {
+                val row = ByteArray(minOf(p.rowStride, b.limit()))
+                for (r in 0 until ch) {
+                    b.position(r * p.rowStride); val n = minOf(row.size, b.remaining()); b.get(row, 0, n)
+                    for (c in 0 until cw) out[r * cw + c] = row[c * p.pixelStride]
+                }
+            }
             return out
         }
         return YuvFrame(w, h, y, plane(pu), plane(pv))
