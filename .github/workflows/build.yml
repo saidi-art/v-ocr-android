@@ -14,6 +14,8 @@ jobs:
         with: { distribution: temurin, java-version: 17 }
       - uses: gradle/actions/setup-gradle@v4
         with: { gradle-version: "8.7" }
+      - name: Unit tests
+        run: gradle --no-daemon testDebugUnitTest
       - name: Build debug APK
         run: gradle --no-daemon assembleDebug
       - name: Enable KVM
@@ -32,6 +34,10 @@ jobs:
             sleep 8
             mkdir -p shots
             adb exec-out screencap -p > shots/home.png
+            adb shell am force-stop app.vocr
+            adb shell am start -n app.vocr/.MainActivity --ez demo true
+            sleep 45
+            adb exec-out screencap -p > shots/strips.png
       - name: Name artifacts
         run: |
           cp app/build/outputs/apk/debug/app-debug.apk vocr-debug-${{ github.run_number }}.apk
@@ -43,3 +49,4 @@ jobs:
           files: |
             vocr-debug-${{ github.run_number }}.apk
             shots/home.png
+            shots/strips.png
