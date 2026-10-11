@@ -55,7 +55,7 @@ object Decoder {
     }
 
     fun decode(ctx: Context, uri: Uri?, fps: Double, cancelled: () -> Boolean,
-               onFrame: (tSec: Double, f: YuvFrame) -> Unit): Boolean {
+               onFrame: (tSec: Double, f: YuvFrame) -> Double): Boolean {
         val ex = open(ctx, uri)
         var codec: MediaCodec? = null
         try {
@@ -72,7 +72,7 @@ object Decoder {
             codec.start()
             val info = MediaCodec.BufferInfo()
             var inputDone = false; var outputDone = false
-            var nextUs = 0L; val stepUs = (1_000_000 / fps).toLong()
+            var nextUs = 0L; var stepUs = (1_000_000 / fps).toLong()
             while (!outputDone && !cancelled()) {
                 if (!inputDone) {
                     val ii = codec.dequeueInputBuffer(10_000)
@@ -89,8 +89,9 @@ object Decoder {
                         val img = codec.getOutputImage(oi)
                         if (img != null) {
                             val f = copy(img); img.close()
-                            onFrame(info.presentationTimeUs / 1e6, f)
-                            nextUs = (info.presentationTimeUs / stepUs + 1) * stepUs
+                            val want = onFrame(info.presentationTimeUs / 1e6, f)   // fps wanted from here on
+                            stepUs = (1_000_000 / want.coerceIn(1.0, 30.0)).toLong()
+                            nextUs = info.presentationTimeUs + stepUs
                         }
                     }
                     codec.releaseOutputBuffer(oi, false)
