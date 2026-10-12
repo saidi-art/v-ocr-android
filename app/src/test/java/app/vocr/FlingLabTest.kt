@@ -25,6 +25,7 @@ class FlingLabTest {
         }
         val dir = File("src/main/assets/ocr")
         val eng = OcrEngine(File(dir, "det.onnx").readBytes(), File(dir, "rec.onnx").readBytes(), File(dir, "keys.txt").readText().split("\n"))
+        System.getenv("FLRECH")?.let { eng.recH = it.toInt() }; System.getenv("FLDET")?.let { eng.maxSide = it.toInt() }
         val per = ArrayList<List<Line>>()
         fun handle(s: Rgb) {
             val ls = eng.recognize(s).filter { it.conf >= 0.55f && it.text.count { c -> c.isLetterOrDigit() } >= 1 }.map { Line(it.text, (it.y0 + it.y1) / 2f / s.h) }
