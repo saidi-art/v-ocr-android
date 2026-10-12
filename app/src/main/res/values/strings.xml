@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="scroll_service_desc">V-OCR auto-scroll: swipes the screen up at a steady pace while you record. It does not read the screen.</string>
+</resources>
