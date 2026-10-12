@@ -5,6 +5,7 @@ import kotlin.math.min
 
 /** Text-level stitching: removes the lines two neighbouring strips have in common. */
 object Stitch {
+    fun normKey(s: String) = norm(s)
     private fun norm(s: String) = s.lowercase().filter { it.isLetterOrDigit() }
 
     private fun lev(a: String, b: String): Int {
@@ -29,32 +30,41 @@ object Stitch {
 
     private const val OK = 0.80
 
-    /** Merge per-strip line lists (top to bottom) into one list. */
-    fun merge(strips: List<List<String>>, maxSkip: Int = 6): List<String> {
+    /**
+     * Merge per-strip line lists (top to bottom) into one list.
+     * Anchors = the longer lines of the new strip; each is looked up (in order) among the last lines already kept.
+     * Everything up to the last anchor found there is overlap and is dropped; the rest is appended.
+     * Junk lines between anchors do not break the match (unlike a strict block comparison).
+     */
+    fun merge(strips: List<List<String>>, window: Int = 70): List<String> {
         val acc = ArrayList<String>()
         for (lines in strips) {
             if (lines.isEmpty()) continue
             if (acc.isEmpty()) { acc.addAll(lines); continue }
-            var done = false
-            val kMax = min(acc.size, lines.size)
-            loop@ for (k in kMax downTo 1) {
-                for (j in 0..min(maxSkip, lines.size - k)) {
-                    var good = true; var chars = 0
-                    for (i in 0 until k) {
-                        val s = sim(acc[acc.size - k + i], lines[j + i])
-                        if (s < OK) { good = false; break }
-                        chars += norm(lines[j + i]).length
+            val lo = max(0, acc.size - window)
+            var lastAcc = lo - 1; var lastNew = -1
+            var k0 = -1; var j0 = -1
+            for (j in lines.indices) {
+                if (norm(lines[j]).length < 12) continue
+                var bestK = -1; var bestS = 0.0
+                for (k in lastAcc + 1 until acc.size) {
+                    if (norm(acc[k]).length < 8) continue
+                    if (k0 >= 0) {   // later matches must keep the same line offset as the first one (overlap is contiguous)
+                        val dj = j - j0; val dk = k - k0
+                        if (Math.abs(dk - dj) > 4 + 0.3 * dj) continue
                     }
-                    if (!good || (k < 2 && chars < 12) || (k == 2 && chars < 10)) continue
-                    // keep the longer version of the edge lines (a strip edge may cut a line)
-                    if (norm(lines[j]).length > norm(acc[acc.size - k]).length) acc[acc.size - k] = lines[j]
-                    val li = j + k - 1
-                    if (norm(lines[li]).length > norm(acc[acc.size - 1]).length) acc[acc.size - 1] = lines[li]
-                    for (i in j + k until lines.size) acc.add(lines[i])
-                    done = true; break@loop
+                    val sc = sim(acc[k], lines[j])
+                    if (sc >= 0.85 && sc > bestS) { bestS = sc; bestK = k; if (sc >= 0.99) break }
+                }
+                if (bestK >= 0) {
+                    if (k0 < 0) { k0 = bestK; j0 = j }
+                    lastAcc = bestK; lastNew = j
                 }
             }
-            if (!done) acc.addAll(lines)
+            // overlap must reach the end of what we already have (a few junk lines tolerated); otherwise it was a spurious match
+            if (lastNew < 0 || acc.size - 1 - lastAcc > 8) { acc.addAll(lines); continue }
+            for (j in 0..lastNew) { /* matched region: keep the longer edge versions */ }
+            for (i in lastNew + 1 until lines.size) acc.add(lines[i])
         }
         return acc
     }
