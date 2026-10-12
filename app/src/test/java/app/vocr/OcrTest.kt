@@ -53,3 +53,17 @@ class OcrTest {
         assertEquals("xi omicron pi rho sigma tau", m[2])
     }
 }
+
+class FixTest {
+    @Test fun lookalikes() {
+        assertEquals("order 1O stays Il", Fix.lookalikes("order 1O stays Il").let { if (it == "order 1O stays Il") it else it })
+        assertEquals("total 1,249.5O".replace("5O", "50"), Fix.lookalikes("total 1,249.5O"))
+        assertEquals("Il", Fix.lookalikes("Il"))
+        assertEquals("AF1380", Fix.lookalikes("AF1380"))
+    }
+    @Test fun chromeKeptOnce() {
+        fun s(vararg t: String) = listOf(Line("12:18 status", 0.02f)) + t.mapIndexed { i, x -> Line(x, 0.3f + i * 0.1f) }
+        val out = Chrome.strip(listOf(s("alpha"), s("beta"), s("gamma"), s("delta")))
+        assertEquals(2, out[0].size); assertEquals(1, out[1].size)
+    }
+}
