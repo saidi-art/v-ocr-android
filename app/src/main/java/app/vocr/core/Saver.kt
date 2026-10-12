@@ -5,7 +5,6 @@ import android.content.Context
 import android.net.Uri
 import android.provider.MediaStore
 
-// (retrigger CI)
 /** Titles a result by its content and saves it as Downloads/V-OCR/<title>.txt. Shared by the app flow and the recorder. */
 object Saver {
     data class Saved(val title: String, val uri: Uri?)
