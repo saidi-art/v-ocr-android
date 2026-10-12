@@ -46,6 +46,8 @@ jobs:
             sleep 8
             mkdir -p shots
             adb exec-out screencap -p > shots/home.png
+            adb logcat -d -b crash > shots/crash.txt || true
+            adb logcat -d | grep -E 'AndroidRuntime|FATAL|vocr' | tail -80 > shots/logcat.txt || true
             adb shell am force-stop app.vocr
             adb shell am start -n app.vocr/.MainActivity --ez demo true
             sleep 150
@@ -69,3 +71,5 @@ jobs:
             shots/home.png
             shots/strips.png
             shots/text.png
+            shots/crash.txt
+            shots/logcat.txt
