@@ -52,15 +52,19 @@ object Reader {
                 onLine("threads $t: ${(System.nanoTime() - a) / 2_000_000} ms per strip")
             } finally { e.close() }
         }
-        // same strip with the worker thread (and so the ONNX pool it creates) at higher priority
-        try {
-            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_DISPLAY)
-            val e = load(ctx, 4)
+        // data-parallel: several engines at once, each on its own strips (wall time per strip over the whole batch)
+        for ((n, t) in listOf(2 to 2, 2 to 3, 3 to 2)) {
             try {
-                e.recognize(img); val a = System.nanoTime(); e.recognize(img); e.recognize(img)
-                onLine("threads 4, high priority: ${(System.nanoTime() - a) / 2_000_000} ms per strip")
-            } finally { e.close() }
-        } catch (t: Throwable) { onLine("high priority failed: ${t.message}") }
+                val es = List(n) { load(ctx, t) }
+                try {
+                    es.forEach { it.recognize(img) }   // warm-up
+                    val a = System.nanoTime()
+                    val ths = es.map { e -> Thread { e.recognize(img); e.recognize(img) }.also { it.start() } }
+                    ths.forEach { it.join() }
+                    onLine("${n} engines x $t threads: ${(System.nanoTime() - a) / (n * 2 * 1_000_000L)} ms per strip")
+                } finally { es.forEach { it.close() } }
+            } catch (x: Throwable) { onLine("$n x $t failed: ${x.message}") }
+        }
     }
 
     fun load(ctx: Context, threads: Int = 4): OcrEngine {
