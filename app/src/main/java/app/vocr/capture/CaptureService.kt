@@ -66,7 +66,8 @@ class CaptureService : Service() {
     private var display: VirtualDisplay? = null
     private var recFile: File? = null
     private var recording = false
-    private var busy = false
+    private val busy: Boolean get() = app.vocr.core.JobQueue.activeCount() > 0
+    private var addChip: AddChip? = null
 
     override fun onBind(i: Intent?): IBinder? = null
 
@@ -156,6 +157,7 @@ class CaptureService : Service() {
 
     private fun addWidget() {
         if (widget != null) return
+        app.vocr.core.JobQueue.listener = { ui.post { refreshQueueUi() } }
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
         val tv = Bubble(this)
         val p = WindowManager.LayoutParams(dp(52), dp(52), WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
@@ -215,7 +217,7 @@ class CaptureService : Service() {
         val p = lp ?: return
         hideMenu(); tuck(false)
         val close = chip("\u00D7", Color.parseColor("#E5484D")) {
-            hideMenu(); if (recording || busy) toast("Stop recording first") else closeWidget()
+            hideMenu(); if (recording) toast("Stop recording first") else closeWidget()
         }
         fun modeText() = if (prefs(this).getBoolean("fast", false)) "Fast" else "Slow"
         val mode = chip(modeText(), Color.parseColor("#232A45")) {}
@@ -254,7 +256,7 @@ class CaptureService : Service() {
 
     private fun closeWidget() { removeWidget(); stopForeground(STOP_FOREGROUND_REMOVE); stopSelf() }
 
-    private fun removeWidget() { hideMenu(); ui.removeCallbacks(tuckRun); widget?.let { runCatching { wm?.removeView(it) } }; widget = null }
+    private fun removeWidget() { app.vocr.core.JobQueue.listener = null; hideAddChip(); hideMenu(); ui.removeCallbacks(tuckRun); widget?.let { runCatching { wm?.removeView(it) } }; widget = null }
 
     private fun setWidgetIdle() {
         widget?.apply { label = "REC"; alpha = 1f; labelSp = 11f; fill = Color.parseColor("#7C5CFF"); ring = -1f; invalidate() }
@@ -269,7 +271,6 @@ class CaptureService : Service() {
     }
 
     private fun onWidgetTap() {
-        if (busy) { toast("Still reading the last recording"); return }
         if (recording) stopRecording()
         else startActivity(Intent(this, ConsentActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
@@ -287,7 +288,7 @@ class CaptureService : Service() {
             var w = m.widthPixels; var h = m.heightPixels
             val maxW = 1080; if (w > maxW) { h = h * maxW / w; w = maxW }
             w = w / 2 * 2; h = h / 2 * 2
-            val f = File(cacheDir, "rec.mp4").also { it.delete() }
+            val f = File(cacheDir, "rec-" + System.currentTimeMillis() + ".mp4")
             val r = if (Build.VERSION.SDK_INT >= 31) MediaRecorder(this) else @Suppress("DEPRECATION") MediaRecorder()
             r.setVideoSource(MediaRecorder.VideoSource.SURFACE)
             r.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
@@ -339,36 +340,41 @@ class CaptureService : Service() {
         releaseRecording()
         setWidgetIdle()
         if (!ok || f == null || !f.exists() || f.length() < 1000) { fgIdle("Tap the floating button to record"); toast("Recording was too short"); return }
-        busy = true
-        tuck(false); setRing(0f, "0%")
-        nm().notify(ID_FG, statusNote("Reading the recording..."))
-        val fast = prefs(this).getBoolean("fast", false)
-        // keep the CPU awake: a long recording takes minutes to read and the screen may turn off meanwhile
-        val wl = (getSystemService(POWER_SERVICE) as android.os.PowerManager).newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "vocr:read").apply { acquire(45 * 60 * 1000L) }
-        Thread {
-            try {
-                val res = Pipeline.run(applicationContext, Uri.fromFile(f), { pr -> ui.post { setRing(pr.done / pr.total.coerceAtLeast(1).toFloat(), "SCAN") } })
-                var lastNote = 0L
-                val rd = Reader.readAll(applicationContext, res.strips, fast) { pr ->
-                    val now = System.currentTimeMillis()
-                    ui.post { setRing(pr.done / pr.total.coerceAtLeast(1).toFloat(), (pr.done * 100 / pr.total.coerceAtLeast(1)).toString() + "%") }
-                    if (now - lastNote > 1500) {
-                        lastNote = now
-                        val eta = if (pr.etaS >= 0) "  ~${pr.etaS / 60}m ${pr.etaS % 60}s left" else ""
-                        nm().notify(ID_FG, statusNote("Reading ${pr.done}/${pr.total}$eta", progress = Pair(pr.done, pr.total.coerceAtLeast(1))))
-                    }
-                }
-                val sv = app.vocr.core.Saver.save(this, rd.text)
-                val title = sv.title; val uri = sv.uri
-                postDone(title, rd.text, uri, rd.mergedLines, rd.ms)
-            } catch (e: Throwable) {
-                nm().notify(ID_DONE, Notification.Builder(this, CH_DONE).setSmallIcon(android.R.drawable.stat_notify_error)
-                    .setContentTitle("V-OCR could not read that recording").setContentText(e.message ?: e.javaClass.simpleName).setAutoCancel(true).build())
-            } finally {
-                f.delete(); busy = false; runCatching { if (wl.isHeld) wl.release() }
-                ui.post { setWidgetIdle(); fgIdle("Tap the floating button to record") }
-            }
-        }.start()
+        val label = "Recording " + java.text.SimpleDateFormat("HH:mm", java.util.Locale.US).format(java.util.Date())
+        app.vocr.core.JobQueue.addFile(applicationContext, f, label)   // joins the queue; you can record or add more right away
+        toast("Added to the queue")
+        ui.post { setWidgetIdle(); fgIdle("Tap the floating button to record"); refreshQueueUi() }
+    }
+
+    // ---- queue display on the widget -------------------------------------------------------------------------------
+    private val chipPoll = object : Runnable {
+        override fun run() {
+            val c = addChip ?: return
+            val q = lp
+            if (q != null) { val cl = c.layoutParams as WindowManager.LayoutParams; cl.x = q.x.coerceIn(0, (screenW() - dp(40)).coerceAtLeast(0)); cl.y = (q.y - dp(46)).coerceAtLeast(0); runCatching { wm?.updateViewLayout(c, cl) } }
+            ui.postDelayed(this, 300)
+        }
+    }
+
+    private fun showAddChip() {
+        if (addChip != null || widget == null) return
+        val c = AddChip(this)
+        c.setOnClickListener { startActivity(Intent(this, AddActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        val q = WindowManager.LayoutParams(dp(40), dp(40), WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS, PixelFormat.TRANSLUCENT).apply { gravity = Gravity.TOP or Gravity.START; x = lp?.x ?: 0; y = (lp?.y ?: dp(60)) - dp(46) }
+        runCatching { wm?.addView(c, q); addChip = c; ui.postDelayed(chipPoll, 300) }
+    }
+
+    private fun hideAddChip() { ui.removeCallbacks(chipPoll); addChip?.let { runCatching { wm?.removeView(it) } }; addChip = null }
+
+    private fun refreshQueueUi() {
+        if (widget == null) return
+        val n = app.vocr.core.JobQueue.activeCount()
+        if (n > 0) { showAddChip(); addChip?.count = n; addChip?.invalidate() } else hideAddChip()
+        if (!recording) {
+            val j = app.vocr.core.JobQueue.current()
+            if (j != null) { setRing(j.frac, j.ringLabel) } else if (n == 0) { widget?.let { it.ring = -1f; it.label = "REC"; it.invalidate() } }
+        }
     }
 
     // ---- result ---------------------------------------------------------------------------------------------------
@@ -403,5 +409,22 @@ private class Bubble(ctx: Context) : View(ctx) {
         }
         pt.textSize = labelSp * d
         c.drawText(label, w / 2, h / 2 - (pt.descent() + pt.ascent()) / 2, pt)
+    }
+}
+
+/** Circled plus (the ADD button), shown above the widget while recordings are being read. Badge = jobs in the queue. */
+private class AddChip(ctx: Context) : View(ctx) {
+    var count = 0
+    private val pf = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#232A45") }
+    private val ps = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = Color.WHITE; strokeCap = Paint.Cap.ROUND }
+    private val pt = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textAlign = Paint.Align.CENTER; isFakeBoldText = true }
+    private val pb = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#7C5CFF") }
+    override fun onDraw(c: Canvas) {
+        val d = resources.displayMetrics.density; val w = width.toFloat(); val h = height.toFloat(); val cx = w / 2; val cy = h / 2
+        c.drawCircle(cx, cy, w / 2 - 2 * d, pf)
+        ps.strokeWidth = 2f * d; c.drawCircle(cx, cy, w / 2 - 4 * d, ps)
+        ps.strokeWidth = 2.5f * d; val a = 8f * d
+        c.drawLine(cx - a, cy, cx + a, cy, ps); c.drawLine(cx, cy - a, cx, cy + a, ps)
+        if (count > 1) { c.drawCircle(w - 8 * d, 8 * d, 8 * d, pb); pt.textSize = 10f * d; c.drawText(count.toString(), w - 8 * d, 8 * d - (pt.descent() + pt.ascent()) / 2, pt) }
     }
 }
