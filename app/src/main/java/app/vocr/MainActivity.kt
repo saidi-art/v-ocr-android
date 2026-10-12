@@ -19,9 +19,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import app.vocr.core.*
-import app.vocr.ui.*
-import dev.chrisbanes.haze.HazeState
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -45,7 +42,7 @@ val Muted = Color(0xFF8A93AD)
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { app.vocr.ui.VOcrTheme { Home() } }
+        setContent { MaterialTheme(colorScheme = darkColorScheme(primary = Violet, background = Ink, surface = Card)) { Home() } }
     }
 }
 
@@ -63,16 +60,6 @@ fun describe(ctx: android.content.Context, uri: Uri): Picked {
     val p = Picked(uri, name, meta(MediaMetadataRetriever.METADATA_KEY_DURATION) / 1000,
         meta(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH), meta(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT))
     r.release(); return p
-}
-
-
-private fun openOverlayOrWidget(ctx: android.content.Context) {
-    if (!android.provider.Settings.canDrawOverlays(ctx)) {
-        ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION, android.net.Uri.parse("package:" + ctx.packageName)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
-    } else {
-        ctx.startForegroundService(android.content.Intent(ctx, app.vocr.capture.CaptureService::class.java).setAction(app.vocr.capture.CaptureService.ACTION_WIDGET))
-        (ctx as? android.app.Activity)?.moveTaskToBack(true)
-    }
 }
 
 @Composable
@@ -102,64 +89,84 @@ fun Home(preview: Picked? = null) {
     }
     val res = result
     if (res != null) { Strips(res, (ctx as? android.app.Activity)?.intent?.getBooleanExtra("read", false) == true) { result = null }; return }
-    val haze = remember { HazeState() }
-    val pr = progress
-    GlassBackdrop(haze, orb = {
-        Blob(VColor.VioletGlow, 360.dp, Modifier.align(Alignment.CenterEnd).offset(x = 120.dp, y = (-60).dp))
-        Blob(Color(0x333B6BFF), 280.dp, Modifier.align(Alignment.BottomStart).offset(x = (-100).dp, y = 40.dp))
-        Orb(170.dp, progress = pr?.let { it.done / it.total.coerceAtLeast(1).toFloat() }, active = pr != null, modifier = Modifier.align(Alignment.CenterEnd).offset(x = 60.dp, y = (-90).dp))
-    }) {
-        Column(Modifier.fillMaxSize().systemBarsPadding().verticalScroll(rememberScrollState()).padding(VSpace.l)) {
-            Spacer(Modifier.height(24.dp))
-            Row {
-                Text("V-", style = VType.Wordmark, color = VColor.Text)
-                Text("OCR", style = VType.Wordmark, color = VColor.Violet)
-            }
-            Text("If you can scroll it, you can save it.", style = VType.Body, color = VColor.TextDim, modifier = Modifier.widthIn(max = 220.dp))
-            Spacer(Modifier.height(300.dp))
-            GlassCard(haze, Modifier.fillMaxWidth()) {
-                Text(picked?.name ?: "Pick a screen recording", style = VType.Title, color = VColor.Text)
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    picked?.let { "${it.seconds / 60}m ${it.seconds % 60}s  \u00B7  ${it.w}x${it.h}" } ?: "Free, offline and private. Nothing leaves your phone.",
-                    style = VType.Body, color = VColor.TextDim
-                )
-                if (pr != null) {
-                    Spacer(Modifier.height(12.dp))
-                    val eta = if (pr.etaS >= 0) "  \u00B7  ~${pr.etaS / 60}m ${pr.etaS % 60}s left" else ""
-                    Text("${pr.stage}  ${pr.done}/${pr.total}$eta", style = VType.Caption, color = VColor.Lilac)
-                }
-                error?.let { Spacer(Modifier.height(8.dp)); StatusPill("Couldn't read this video: $it", VColor.Ember) }
-                Spacer(Modifier.height(16.dp))
-                val p = picked
-                if (p != null && progress == null) {
-                    VButton("Extract strips", { start(p) }, Modifier.fillMaxWidth(), primary = true)
-                    Spacer(Modifier.height(10.dp))
-                }
-                VButton(if (picked == null) "Choose video" else "Choose another",
-                    { launcher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)) },
-                    Modifier.fillMaxWidth(), primary = picked == null, enabled = progress == null)
-            }
-            Spacer(Modifier.height(12.dp))
-            val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
-            VButton(if (android.provider.Settings.canDrawOverlays(ctx)) "Floating recorder" else "Floating recorder (allow overlay)", {
-                if (android.os.Build.VERSION.SDK_INT >= 33) notifLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-                openOverlayOrWidget(ctx)
-            }, Modifier.fillMaxWidth())
-            Spacer(Modifier.height(10.dp))
-            VButton(if (app.vocr.capture.ScrollService.instance != null) "Auto-scroll: enabled (long-press the bubble)" else "Auto-scroll: turn on in Accessibility", {
-                ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
-            }, Modifier.fillMaxWidth())
-            Spacer(Modifier.height(12.dp))
-            var shots by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("shots", false)) }
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.align(Alignment.CenterHorizontally)) {
-                Switch(checked = shots, onCheckedChange = { shots = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("shots", it).apply() })
-                Spacer(Modifier.width(8.dp))
-                Text("Settings: show extracted screenshots", style = VType.Caption, color = VColor.TextDim)
-            }
-            Spacer(Modifier.height(6.dp))
-            Text("v" + (runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: "?") + "  \u00B7  strips + on-device text", style = VType.Caption, color = VColor.TextDim, modifier = Modifier.align(Alignment.CenterHorizontally))
+    Column(
+        Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Ink, Color(0xFF111631)))).systemBarsPadding().padding(24.dp),
+        horizontalAlignment = Alignment.Start
+    ) {
+        Spacer(Modifier.height(32.dp))
+        Row {
+            Text("V-", fontSize = 44.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
+            Text("OCR", fontSize = 44.sp, fontWeight = FontWeight.ExtraBold, color = Violet)
         }
+        Text("If you can scroll it, you can save it.", color = Muted, fontSize = 16.sp)
+        Spacer(Modifier.weight(1f))
+        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(Card).padding(24.dp)) {
+            Text("\u25B6", color = Lilac, fontSize = 32.sp)
+            Spacer(Modifier.height(12.dp))
+            Text(picked?.name ?: "Pick a screen recording", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                picked?.let { "${it.seconds / 60}m ${it.seconds % 60}s  -  ${it.w}x${it.h}" } ?: "Free, offline and private. Nothing leaves your phone.",
+                color = Muted, fontSize = 14.sp
+            )
+            val pr = progress
+            if (pr != null) {
+                Spacer(Modifier.height(16.dp))
+                LinearProgressIndicator(progress = { pr.done / pr.total.coerceAtLeast(1).toFloat() }, modifier = Modifier.fillMaxWidth(), color = Violet, trackColor = Ink)
+                Spacer(Modifier.height(6.dp))
+                val eta = if (pr.etaS >= 0) "  ~${pr.etaS / 60}m ${pr.etaS % 60}s left" else ""
+            Text("${pr.stage}  ${pr.done}/${pr.total}$eta  ${pr.lines} lines", color = Muted, fontSize = 13.sp)
+            if (pr.live.isNotEmpty()) Text(pr.live.joinToString("\n"), color = Lilac, fontSize = 12.sp, maxLines = 6, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Card).padding(8.dp))
+            }
+            error?.let { Spacer(Modifier.height(8.dp)); Text(it, color = Color(0xFFFF7A7A), fontSize = 13.sp) }
+            Spacer(Modifier.height(20.dp))
+            val p = picked
+            if (p != null && progress == null) {
+                Button(
+                    onClick = { start(p) },
+                    modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Violet, contentColor = Color.White)
+                ) { Text("Extract strips (M1 test)", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
+                Spacer(Modifier.height(10.dp))
+            }
+            Button(
+                onClick = { launcher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)) },
+                enabled = progress == null,
+                modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(16.dp),
+                colors = if (picked == null) ButtonDefaults.buttonColors(containerColor = Violet, contentColor = Color.White)
+                         else ButtonDefaults.buttonColors(containerColor = Color(0xFF232A45), contentColor = Color.White)
+            ) { Text(if (picked == null) "Choose video" else "Choose another", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
+        }
+        Spacer(Modifier.height(10.dp))
+        val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+        Button(
+            onClick = {
+                if (android.os.Build.VERSION.SDK_INT >= 33) notifLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                if (!android.provider.Settings.canDrawOverlays(ctx)) {
+                    ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION, android.net.Uri.parse("package:" + ctx.packageName)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                } else {
+                    ctx.startForegroundService(android.content.Intent(ctx, app.vocr.capture.CaptureService::class.java).setAction(app.vocr.capture.CaptureService.ACTION_WIDGET))
+                    (ctx as? android.app.Activity)?.moveTaskToBack(true)
+                }
+            },
+            modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(16.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF232A45), contentColor = Color.White)
+        ) { Text(if (android.provider.Settings.canDrawOverlays(ctx)) "Floating recorder" else "Floating recorder (allow overlay)", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
+        Spacer(Modifier.height(10.dp))
+        Button(
+            onClick = { ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) },
+            modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(16.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF232A45), contentColor = Color.White)
+        ) { Text(if (app.vocr.capture.ScrollService.instance != null) "Auto-scroll: enabled (long-press the bubble)" else "Auto-scroll: turn on in Accessibility", fontSize = 14.sp) }
+        Spacer(Modifier.height(10.dp))
+        var shots by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("shots", false)) }
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+            Switch(checked = shots, onCheckedChange = { shots = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("shots", it).apply() })
+            Spacer(Modifier.width(8.dp))
+            Text("Settings: show extracted screenshots", color = Muted, fontSize = 12.sp)
+        }
+        Spacer(Modifier.height(6.dp))
+        Text("v" + (runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: "?") + "  -  strips + on-device text", color = Muted, fontSize = 12.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
     }
 }
 
@@ -185,87 +192,58 @@ fun Strips(res: Result, autoRead: Boolean = false, onBack: () -> Unit) {
     LaunchedEffect(Unit) { if (autoRead && read == null && reading == null) startRead() }
     val rd = read
     if (rd != null) { TextScreen(rd) { read = null }; return }
-    val haze = remember { HazeState() }
-    val pr = reading
-    var details by remember { mutableStateOf(false) }
-    var bench by remember { mutableStateOf<List<String>>(emptyList()) }
-    var benching by remember { mutableStateOf(false) }
-    val showShots = app.vocr.capture.CaptureService.prefs(ctx).getBoolean("shots", false)
-    GlassBackdrop(haze, orb = {
-        Blob(VColor.VioletGlow, 420.dp, Modifier.align(Alignment.Center).offset(y = (-40).dp))
-        if (err != null) Blob(Color(0x44FF7A7A), 300.dp, Modifier.align(Alignment.TopEnd))
-    }) {
-        Column(Modifier.fillMaxSize().systemBarsPadding().padding(VSpace.l)) {
-            Text("V-OCR", style = VType.Eyebrow, color = VColor.Lilac)
-            Text(if (pr != null) "Reading your scroll" else "Kept ${res.strips.size} strips", style = VType.Display, color = VColor.Text)
-            Text(if (pr != null) "Everything stays on this phone." else "${res.seconds}s video \u00B7 ${res.framesTotal} frames read", style = VType.Body, color = VColor.TextDim)
-            Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
-                Spacer(Modifier.height(24.dp))
-                val frac = pr?.let { it.done / it.total.coerceAtLeast(1).toFloat() }
-                Box(contentAlignment = Alignment.Center) {
-                    Orb(210.dp, progress = frac, active = pr != null)
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        if (pr != null) {
-                            val label = if (pr.stage.contains("oad", true) || pr.done == 0) "SCAN" else "${(frac!! * 100).toInt()}%"
-                            Text(label, style = VType.Wordmark, color = VColor.Text)
-                            Text("strip ${pr.done} of ${pr.total}", style = VType.Caption, color = VColor.TextDim)
-                        } else {
-                            Text("${res.strips.size}", style = VType.Wordmark, color = VColor.Text)
-                            Text("strips ready", style = VType.Caption, color = VColor.TextDim)
-                        }
-                    }
-                }
-                Spacer(Modifier.height(20.dp))
-                if (pr != null) {
-                    val eta = if (pr.etaS >= 0) "${pr.etaS / 60}:${"%02d".format(pr.etaS % 60)}" else "-"
-                    StatRow(listOf("Lines read" to "${pr.lines}", "Strips" to "${pr.done}/${pr.total}", "Time left" to eta), haze)
-                } else {
-                    GlassCard(haze, Modifier.fillMaxWidth()) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text("Fast mode", style = VType.Title, color = VColor.Text)
-                                Text("About 25% quicker, a little less accurate", style = VType.Caption, color = VColor.TextDim)
-                            }
-                            Switch(checked = fast, onCheckedChange = { fast = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("fast", it).apply() })
-                        }
-                    }
-                }
-                err?.let { Spacer(Modifier.height(12.dp)); StatusPill("Reading failed: $it", VColor.Ember) }
-                Spacer(Modifier.height(4.dp))
-                GhostText(if (details) "Details \u25B4" else "Details \u25BE", { details = !details })
-                if (details) {
-                    GlassCard(haze, Modifier.fillMaxWidth()) {
-                        Text("${res.dup} skipped (dup/accumulating), ${res.full} full, ${res.cropped} cropped. Took ${res.ms / 1000.0}s  ${res.timing}", style = VType.Caption, color = VColor.TextDim)
-                        Spacer(Modifier.height(10.dp))
-                        VButton("Speed test", {
-                            benching = true; bench = listOf("Running...")
-                            Thread {
-                                val acc = ArrayList<String>()
-                                try { Reader.bench(ctx, res.strips) { acc.add(it); bench = acc.toList() } } catch (e: Throwable) { acc.add("failed: " + (e.message ?: e.javaClass.simpleName)); bench = acc.toList() }
-                                benching = false
-                            }.start()
-                        }, enabled = pr == null && !benching)
-                        if (bench.isNotEmpty()) { Spacer(Modifier.height(8.dp)); Text(bench.joinToString("\n"), style = VType.Mono, color = VColor.Lilac) }
-                    }
-                }
-                if (!showShots) Text("Screenshots hidden (turn on \"show extracted screenshots\" on the home screen).", style = VType.Caption, color = VColor.TextDim, modifier = Modifier.padding(top = 8.dp))
-                if (showShots) {
-                    Spacer(Modifier.height(8.dp))
-                    res.strips.forEach { s ->
-                        val bm = remember(s.file) { BitmapFactory.decodeFile(s.file.path, BitmapFactory.Options().apply { inSampleSize = 2 }) }
-                        Column(Modifier.padding(bottom = 10.dp).clip(RoundedCornerShape(12.dp)).background(VColor.GlassFill).padding(8.dp)) {
-                            Text("${s.kind}  t=${"%.1f".format(s.t)}s  ${bm.width * 2}x${bm.height * 2}", style = VType.Caption, color = VColor.Lilac)
-                            Image(bm.asImageBitmap(), null, Modifier.fillMaxWidth(), contentScale = ContentScale.FillWidth)
-                        }
-                    }
+    Column(Modifier.fillMaxSize().background(Ink).systemBarsPadding().padding(16.dp)) {
+        Text("Kept ${res.strips.size} strips", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+        Text(
+            "${res.seconds}s video, ${res.framesTotal} frames read, ${res.dup} skipped (dup/accumulating), ${res.full} full, ${res.cropped} cropped. " +
+                "Took ${res.ms / 1000.0}s  ${res.timing}",
+            color = Muted, fontSize = 13.sp
+        )
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = onBack, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF232A45), contentColor = Color.White)) { Text("Back") }
+            Button(
+                enabled = reading == null,
+                onClick = { startRead() },
+                colors = ButtonDefaults.buttonColors(containerColor = Violet, contentColor = Color.White)
+            ) { Text("Read text") }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Switch(checked = fast, onCheckedChange = { fast = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("fast", it).apply() }, enabled = reading == null)
+            Spacer(Modifier.width(8.dp))
+            Text("Fast mode (about 25% quicker, a little less accurate)", color = Muted, fontSize = 12.sp)
+        }
+        var bench by remember { mutableStateOf<List<String>>(emptyList()) }
+        var benching by remember { mutableStateOf(false) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Button(enabled = reading == null && !benching, onClick = {
+                benching = true; bench = listOf("Running...")
+                Thread {
+                    val acc = ArrayList<String>()
+                    try { Reader.bench(ctx, res.strips) { acc.add(it); bench = acc.toList() } } catch (e: Throwable) { acc.add("failed: " + (e.message ?: e.javaClass.simpleName)); bench = acc.toList() }
+                    benching = false
+                }.start()
+            }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF232A45), contentColor = Color.White)) { Text("Speed test") }
+            Spacer(Modifier.width(8.dp))
+            Text(bench.joinToString("\n"), color = Lilac, fontSize = 12.sp)
+        }
+        reading?.let { pr ->
+            Spacer(Modifier.height(6.dp))
+            LinearProgressIndicator(progress = { pr.done / pr.total.coerceAtLeast(1).toFloat() }, modifier = Modifier.fillMaxWidth(), color = Violet, trackColor = Card)
+            Text("${pr.stage}  ${pr.done}/${pr.total}", color = Muted, fontSize = 13.sp)
+        }
+        err?.let { Text(it, color = Color(0xFFFF7A7A), fontSize = 13.sp) }
+        Spacer(Modifier.height(8.dp))
+        val showShots = app.vocr.capture.CaptureService.prefs(ctx).getBoolean("shots", false)
+        if (!showShots) Text("Screenshots hidden (turn on \"show extracted screenshots\" on the home screen).", color = Muted, fontSize = 12.sp)
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            items(if (showShots) res.strips else emptyList()) { s ->
+                val bm = remember(s.file) { BitmapFactory.decodeFile(s.file.path, BitmapFactory.Options().apply { inSampleSize = 2 }) }
+                Column(Modifier.clip(RoundedCornerShape(12.dp)).background(Card).padding(8.dp)) {
+                    Text("${s.kind}  t=${"%.1f".format(s.t)}s  ${bm.width * 2}x${bm.height * 2}", color = Lilac, fontSize = 12.sp)
+                    Image(bm.asImageBitmap(), null, Modifier.fillMaxWidth(), contentScale = ContentScale.FillWidth)
                 }
             }
-            Spacer(Modifier.height(10.dp))
-            if (pr == null) {
-                VButton("Read text", { startRead() }, Modifier.fillMaxWidth(), primary = true)
-                Spacer(Modifier.height(10.dp))
-            }
-            VButton(if (pr != null) "Back (keeps reading)" else "Back", onBack, Modifier.fillMaxWidth(), enabled = pr == null)
         }
     }
 }
@@ -273,54 +251,35 @@ fun Strips(res: Result, autoRead: Boolean = false, onBack: () -> Unit) {
 @Composable
 fun TextScreen(r: ReadResult, onBack: () -> Unit) {
     val ctx = LocalContext.current
-    val haze = remember { HazeState() }
-    var details by remember { mutableStateOf(false) }
-    GlassBackdrop(haze, orb = {
-        Blob(Color(0x447DFFB0), 300.dp, Modifier.align(Alignment.TopEnd).offset(x = 100.dp, y = 20.dp))
-        Blob(VColor.VioletGlow, 380.dp, Modifier.align(Alignment.BottomStart).offset(x = (-120).dp, y = 60.dp))
-    }) {
-        Column(Modifier.fillMaxSize().systemBarsPadding().padding(VSpace.l)) {
-            Text("V-OCR", style = VType.Eyebrow, color = VColor.Lilac)
-            Text(if (r.savedOk) "Saved." else "Done.", style = VType.Display, color = VColor.Text)
-            if (r.savedTitle.isNotEmpty()) {
-                Spacer(Modifier.height(6.dp))
-                if (r.savedOk) StatusPill("Downloads/V-OCR/${r.savedTitle}.txt", VColor.Mint)
-                else StatusPill("Could not save the file (use Copy or Share)", VColor.Ember)
-            }
-            Spacer(Modifier.height(6.dp))
-            Text("${r.mergedLines} lines after removing overlap \u00B7 ${"%.0f".format(r.ms / 1000.0)} s \u00B7 on this phone", style = VType.Caption, color = VColor.TextDim)
-            GhostText(if (details) "Details \u25B4" else "Details \u25BE", { details = !details })
-            if (details) Text("${r.strips} strips, ${r.rawLines} lines read, ${r.mergedLines} after overlap removal. Took ${r.ms / 1000.0}s  (${r.detail})", style = VType.Caption, color = VColor.TextDim)
-            Spacer(Modifier.height(8.dp))
-            GlassCard(haze, Modifier.fillMaxWidth().weight(1f)) {
-                Text("PREVIEW", style = VType.Eyebrow, color = VColor.TextDim)
-                Spacer(Modifier.height(8.dp))
-                androidx.compose.foundation.text.selection.SelectionContainer {
-                    Text(r.text, style = VType.Body, color = VColor.Text, modifier = Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()))
+    Column(Modifier.fillMaxSize().background(Ink).systemBarsPadding().padding(16.dp)) {
+        Text("Text from ${r.strips} strips", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+        Text("${r.rawLines} lines read, ${r.mergedLines} after removing overlap. Took ${r.ms / 1000.0}s  (${r.detail})", color = Muted, fontSize = 13.sp)
+        if (r.savedTitle.isNotEmpty())
+            Text(if (r.savedOk) "Saved to Downloads/V-OCR/${r.savedTitle}.txt" else "Could not save the file (use Copy or Share)", color = Color(0xFF9DFFB0), fontSize = 13.sp)
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = onBack, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF232A45), contentColor = Color.White)) { Text("Back") }
+            Button(onClick = {
+                val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("V-OCR", r.text))
+            }, colors = ButtonDefaults.buttonColors(containerColor = Violet, contentColor = Color.White)) { Text("Copy") }
+            Button(onClick = {
+                // Share as an attached .txt (not pasted text), so chat apps receive a file.
+                val name = (r.savedTitle.ifEmpty { "V-OCR" }).replace(Regex("[^A-Za-z0-9 ._-]"), "_") + ".txt"
+                val dir = java.io.File(ctx.cacheDir, "share").apply { mkdirs(); listFiles()?.forEach { it.delete() } }
+                val f = java.io.File(dir, name).apply { writeText(r.text) }
+                val uri = androidx.core.content.FileProvider.getUriForFile(ctx, ctx.packageName + ".share", f)
+                val i = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                    type = "text/plain"; putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                    clipData = android.content.ClipData.newRawUri(name, uri)
+                    addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 }
-            }
-            Spacer(Modifier.height(12.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                VButton("Copy", {
-                    val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                    cm.setPrimaryClip(android.content.ClipData.newPlainText("V-OCR", r.text))
-                }, Modifier.weight(1f), primary = true)
-                VButton("Share file", {
-                    // Share as an attached .txt (not pasted text), so chat apps receive a file.
-                    val name = (r.savedTitle.ifEmpty { "V-OCR" }).replace(Regex("[^A-Za-z0-9 ._-]"), "_") + ".txt"
-                    val dir = java.io.File(ctx.cacheDir, "share").apply { mkdirs(); listFiles()?.forEach { it.delete() } }
-                    val f = java.io.File(dir, name).apply { writeText(r.text) }
-                    val uri = androidx.core.content.FileProvider.getUriForFile(ctx, ctx.packageName + ".share", f)
-                    val i = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-                        type = "text/plain"; putExtra(android.content.Intent.EXTRA_STREAM, uri)
-                        clipData = android.content.ClipData.newRawUri(name, uri)
-                        addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    }
-                    ctx.startActivity(android.content.Intent.createChooser(i, "Share text file"))
-                }, Modifier.weight(1f))
-            }
-            Spacer(Modifier.height(10.dp))
-            VButton("Back", onBack, Modifier.fillMaxWidth())
+                ctx.startActivity(android.content.Intent.createChooser(i, "Share text file"))
+            }, colors = ButtonDefaults.buttonColors(containerColor = Violet, contentColor = Color.White)) { Text("Share file") }
+        }
+        Spacer(Modifier.height(8.dp))
+        androidx.compose.foundation.text.selection.SelectionContainer {
+            Text(r.text, color = Color.White, fontSize = 14.sp, modifier = Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).clip(RoundedCornerShape(12.dp)).background(Card).padding(12.dp))
         }
     }
 }
