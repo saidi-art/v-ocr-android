@@ -145,22 +145,43 @@ class StripBuilder(
             if (span < 40) return 0
             val ep = rowEnergy(prev); val ec = rowEnergy(cur)
             val thr = (w / BANDS) * 1.5f
-            var best = 2f; var bestDy = 0
             val maxdy = (span * 0.9).toInt()
-            val sc = FloatArray(BANDS)
-            for (dy in 2..maxdy) {
-                var valid = 0
-                for (b in 0 until BANDS) {
-                    var diff = 0f; var tot = 0f; var content = 0
-                    for (y in top until bot - dy) {
-                        val a = ec[b][y]; val c = ep[b][y + dy]; val sum = a + c
-                        if (sum > thr) { diff += abs(a - c); tot += sum; content++ }
-                    }
-                    if (content >= 8) { sc[b] = diff / tot; valid++ } else sc[b] = 2f
+            val e0 = ec[0]; val e1 = ec[1]; val e2 = ec[2]; val p0 = ep[0]; val p1 = ep[1]; val p2 = ep[2]
+            fun score(dy: Int): Float {
+                var d0 = 0f; var t0 = 0f; var n0 = 0
+                var d1 = 0f; var t1 = 0f; var n1 = 0
+                var d2 = 0f; var t2 = 0f; var n2 = 0
+                for (y in top until bot - dy) {
+                    var a = e0[y]; var c = p0[y + dy]; var sm = a + c
+                    if (sm > thr) { d0 += abs(a - c); t0 += sm; n0++ }
+                    a = e1[y]; c = p1[y + dy]; sm = a + c
+                    if (sm > thr) { d1 += abs(a - c); t1 += sm; n1++ }
+                    a = e2[y]; c = p2[y + dy]; sm = a + c
+                    if (sm > thr) { d2 += abs(a - c); t2 += sm; n2++ }
                 }
-                if (valid < 2) continue
-                val m = sc.sortedArray()[1]          // median of the bands: robust to one corrupted band
-                if (m < best) { best = m; bestDy = dy }
+                val s0 = if (n0 >= 8) d0 / t0 else 2f
+                val s1 = if (n1 >= 8) d1 / t1 else 2f
+                val s2 = if (n2 >= 8) d2 / t2 else 2f
+                var valid = 0; if (n0 >= 8) valid++; if (n1 >= 8) valid++; if (n2 >= 8) valid++
+                if (valid < 2) return 2f
+                return maxOf(minOf(s0, s1), minOf(maxOf(s0, s1), s2))   // median of three
+            }
+            // coarse pass on every 2nd dy, then refine around the best few
+            val cs = FloatArray(maxdy + 2) { 2f }
+            var dyc = 2
+            while (dyc <= maxdy) { cs[dyc] = score(dyc); dyc += 2 }
+            var best = 2f; var bestDy = 0
+            repeat(4) {
+                var bi = -1; var bv = 2f
+                var k = 2
+                while (k <= maxdy) { if (cs[k] < bv) { bv = cs[k]; bi = k }; k += 2 }
+                if (bi < 0) return@repeat
+                for (d in bi - 1..bi + 1) {
+                    if (d < 2 || d > maxdy) continue
+                    val v = if (d == bi) bv else score(d)
+                    if (v < best) { best = v; bestDy = d }
+                }
+                for (d in bi - 4..bi + 4 step 2) if (d in 2..maxdy) cs[d] = 2f   // suppress this neighbourhood
             }
             if (bestDy == 0 || best > 0.30f) return 0
             // pixel confirmation on the overlap: most pixels must agree (an overlay may spoil a minority)
