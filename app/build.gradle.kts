@@ -11,8 +11,8 @@ android {
         minSdk = 29
         targetSdk = 34
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
-        versionCode = 12
-        versionName = "0.3.2-m2d"
+        versionCode = 13
+        versionName = "0.3.3-m2e"
     }
     buildTypes { release { isMinifyEnabled = false; isDebuggable = false; signingConfig = signingConfigs.getByName("debug") } }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
