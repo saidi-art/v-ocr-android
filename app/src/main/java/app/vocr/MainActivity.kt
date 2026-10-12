@@ -12,6 +12,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.ui.graphics.asImageBitmap
@@ -19,8 +21,6 @@ import androidx.compose.ui.layout.ContentScale
 import app.vocr.core.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -88,7 +88,7 @@ fun Home(preview: Picked? = null) {
         }
     }
     val res = result
-    if (res != null) { Strips(res) { result = null }; return }
+    if (res != null) { Strips(res, (ctx as? android.app.Activity)?.intent?.getBooleanExtra("read", false) == true) { result = null }; return }
     Column(
         Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Ink, Color(0xFF111631)))).systemBarsPadding().padding(24.dp),
         horizontalAlignment = Alignment.Start
@@ -101,7 +101,7 @@ fun Home(preview: Picked? = null) {
         Text("If you can scroll it, you can save it.", color = Muted, fontSize = 16.sp)
         Spacer(Modifier.weight(1f))
         Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(Card).padding(24.dp)) {
-            Icon(Icons.Filled.VideoLibrary, null, tint = Lilac, modifier = Modifier.size(40.dp))
+            Text("\u25B6", color = Lilac, fontSize = 32.sp)
             Spacer(Modifier.height(12.dp))
             Text(picked?.name ?: "Pick a screen recording", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(4.dp))
@@ -136,12 +136,27 @@ fun Home(preview: Picked? = null) {
             ) { Text(if (picked == null) "Choose video" else "Choose another", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
         }
         Spacer(Modifier.height(16.dp))
-        Text("v0.2.2-m1c  -  frame extraction test", color = Muted, fontSize = 12.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
+        Text("v0.3.0-m2a  -  strips + on-device text", color = Muted, fontSize = 12.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
     }
 }
 
 @Composable
-fun Strips(res: Result, onBack: () -> Unit) {
+fun Strips(res: Result, autoRead: Boolean = false, onBack: () -> Unit) {
+    val ctx = LocalContext.current
+    var reading by remember { mutableStateOf<Progress?>(null) }
+    var read by remember { mutableStateOf<ReadResult?>(null) }
+    var err by remember { mutableStateOf<String?>(null) }
+    fun startRead() {
+        reading = Progress("Loading reader", 0, res.strips.size); err = null
+        Thread {
+            try { read = Reader.readAll(ctx, res.strips) { reading = it } }
+            catch (e: Throwable) { err = (e.message ?: e.javaClass.simpleName) }
+            reading = null
+        }.start()
+    }
+    LaunchedEffect(Unit) { if (autoRead && read == null && reading == null) startRead() }
+    val rd = read
+    if (rd != null) { TextScreen(rd) { read = null }; return }
     Column(Modifier.fillMaxSize().background(Ink).systemBarsPadding().padding(16.dp)) {
         Text("Kept ${res.strips.size} strips", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
         Text(
@@ -150,7 +165,20 @@ fun Strips(res: Result, onBack: () -> Unit) {
             color = Muted, fontSize = 13.sp
         )
         Spacer(Modifier.height(8.dp))
-        Button(onClick = onBack, colors = ButtonDefaults.buttonColors(containerColor = Violet, contentColor = Color.White)) { Text("Back") }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = onBack, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF232A45), contentColor = Color.White)) { Text("Back") }
+            Button(
+                enabled = reading == null,
+                onClick = { startRead() },
+                colors = ButtonDefaults.buttonColors(containerColor = Violet, contentColor = Color.White)
+            ) { Text("Read text") }
+        }
+        reading?.let { pr ->
+            Spacer(Modifier.height(6.dp))
+            LinearProgressIndicator(progress = { pr.done / pr.total.coerceAtLeast(1).toFloat() }, modifier = Modifier.fillMaxWidth(), color = Violet, trackColor = Card)
+            Text("${pr.stage}  ${pr.done}/${pr.total}", color = Muted, fontSize = 13.sp)
+        }
+        err?.let { Text(it, color = Color(0xFFFF7A7A), fontSize = 13.sp) }
         Spacer(Modifier.height(8.dp))
         LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             items(res.strips) { s ->
@@ -160,6 +188,31 @@ fun Strips(res: Result, onBack: () -> Unit) {
                     Image(bm.asImageBitmap(), null, Modifier.fillMaxWidth(), contentScale = ContentScale.FillWidth)
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun TextScreen(r: ReadResult, onBack: () -> Unit) {
+    val ctx = LocalContext.current
+    Column(Modifier.fillMaxSize().background(Ink).systemBarsPadding().padding(16.dp)) {
+        Text("Text from ${r.strips} strips", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+        Text("${r.rawLines} lines read, ${r.mergedLines} after removing overlap. Took ${r.ms / 1000.0}s  (${r.detail})", color = Muted, fontSize = 13.sp)
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = onBack, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF232A45), contentColor = Color.White)) { Text("Back") }
+            Button(onClick = {
+                val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("V-OCR", r.text))
+            }, colors = ButtonDefaults.buttonColors(containerColor = Violet, contentColor = Color.White)) { Text("Copy") }
+            Button(onClick = {
+                val i = android.content.Intent(android.content.Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(android.content.Intent.EXTRA_TEXT, r.text) }
+                ctx.startActivity(android.content.Intent.createChooser(i, "Share text"))
+            }, colors = ButtonDefaults.buttonColors(containerColor = Violet, contentColor = Color.White)) { Text("Share") }
+        }
+        Spacer(Modifier.height(8.dp))
+        androidx.compose.foundation.text.selection.SelectionContainer {
+            Text(r.text, color = Color.White, fontSize = 14.sp, modifier = Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).clip(RoundedCornerShape(12.dp)).background(Card).padding(12.dp))
         }
     }
 }
