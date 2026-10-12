@@ -33,7 +33,7 @@ object Fix {
     }
 }
 
-data class ReadResult(val text: String, val strips: Int, val rawLines: Int, val mergedLines: Int, val ms: Long, val detail: String)
+data class ReadResult(val text: String, val strips: Int, val rawLines: Int, val mergedLines: Int, val ms: Long, val detail: String, val savedTitle: String = "", val savedOk: Boolean = false)
 
 object Reader {
     fun load(ctx: Context): OcrEngine {
