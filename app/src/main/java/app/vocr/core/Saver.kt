@@ -12,7 +12,8 @@ object Saver {
 
     fun save(ctx: Context, text: String): Saved {
         val stamp = java.text.SimpleDateFormat("yyyy-MM-dd HH-mm", java.util.Locale.US).format(java.util.Date())
-        val title = Title.from(text, "V-OCR $stamp")
+        val dict = runCatching { ctx.assets.open("words.txt").use { String(it.readBytes(), Charsets.UTF_8) }.split("\n").map { it.trim().lowercase() }.filter { it.isNotEmpty() }.toHashSet() }.getOrNull()
+        val title = Title.from(text, "V-OCR $stamp", dict)
         val cv = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, "$title.txt")
             put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
