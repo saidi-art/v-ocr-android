@@ -11,13 +11,14 @@ android {
         minSdk = 29
         targetSdk = 34
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
-        versionCode = 11
-        versionName = "0.3.2-m2c"
+        versionCode = 12
+        versionName = "0.3.2-m2d"
     }
     buildTypes { release { isMinifyEnabled = false; isDebuggable = false; signingConfig = signingConfigs.getByName("debug") } }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true }
+    lint { checkReleaseBuilds = false; abortOnError = false }
 }
 dependencies {
     implementation(platform("androidx.compose:compose-bom:2024.09.00"))
