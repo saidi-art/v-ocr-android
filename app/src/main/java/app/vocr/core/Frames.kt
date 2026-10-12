@@ -60,6 +60,7 @@ object Pipeline {
                 } finally { slots.release() }
             }
         }
+        val rate = RateCtl(fps)
         var analysisMs = 0L; var saveMs = 0L; var grayN = 0L; var hashN = 0L; var matchN = 0L; var progN = 0L
         val ok = Decoder.decode(ctx, uri, fps, cancelled) { t, f ->
             got++
@@ -85,7 +86,7 @@ object Pipeline {
             saveMs += (System.nanoTime() - tb) / 1_000_000
             last = f; lastT = t
             // a changed frame we couldn't match (fast scroll) means we skipped content: sample faster until matching again
-            if (sb.lastFailed) 12.0 else fps
+            rate.update(sb)
         }
         if (!ok && got == 0) return null
         val fin = sb.flush(); val lf = last
