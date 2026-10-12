@@ -80,6 +80,11 @@ object Reader {
     }
 
     fun readAll(ctx: Context, strips: List<StripInfo>, fast: Boolean = false, onProgress: (Progress) -> Unit): ReadResult {
+        Pipeline.gate.lock()
+        try { return readAllLocked(ctx, strips, fast, onProgress) } finally { Pipeline.gate.unlock() }
+    }
+
+    private fun readAllLocked(ctx: Context, strips: List<StripInfo>, fast: Boolean, onProgress: (Progress) -> Unit): ReadResult {
         val t0 = System.currentTimeMillis()
         val eng = load(ctx)
         if (fast) { eng.recH = 42; eng.maxSide = 704 }   // ~25% faster, ~2-3 points less accurate on dense text
