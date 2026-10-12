@@ -49,9 +49,9 @@ data class OcrLine(val text: String, val x0: Int, val y0: Int, val x1: Int, val 
  * On-device text reader: PP-OCRv4 detector + recognizer (ONNX Runtime), with word-space
  * reconstruction from pixel gaps (the recognizer itself drops most spaces).
  */
-class OcrEngine(detModel: ByteArray, recModel: ByteArray, keys: List<String>) {
+class OcrEngine(detModel: ByteArray, recModel: ByteArray, keys: List<String>, threads: Int = 4) {
     private val env = OrtEnvironment.getEnvironment()
-    private val opts = OrtSession.SessionOptions().apply { setIntraOpNumThreads(4) }
+    private val opts = OrtSession.SessionOptions().apply { setIntraOpNumThreads(threads) }
     private val det = env.createSession(detModel, opts)
     private val rec = env.createSession(recModel, opts)
     private val chars: List<String> = listOf("") + keys + listOf(" ")   // 0 = CTC blank, last = space
