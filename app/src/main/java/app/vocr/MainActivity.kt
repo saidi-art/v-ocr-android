@@ -152,7 +152,14 @@ fun Home(preview: Picked? = null) {
             modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(16.dp),
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF232A45), contentColor = Color.White)
         ) { Text(if (android.provider.Settings.canDrawOverlays(ctx)) "Floating recorder" else "Floating recorder (allow overlay)", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(10.dp))
+        var shots by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("shots", false)) }
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+            Switch(checked = shots, onCheckedChange = { shots = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("shots", it).apply() })
+            Spacer(Modifier.width(8.dp))
+            Text("Settings: show extracted screenshots", color = Muted, fontSize = 12.sp)
+        }
+        Spacer(Modifier.height(6.dp))
         Text("v" + (runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: "?") + "  -  strips + on-device text", color = Muted, fontSize = 12.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
     }
 }
@@ -207,8 +214,10 @@ fun Strips(res: Result, autoRead: Boolean = false, onBack: () -> Unit) {
         }
         err?.let { Text(it, color = Color(0xFFFF7A7A), fontSize = 13.sp) }
         Spacer(Modifier.height(8.dp))
+        val showShots = app.vocr.capture.CaptureService.prefs(ctx).getBoolean("shots", false)
+        if (!showShots) Text("Screenshots hidden (turn on \"show extracted screenshots\" on the home screen).", color = Muted, fontSize = 12.sp)
         LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            items(res.strips) { s ->
+            items(if (showShots) res.strips else emptyList()) { s ->
                 val bm = remember(s.file) { BitmapFactory.decodeFile(s.file.path, BitmapFactory.Options().apply { inSampleSize = 2 }) }
                 Column(Modifier.clip(RoundedCornerShape(12.dp)).background(Card).padding(8.dp)) {
                     Text("${s.kind}  t=${"%.1f".format(s.t)}s  ${bm.width * 2}x${bm.height * 2}", color = Lilac, fontSize = 12.sp)
