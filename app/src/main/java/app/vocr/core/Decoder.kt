@@ -96,7 +96,7 @@ object Decoder {
                         if (img != null) {
                             val f = copy(img); img.close()
                             val want = onFrame(info.presentationTimeUs / 1e6, f)   // fps wanted from here on
-                            stepUs = (1_000_000 / want.coerceIn(1.0, 30.0)).toLong()
+                            stepUs = (1_000_000 / want.coerceIn(1.0, 60.0)).toLong()
                             nextUs = info.presentationTimeUs + stepUs
                         }
                     }
