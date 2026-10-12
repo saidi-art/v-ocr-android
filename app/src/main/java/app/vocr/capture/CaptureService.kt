@@ -71,7 +71,7 @@ class CaptureService : Service() {
             ACTION_BEGIN -> beginRecording(intent)
             ACTION_DENIED -> { setWidgetIdle(); toast("Screen recording was not allowed") }
             ACTION_STOP -> stopRecording()
-            ACTION_CLOSE -> { removeWidget(); stopForeground(STOP_FOREGROUND_REMOVE); stopSelf() }
+            ACTION_CLOSE -> closeWidget()
             else -> { fgIdle("Tap the floating button to record"); addWidget() }
         }
         return START_NOT_STICKY
@@ -119,6 +119,35 @@ class CaptureService : Service() {
     // ---- floating widget ------------------------------------------------------------------------------------------
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
+    private var tucked = true
+    private var sideRight = true
+    private val tuckRun = Runnable { tuck(true) }
+
+    private fun screenW() = resources.displayMetrics.widthPixels
+
+    private fun targetX(tuckedNow: Boolean): Int {
+        val w = lp?.width ?: dp(52)
+        return if (sideRight) { if (tuckedNow) screenW() - dp(14) else screenW() - w - dp(6) } else { if (tuckedNow) -(w - dp(14)) else dp(6) }
+    }
+
+    private fun slideTo(x: Int) {
+        val p = lp ?: return; val w = widget ?: return
+        android.animation.ValueAnimator.ofInt(p.x, x).apply {
+            duration = 180
+            addUpdateListener { p.x = it.animatedValue as Int; runCatching { wm?.updateViewLayout(w, p) } }
+            start()
+        }
+    }
+
+    /** Collapse to a thin edge sliver (or pull back out). */
+    private fun tuck(on: Boolean) {
+        ui.removeCallbacks(tuckRun)
+        tucked = on
+        widget?.alpha = if (on) 0.6f else if (recording) 0.55f else 1f
+        slideTo(targetX(on))
+        if (!on) ui.postDelayed(tuckRun, 3000)
+    }
+
     private fun addWidget() {
         if (widget != null) return
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
@@ -128,34 +157,54 @@ class CaptureService : Service() {
         }
         val p = WindowManager.LayoutParams(dp(52), dp(52), WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS, PixelFormat.TRANSLUCENT).apply {
-            gravity = Gravity.TOP or Gravity.START; x = resources.displayMetrics.widthPixels - dp(60); y = dp(220)
+            gravity = Gravity.TOP or Gravity.START; x = screenW() - dp(14); y = dp(220)
         }
-        var sx = 0f; var sy = 0f; var ox = 0; var oy = 0; var moved = false
+        var sx = 0f; var sy = 0f; var ox = 0; var oy = 0; var moved = false; var longDone = false; var wasTucked = false
+        val longRun = Runnable {
+            longDone = true
+            if (recording || busy) toast("Stop recording first") else closeWidget()
+        }
         tv.setOnTouchListener { _, e ->
             when (e.action) {
-                MotionEvent.ACTION_DOWN -> { sx = e.rawX; sy = e.rawY; ox = p.x; oy = p.y; moved = false }
+                MotionEvent.ACTION_DOWN -> {
+                    sx = e.rawX; sy = e.rawY; ox = p.x; oy = p.y; moved = false; longDone = false
+                    ui.removeCallbacks(tuckRun)
+                    wasTucked = tucked
+                    if (tucked) tuck(false)            // first touch on the sliver slides the bubble out
+                    else ui.postDelayed(longRun, 700)  // long press closes it
+                }
                 MotionEvent.ACTION_MOVE -> {
-                    if (Math.abs(e.rawX - sx) > dp(6) || Math.abs(e.rawY - sy) > dp(6)) moved = true
+                    if (Math.abs(e.rawX - sx) > dp(6) || Math.abs(e.rawY - sy) > dp(6)) { moved = true; ui.removeCallbacks(longRun) }
                     if (moved) { p.x = ox + (e.rawX - sx).toInt(); p.y = oy + (e.rawY - sy).toInt(); wm?.updateViewLayout(tv, p) }
                 }
-                MotionEvent.ACTION_UP -> if (!moved) onWidgetTap()
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    ui.removeCallbacks(longRun)
+                    if (moved) { sideRight = p.x + p.width / 2 > screenW() / 2; tuck(false) }   // snap to the nearest edge, tuck after a moment
+                    else if (!longDone && !wasTucked && e.action == MotionEvent.ACTION_UP) { onWidgetTap(); ui.postDelayed(tuckRun, 3000) }
+                    else if (wasTucked) { /* just pulled out */ }
+                }
             }
             true
         }
         widget = tv; lp = p
         wm?.addView(tv, p)
+        ui.postDelayed(tuckRun, 3000)
     }
 
-    private fun removeWidget() { widget?.let { runCatching { wm?.removeView(it) } }; widget = null }
+    private fun closeWidget() { removeWidget(); stopForeground(STOP_FOREGROUND_REMOVE); stopSelf() }
+
+    private fun removeWidget() { ui.removeCallbacks(tuckRun); widget?.let { runCatching { wm?.removeView(it) } }; widget = null }
 
     private fun setWidgetIdle() {
-        widget?.apply { text = "REC"; alpha = 1f; (background as GradientDrawable).setColor(Color.parseColor("#7C5CFF")) }
+        widget?.apply { text = "REC"; alpha = 1f; textSize = 11f; (background as GradientDrawable).setColor(Color.parseColor("#7C5CFF")) }
         lp?.let { it.width = dp(52); it.height = dp(52); widget?.let { w -> runCatching { wm?.updateViewLayout(w, it) } } }
+        tuck(false)
     }
 
     private fun setWidgetRecording() {
         widget?.apply { text = "STOP"; alpha = 0.55f; textSize = 9f; (background as GradientDrawable).setColor(Color.parseColor("#E5484D")) }
         lp?.let { it.width = dp(40); it.height = dp(40); widget?.let { w -> runCatching { wm?.updateViewLayout(w, it) } } }
+        tuck(false)
     }
 
     private fun onWidgetTap() {
