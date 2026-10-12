@@ -76,7 +76,11 @@ object Pipeline {
             val tb = System.nanoTime(); analysisMs += (tb - ta) / 1_000_000
             when (dec) {
                 is Decision.Skip -> {}
-                is Decision.Full -> save(f, 0, fh, t, "full")
+                is Decision.Full -> {
+                    // trim the fixed header/footer (seen consistently) so the OCR spends time on the scrolling band only
+                    val bt = sb.bandTop; val bf = sb.bandFooter; val sc = fh.toFloat() / dh
+                    if (bt >= 0 && bf >= 0 && dh - bt - bf > dh / 3) save(f, (bt * sc).toInt(), fh - (bf * sc).toInt(), t, "full") else save(f, 0, fh, t, "full")
+                }
                 is Decision.Crop -> {
                     val sc = fh.toFloat() / dh
                     val top = (dec.top * sc).toInt().coerceIn(0, fh - 1); val bot = (dec.bottom * sc).toInt().coerceIn(top + 1, fh)
