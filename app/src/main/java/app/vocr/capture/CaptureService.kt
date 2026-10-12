@@ -82,6 +82,7 @@ class CaptureService : Service() {
     }
 
     override fun onDestroy() { removeWidget(); releaseRecording(); super.onDestroy() }
+    override fun onConfigurationChanged(c: android.content.res.Configuration) { super.onConfigurationChanged(c); hideMenu(); ui.post { if (widget != null) { lp?.let { it.y = it.y.coerceIn(0, (resources.displayMetrics.heightPixels - dp(60)).coerceAtLeast(0)) }; tuck(true) } } }
 
     // ---- notifications --------------------------------------------------------------------------------------------
     private fun nm() = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
@@ -131,7 +132,7 @@ class CaptureService : Service() {
 
     private fun targetX(tuckedNow: Boolean): Int {
         val w = lp?.width ?: dp(52)
-        return if (sideRight) { if (tuckedNow) screenW() - dp(14) else screenW() - w - dp(6) } else { if (tuckedNow) -(w - dp(14)) else dp(6) }
+        return if (sideRight) { if (tuckedNow) screenW() - dp(32) else screenW() - w - dp(6) } else { if (tuckedNow) -(w - dp(32)) else dp(6) }
     }
 
     private fun slideTo(x: Int) {
@@ -159,7 +160,7 @@ class CaptureService : Service() {
         val tv = Bubble(this)
         val p = WindowManager.LayoutParams(dp(52), dp(52), WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS, PixelFormat.TRANSLUCENT).apply {
-            gravity = Gravity.TOP or Gravity.START; x = screenW() - dp(14); y = dp(220)
+            gravity = Gravity.TOP or Gravity.START; x = screenW() - dp(32); y = dp(220)
         }
         var sx = 0f; var sy = 0f; var ox = 0; var oy = 0; var moved = false; var longDone = false; var wasTucked = false
         val longRun = Runnable {
