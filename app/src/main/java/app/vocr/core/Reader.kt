@@ -36,11 +36,38 @@ object Fix {
 data class ReadResult(val text: String, val strips: Int, val rawLines: Int, val mergedLines: Int, val ms: Long, val detail: String, val savedTitle: String = "", val savedOk: Boolean = false)
 
 object Reader {
-    fun load(ctx: Context): OcrEngine {
+    /** Device speed test: recognise one mid-clip strip with different ONNX thread counts and report ms per count. */
+    fun bench(ctx: Context, strips: List<StripInfo>, onLine: (String) -> Unit) {
+        val s = strips[strips.size / 2]
+        val bm = BitmapFactory.decodeFile(s.file.path) ?: return
+        val px = IntArray(bm.width * bm.height); bm.getPixels(px, 0, bm.width, 0, 0, bm.width, bm.height)
+        for (k in px.indices) px[k] = px[k] and 0xFFFFFF
+        val img = Rgb(bm.width, bm.height, px); bm.recycle()
+        onLine("cores=${Runtime.getRuntime().availableProcessors()}  strip ${img.w}x${img.h}")
+        for (t in intArrayOf(2, 3, 4, 6, 8)) {
+            val e = load(ctx, t)
+            try {
+                e.recognize(img)   // warm-up
+                val a = System.nanoTime(); e.recognize(img); e.recognize(img)
+                onLine("threads $t: ${(System.nanoTime() - a) / 2_000_000} ms per strip")
+            } finally { e.close() }
+        }
+        // same strip with the worker thread (and so the ONNX pool it creates) at higher priority
+        try {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_DISPLAY)
+            val e = load(ctx, 4)
+            try {
+                e.recognize(img); val a = System.nanoTime(); e.recognize(img); e.recognize(img)
+                onLine("threads 4, high priority: ${(System.nanoTime() - a) / 2_000_000} ms per strip")
+            } finally { e.close() }
+        } catch (t: Throwable) { onLine("high priority failed: ${t.message}") }
+    }
+
+    fun load(ctx: Context, threads: Int = 4): OcrEngine {
         val det = ctx.assets.open("ocr/det.onnx").use { it.readBytes() }
         val rec = ctx.assets.open("ocr/rec.onnx").use { it.readBytes() }
         val keys = ctx.assets.open("ocr/keys.txt").use { String(it.readBytes(), Charsets.UTF_8) }.split("\n")
-        return OcrEngine(det, rec, keys)
+        return OcrEngine(det, rec, keys, threads)
     }
 
     fun readAll(ctx: Context, strips: List<StripInfo>, fast: Boolean = false, onProgress: (Progress) -> Unit): ReadResult {
