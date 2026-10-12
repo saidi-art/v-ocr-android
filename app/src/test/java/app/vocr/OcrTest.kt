@@ -81,3 +81,24 @@ class SpacingTest {
         assertEquals("a live demo", sp.fix("a live demo"))
     }
 }
+
+class CleanTest {
+    @Test fun cleansJunk() {
+        assertEquals("10:13 am", Clean.text("1 0:1 3 am"))
+        assertEquals("it is. Key-gate", Clean.text("it is.Key-gate").replace("it is. Key-gate", "it is. Key-gate"))
+        assertEquals("is. Key", Clean.text("is.Key"))
+        assertEquals("Instinct", Clean.text("Instinct \u56de \u4e2a"))
+        assertTrue(!Clean.keep("\u4e2a")); assertTrue(!Clean.keep("e")); assertTrue(Clean.keep("OK"))
+    }
+    @Test fun stitchSurvivesJunkBetweenAnchors() {
+        val a = listOf("Hello there this is the first message", "Second message line with enough text", "Third message line with some more text")
+        val b = listOf("zz", "Second message line with enough text", "junk", "Third message line with some more text", "Fourth message fresh content here", "fifth fresh line of fresh content")
+        val m = Stitch.merge(listOf(a, b))
+        assertEquals(5, m.size)
+    }
+    @Test fun chromeByPositionNotRegion() {
+        fun s(x: String) = listOf(Line("Instinct", 0.44f), Line(x, 0.6f))
+        val out = Chrome.strip(listOf(s("alpha content here"), s("beta content here"), s("gamma content here"), s("delta content here")))
+        assertEquals(5, out.sumOf { it.size })   // header kept once
+    }
+}
