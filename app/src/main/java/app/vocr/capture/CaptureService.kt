@@ -52,7 +52,6 @@ class CaptureService : Service() {
         private const val CH_STATUS = "vocr_status"
         private const val CH_DONE = "vocr_done"
         private const val ID_FG = 41
-        private const val ID_DONE = 42
         fun prefs(ctx: Context) = ctx.getSharedPreferences("vocr", Context.MODE_PRIVATE)
     }
 
@@ -377,20 +376,6 @@ class CaptureService : Service() {
         }
     }
 
-    // ---- result ---------------------------------------------------------------------------------------------------
-    private fun postDone(title: String, text: String, uri: Uri?, lines: Int, ms: Long) {
-        channels()
-        val b = Notification.Builder(this, CH_DONE).setSmallIcon(android.R.drawable.stat_sys_download_done)
-            .setContentTitle(title).setContentText("Text ready: $lines lines in ${ms / 1000}s. Tap to open.")
-            .setStyle(Notification.BigTextStyle().bigText(text.take(600))).setAutoCancel(true)
-        if (uri != null) {
-            val view = Intent(Intent.ACTION_VIEW).setDataAndType(uri, "text/plain").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            b.setContentIntent(PendingIntent.getActivity(this, 1, view, PendingIntent.FLAG_IMMUTABLE))
-            val send = Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Share text")
-            b.addAction(Notification.Action.Builder(null, "Share", PendingIntent.getActivity(this, 2, send, PendingIntent.FLAG_IMMUTABLE)).build())
-        }
-        nm().notify(ID_DONE, b.build())
-    }
 }
 
 /** Round floating button with a progress ring on its circumference. */
