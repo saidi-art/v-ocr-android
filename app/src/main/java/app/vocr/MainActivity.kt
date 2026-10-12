@@ -137,6 +137,21 @@ fun Home(preview: Picked? = null) {
                          else ButtonDefaults.buttonColors(containerColor = Color(0xFF232A45), contentColor = Color.White)
             ) { Text(if (picked == null) "Choose video" else "Choose another", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
         }
+        Spacer(Modifier.height(10.dp))
+        val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+        Button(
+            onClick = {
+                if (android.os.Build.VERSION.SDK_INT >= 33) notifLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                if (!android.provider.Settings.canDrawOverlays(ctx)) {
+                    ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION, android.net.Uri.parse("package:" + ctx.packageName)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                } else {
+                    ctx.startForegroundService(android.content.Intent(ctx, app.vocr.capture.CaptureService::class.java).setAction(app.vocr.capture.CaptureService.ACTION_WIDGET))
+                    (ctx as? android.app.Activity)?.moveTaskToBack(true)
+                }
+            },
+            modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(16.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF232A45), contentColor = Color.White)
+        ) { Text(if (android.provider.Settings.canDrawOverlays(ctx)) "Floating recorder (record from any app)" else "Floating recorder: allow overlay first", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
         Spacer(Modifier.height(16.dp))
         Text("v" + (runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: "?") + "  -  strips + on-device text", color = Muted, fontSize = 12.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
     }
@@ -148,7 +163,7 @@ fun Strips(res: Result, autoRead: Boolean = false, onBack: () -> Unit) {
     var reading by remember { mutableStateOf<Progress?>(null) }
     var read by remember { mutableStateOf<ReadResult?>(null) }
     var err by remember { mutableStateOf<String?>(null) }
-    var fast by remember { mutableStateOf(false) }
+    var fast by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("fast", false)) }
     fun startRead() {
         reading = Progress("Loading reader", 0, res.strips.size); err = null
         Thread {
@@ -177,7 +192,7 @@ fun Strips(res: Result, autoRead: Boolean = false, onBack: () -> Unit) {
             ) { Text("Read text") }
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Switch(checked = fast, onCheckedChange = { fast = it }, enabled = reading == null)
+            Switch(checked = fast, onCheckedChange = { fast = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("fast", it).apply() }, enabled = reading == null)
             Spacer(Modifier.width(8.dp))
             Text("Fast mode (about 25% quicker, a little less accurate)", color = Muted, fontSize = 12.sp)
         }
