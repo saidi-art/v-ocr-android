@@ -11,10 +11,10 @@ android {
         minSdk = 29
         targetSdk = 34
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
-        versionCode = 9
-        versionName = "0.3.0-m2a"
+        versionCode = 10
+        versionName = "0.3.1-m2b"
     }
-    buildTypes { release { isMinifyEnabled = false } }
+    buildTypes { release { isMinifyEnabled = false; isDebuggable = false; signingConfig = signingConfigs.getByName("debug") } }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true }
