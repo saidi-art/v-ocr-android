@@ -81,7 +81,7 @@ class CaptureService : Service() {
         return START_NOT_STICKY
     }
 
-    override fun onDestroy() { removeWidget(); releaseRecording(); super.onDestroy() }
+    override fun onDestroy() { stopAutoScroll(); removeWidget(); releaseRecording(); super.onDestroy() }
     override fun onConfigurationChanged(c: android.content.res.Configuration) { super.onConfigurationChanged(c); hideMenu(); ui.post { if (widget != null) { lp?.let { it.y = it.y.coerceIn(0, (resources.displayMetrics.heightPixels - dp(60)).coerceAtLeast(0)) }; tuck(true) } } }
 
     // ---- notifications --------------------------------------------------------------------------------------------
@@ -223,9 +223,22 @@ class CaptureService : Service() {
             val f = !prefs(this).getBoolean("fast", false); prefs(this).edit().putBoolean("fast", f).apply()
             mode.text = modeText(); ui.removeCallbacks(hideMenuRun); ui.postDelayed(hideMenuRun, 4000)
         }
+        fun autoText() = if (prefs(this).getBoolean("autoscroll", false)) "Auto-scroll ON" else "Auto-scroll off"
+        val auto = chip(autoText(), Color.parseColor("#232A45")) {}
+        auto.setOnClickListener {
+            if (ScrollService.instance == null) {
+                toast("Turn on \"V-OCR auto-scroll\" in Accessibility settings first")
+                hideMenu()
+                startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            } else {
+                val a = !prefs(this).getBoolean("autoscroll", false); prefs(this).edit().putBoolean("autoscroll", a).apply()
+                auto.text = autoText(); ui.removeCallbacks(hideMenuRun); ui.postDelayed(hideMenuRun, 4000)
+            }
+        }
         overlay(close, p.x - dp(14), p.y - dp(30))
         overlay(mode, p.x - dp(6), p.y + p.height + dp(6))
-        menu = listOf(close, mode)
+        overlay(auto, p.x - dp(6), p.y + p.height + dp(46))
+        menu = listOf(close, mode, auto)
         ui.postDelayed(hideMenuRun, 4000)
     }
 
@@ -280,6 +293,7 @@ class CaptureService : Service() {
             r.start()
             projection = mp; recorder = r; recFile = f; recording = true
             setWidgetRecording()
+            if (prefs(this).getBoolean("autoscroll", false) && ScrollService.instance != null) startAutoScroll()
         } catch (e: Throwable) {
             releaseRecording(); recording = false; setWidgetIdle(); fgIdle("Tap the floating button to record")
             toast("Could not start recording: " + (e.message ?: e.javaClass.simpleName))
@@ -292,8 +306,27 @@ class CaptureService : Service() {
         runCatching { projection?.stop() }; projection = null
     }
 
+    // ---- auto-scroll ----------------------------------------------------------------------------------------------
+    // Pace: a 0.6-screen swipe in 90 ms (about 0.11 screen per frame at 60 fps, a third of the 0.30 span limit the tracker is
+    // tuned to), then 650 ms for the fling to settle. After SWIPES swipes the recording stops and the text is read.
+    private var scrolling = false; private var swipes = 0
+    private val scrollRun = Runnable { scrollStep() }
+    private fun startAutoScroll() { scrolling = true; swipes = 0; ui.postDelayed(scrollRun, 2500) }
+    private fun stopAutoScroll() { scrolling = false; ui.removeCallbacks(scrollRun) }
+    private fun scrollStep() {
+        val svc = ScrollService.instance
+        if (!scrolling || !recording || svc == null) return
+        if (swipes >= prefs(this).getInt("scrollcap", 40)) { stopAutoScroll(); toast("Auto-scroll done"); stopRecording(); return }
+        val m = resources.displayMetrics
+        svc.swipe(m.widthPixels, m.heightPixels, 0.80f, 0.20f, 90) { ok ->
+            if (ok) swipes++
+            ui.postDelayed(scrollRun, 650)
+        }
+    }
+
     private fun stopRecording() {
         if (!recording) return
+        stopAutoScroll()
         recording = false
         val f = recFile
         val ok = runCatching { recorder?.stop() }.isSuccess
