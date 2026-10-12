@@ -114,7 +114,9 @@ fun Home(preview: Picked? = null) {
                 Spacer(Modifier.height(16.dp))
                 LinearProgressIndicator(progress = { pr.done / pr.total.coerceAtLeast(1).toFloat() }, modifier = Modifier.fillMaxWidth(), color = Violet, trackColor = Ink)
                 Spacer(Modifier.height(6.dp))
-                Text("${pr.stage}  ${pr.done}/${pr.total}", color = Muted, fontSize = 13.sp)
+                val eta = if (pr.etaS >= 0) "  ~${pr.etaS / 60}m ${pr.etaS % 60}s left" else ""
+            Text("${pr.stage}  ${pr.done}/${pr.total}$eta  ${pr.lines} lines", color = Muted, fontSize = 13.sp)
+            if (pr.live.isNotEmpty()) Text(pr.live.joinToString("\n"), color = Lilac, fontSize = 12.sp, maxLines = 6, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Card).padding(8.dp))
             }
             error?.let { Spacer(Modifier.height(8.dp)); Text(it, color = Color(0xFFFF7A7A), fontSize = 13.sp) }
             Spacer(Modifier.height(20.dp))
@@ -146,10 +148,11 @@ fun Strips(res: Result, autoRead: Boolean = false, onBack: () -> Unit) {
     var reading by remember { mutableStateOf<Progress?>(null) }
     var read by remember { mutableStateOf<ReadResult?>(null) }
     var err by remember { mutableStateOf<String?>(null) }
+    var fast by remember { mutableStateOf(false) }
     fun startRead() {
         reading = Progress("Loading reader", 0, res.strips.size); err = null
         Thread {
-            try { read = Reader.readAll(ctx, res.strips) { reading = it } }
+            try { read = Reader.readAll(ctx, res.strips, fast) { reading = it } }
             catch (e: Throwable) { err = (e.message ?: e.javaClass.simpleName) }
             reading = null
         }.start()
@@ -172,6 +175,11 @@ fun Strips(res: Result, autoRead: Boolean = false, onBack: () -> Unit) {
                 onClick = { startRead() },
                 colors = ButtonDefaults.buttonColors(containerColor = Violet, contentColor = Color.White)
             ) { Text("Read text") }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Switch(checked = fast, onCheckedChange = { fast = it }, enabled = reading == null)
+            Spacer(Modifier.width(8.dp))
+            Text("Fast mode (about 25% quicker, a little less accurate)", color = Muted, fontSize = 12.sp)
         }
         reading?.let { pr ->
             Spacer(Modifier.height(6.dp))
