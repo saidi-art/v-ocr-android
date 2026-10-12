@@ -167,7 +167,11 @@ fun Strips(res: Result, autoRead: Boolean = false, onBack: () -> Unit) {
     fun startRead() {
         reading = Progress("Loading reader", 0, res.strips.size); err = null
         Thread {
-            try { read = Reader.readAll(ctx, res.strips, fast) { reading = it } }
+            try {
+                val rr = Reader.readAll(ctx, res.strips, fast) { reading = it }
+                val sv = app.vocr.core.Saver.save(ctx, rr.text)
+                read = rr.copy(savedTitle = sv.title, savedOk = sv.uri != null)
+            }
             catch (e: Throwable) { err = (e.message ?: e.javaClass.simpleName) }
             reading = null
         }.start()
@@ -221,6 +225,8 @@ fun TextScreen(r: ReadResult, onBack: () -> Unit) {
     Column(Modifier.fillMaxSize().background(Ink).systemBarsPadding().padding(16.dp)) {
         Text("Text from ${r.strips} strips", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
         Text("${r.rawLines} lines read, ${r.mergedLines} after removing overlap. Took ${r.ms / 1000.0}s  (${r.detail})", color = Muted, fontSize = 13.sp)
+        if (r.savedTitle.isNotEmpty())
+            Text(if (r.savedOk) "Saved to Downloads/V-OCR/${r.savedTitle}.txt" else "Could not save the file (use Copy or Share)", color = Color(0xFF9DFFB0), fontSize = 13.sp)
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = onBack, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF232A45), contentColor = Color.White)) { Text("Back") }
