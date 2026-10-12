@@ -46,6 +46,19 @@ object Hash {
  * Streaming port of the web v1 dedup (pHash filter + vertical scroll detection).
  * Feed frames in order; get a decision per frame. Only the previous gray frame is kept.
  */
+/** Adaptive sampling rate: speeds up when scrolling outruns the sampling (no match, or a jump near the match limit), eases back when calm. */
+class RateCtl(private val base: Double, private val maxFps: Double = 60.0) {
+    var cur = base; private set
+    fun update(sb: StripBuilder): Double {
+        cur = when {
+            sb.lastFailed -> minOf(maxFps, maxOf(12.0, cur * 1.7))
+            sb.lastSpan > 0 && sb.lastDy > 0.30 * sb.lastSpan -> minOf(maxFps, cur * 1.25)   // matched, but close to the limit
+            else -> maxOf(base, cur * 0.93)
+        }
+        return cur
+    }
+}
+
 class StripBuilder(
     private val simThreshold: Double = 0.95,
     private val minStripFrac: Double = 0.30,
@@ -57,6 +70,9 @@ class StripBuilder(
     var cropped = 0; private set
     /** true when the last processed frame changed but no scroll could be matched (fast scroll or new screen) */
     var lastFailed = false; private set
+    /** last matched scroll distance (rows of the analysis frame) and the scrollable span it was matched in */
+    var lastDy = 0; private set
+    var lastSpan = 0; private set
 
     private var prevHash: Long? = null
     private var prev: Gray? = null
@@ -79,7 +95,7 @@ class StripBuilder(
             if (dy == 0) {
                 full++; acc = 0; out = Decision.Full; lastFailed = true
             } else {
-                acc += dy
+                acc += dy; lastDy = dy; lastSpan = g.h - headerRows(p, g) - footerRows(p, g)
                 vb = g.h - footerRows(p, g)
                 if (acc >= minStripFrac * g.h) {
                     out = Decision.Crop(maxOf(0, vb - acc - overlapPx), vb)
@@ -113,10 +129,11 @@ class StripBuilder(
             FloatArray(g.h) { y -> var s = 0f; val o = y * g.w; for (x in x0 + 1 until x1) s += abs(g.d[o + x] - g.d[o + x - 1]); s }
         }
 
+        /** Row unchanged between frames: tiny mean change, or nearly all pixels equal (tolerates a floating overlay or a blinking icon). */
         private fun rowsEqual(a: Gray, b: Gray, y: Int): Boolean {
-            var s = 0.0; val o = y * a.w
-            for (x in 0 until a.w) s += abs(a.d[o + x] - b.d[o + x])
-            return s / a.w < 1.0
+            var s = 0.0; var same = 0; val o = y * a.w
+            for (x in 0 until a.w) { val d = abs(a.d[o + x] - b.d[o + x]); s += d; if (d <= 4f) same++ }
+            return s / a.w < 1.0 || same >= 0.86 * a.w
         }
 
         /** Rows at the bottom identical between frames = fixed footer. */
