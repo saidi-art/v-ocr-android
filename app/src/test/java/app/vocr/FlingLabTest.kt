@@ -41,7 +41,7 @@ class FlingLabTest {
             val s32 = Gray(32, 32, FloatArray(1024) { val x = (it % 32) * 360 / 32; val y = (it / 32) * 780 / 32; g.d[y * 360 + x] })
             val dec = sb.push(Hash.phash(s32), g)
             when (dec) {
-                is Decision.Full -> { if (noocr) nstrips++ else handle(f); if (noocr) println("DEC $i full") }
+                is Decision.Full -> { val bt = sb.bandTop; val bf = sb.bandFooter; val ff = if (bt >= 0 && bf >= 0 && 780 - bt - bf > 260) f.crop(0, (bt * 2), w, h - bf * 2) else f; if (noocr) nstrips++ else handle(ff); if (noocr) println("DEC $i full") }
                 is Decision.Crop -> { val sc = h / 780f; val t = (dec.top * sc).toInt().coerceIn(0, h - 1); val b = (dec.bottom * sc).toInt().coerceIn(t + 1, h); if (noocr) { nstrips++; println("DEC $i crop $t-$b dy=${sb.lastDy}") } else handle(f.crop(0, t, w, b)) }
                 else -> {}
             }
