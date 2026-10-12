@@ -11,7 +11,13 @@ object Title {
     private fun cut(s: String, max: Int): String =
         if (s.length <= max) s else s.substring(0, max).substringBeforeLast(' ', s.substring(0, max)).trim()
 
-    fun from(text: String, fallback: String): String {
+    /** Share of the line's words (letters only, 2+ chars) found in the dictionary; 1.0 when there is nothing to judge. */
+    private fun cleanliness(l: String, dict: Set<String>): Double {
+        val toks = l.lowercase().split(Regex("[^a-z\\u00e0-\\u00ff]+")).filter { it.length >= 2 }
+        return if (toks.isEmpty()) 1.0 else toks.count { it in dict }.toDouble() / toks.size
+    }
+
+    fun from(text: String, fallback: String, dict: Set<String>? = null): String {
         val lines = text.lines().map { it.trim() }.filter { it.isNotEmpty() }.take(40)
         fun ok(l: String, minChars: Int, minWords: Int): Boolean {
             if (l.startsWith("http", true) || time.matches(l)) return false
@@ -20,6 +26,13 @@ object Title {
         }
         // strict first (skips short app chrome like "Tools" or "G Grounding with Go"), then looser
         var ci = lines.indexOfFirst { ok(it, 25, 4) }
+        if (ci >= 0 && dict != null && cleanliness(lines[ci], dict) < 0.8) {
+            // the first candidate looks garbled (fast mode, odd fonts): take the cleanest candidate (earliest on ties)
+            val cands = lines.indices.filter { ok(lines[it], 25, 4) }
+            val top = cands.maxOfOrNull { cleanliness(lines[it], dict) } ?: 0.0
+            val best = cands.firstOrNull { cleanliness(lines[it], dict) >= top - 0.01 }
+            if (best != null) ci = best
+        }
         if (ci < 0) ci = lines.indexOfFirst { ok(it, 12, 2) }
         if (ci < 0) ci = lines.indexOfFirst { it.count { c -> c.isLetter() } >= 4 }
         if (ci < 0) return fallback
