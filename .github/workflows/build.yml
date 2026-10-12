@@ -58,6 +58,7 @@ jobs:
             adb exec-out screencap -p > shots/text.png
       - name: Name artifacts
         run: |
+          for f in shots/crash.txt shots/logcat.txt; do echo "-- capture $f" >> $f; done
           cp app/build/outputs/apk/debug/app-debug.apk vocr-debug-${{ github.run_number }}.apk
           cp app/build/outputs/apk/release/app-release.apk vocr-release-${{ github.run_number }}.apk || true
       - name: Release
