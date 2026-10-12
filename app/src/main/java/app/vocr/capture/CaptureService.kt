@@ -316,9 +316,8 @@ class CaptureService : Service() {
                         nm().notify(ID_FG, statusNote("Reading ${pr.done}/${pr.total}$eta", progress = Pair(pr.done, pr.total.coerceAtLeast(1))))
                     }
                 }
-                val stamp = java.text.SimpleDateFormat("yyyy-MM-dd HH-mm", java.util.Locale.US).format(java.util.Date())
-                val title = Title.from(rd.text, "V-OCR $stamp")
-                val uri = saveText(title, rd.text)
+                val sv = app.vocr.core.Saver.save(this, rd.text)
+                val title = sv.title; val uri = sv.uri
                 postDone(title, rd.text, uri, rd.mergedLines, rd.ms)
             } catch (e: Throwable) {
                 nm().notify(ID_DONE, Notification.Builder(this, CH_DONE).setSmallIcon(android.R.drawable.stat_notify_error)
@@ -331,17 +330,6 @@ class CaptureService : Service() {
     }
 
     // ---- result ---------------------------------------------------------------------------------------------------
-    private fun saveText(title: String, text: String): Uri? {
-        val cv = ContentValues().apply {
-            put(MediaStore.MediaColumns.DISPLAY_NAME, "$title.txt")
-            put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
-            put(MediaStore.MediaColumns.RELATIVE_PATH, "Download/V-OCR")
-        }
-        val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, cv) ?: return null
-        contentResolver.openOutputStream(uri)?.use { it.write(text.toByteArray(Charsets.UTF_8)) }
-        return uri
-    }
-
     private fun postDone(title: String, text: String, uri: Uri?, lines: Int, ms: Long) {
         channels()
         val b = Notification.Builder(this, CH_DONE).setSmallIcon(android.R.drawable.stat_sys_download_done)
