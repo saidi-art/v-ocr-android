@@ -27,6 +27,9 @@ jobs:
         run: gradle --no-daemon testDebugUnitTest
       - name: Build debug APK
         run: gradle --no-daemon assembleDebug
+      - name: Build release APK (speed test)
+        continue-on-error: true
+        run: gradle --no-daemon assembleRelease
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -54,6 +57,7 @@ jobs:
       - name: Name artifacts
         run: |
           cp app/build/outputs/apk/debug/app-debug.apk vocr-debug-${{ github.run_number }}.apk
+          cp app/build/outputs/apk/release/app-release.apk vocr-release-${{ github.run_number }}.apk || true
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
@@ -61,6 +65,7 @@ jobs:
           name: V-OCR build ${{ github.run_number }}
           files: |
             vocr-debug-${{ github.run_number }}.apk
+            vocr-release-${{ github.run_number }}.apk
             shots/home.png
             shots/strips.png
             shots/text.png
