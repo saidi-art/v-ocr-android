@@ -305,9 +305,18 @@ fun TextScreen(r: ReadResult, onBack: () -> Unit) {
                     val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                     cm.setPrimaryClip(android.content.ClipData.newPlainText("V-OCR", r.text))
                 }, Modifier.weight(1f), primary = true)
-                VButton("Share", {
-                    val i = android.content.Intent(android.content.Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(android.content.Intent.EXTRA_TEXT, r.text) }
-                    ctx.startActivity(android.content.Intent.createChooser(i, "Share text"))
+                VButton("Share file", {
+                    // Share as an attached .txt (not pasted text), so chat apps receive a file.
+                    val name = (r.savedTitle.ifEmpty { "V-OCR" }).replace(Regex("[^A-Za-z0-9 ._-]"), "_") + ".txt"
+                    val dir = java.io.File(ctx.cacheDir, "share").apply { mkdirs(); listFiles()?.forEach { it.delete() } }
+                    val f = java.io.File(dir, name).apply { writeText(r.text) }
+                    val uri = androidx.core.content.FileProvider.getUriForFile(ctx, ctx.packageName + ".share", f)
+                    val i = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                        type = "text/plain"; putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                        clipData = android.content.ClipData.newRawUri(name, uri)
+                        addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    ctx.startActivity(android.content.Intent.createChooser(i, "Share text file"))
                 }, Modifier.weight(1f))
             }
             Spacer(Modifier.height(10.dp))
