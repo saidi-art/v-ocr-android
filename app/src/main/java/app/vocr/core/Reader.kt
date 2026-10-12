@@ -52,26 +52,31 @@ object Reader {
                 onLine("threads $t: ${(System.nanoTime() - a) / 2_000_000} ms per strip")
             } finally { e.close() }
         }
-        // data-parallel: several engines at once, each on its own strips (wall time per strip over the whole batch)
-        for ((n, t) in listOf(2 to 2, 2 to 3, 3 to 2)) {
+        // execution providers: same strip, text compared with the CPU result
+        val base = load(ctx, 4).use1 { e -> e.recognize(img); e.recognize(img).map { it.text } }
+        onLine("cpu 4 threads text: ${base.size} lines")
+        for ((prov, t) in listOf("xnnpack" to 4, "nnapi" to 4)) {
             try {
-                val es = List(n) { load(ctx, t) }
+                val e = load(ctx, t, prov)
                 try {
-                    es.forEach { it.recognize(img) }   // warm-up
-                    val a = System.nanoTime()
-                    val ths = es.map { e -> Thread { e.recognize(img); e.recognize(img) }.also { it.start() } }
-                    ths.forEach { it.join() }
-                    onLine("${n} engines x $t threads: ${(System.nanoTime() - a) / (n * 2 * 1_000_000L)} ms per strip")
-                } finally { es.forEach { it.close() } }
-            } catch (x: Throwable) { onLine("$n x $t failed: ${x.message}") }
+                    e.recognize(img)   // warm-up (NNAPI compiles here)
+                    val a = System.nanoTime(); val r = e.recognize(img); e.recognize(img)
+                    val ms = (System.nanoTime() - a) / 2_000_000
+                    val same = r.map { it.text } == base
+                    val diff = r.map { it.text }.zip(base).count { it.first != it.second } + Math.abs(r.size - base.size)
+                    onLine("$prov: $ms ms per strip, ${r.size} lines, " + if (same) "text identical to CPU" else "$diff lines differ from CPU")
+                } finally { e.close() }
+            } catch (x: Throwable) { onLine("$prov failed: ${x.message}") }
         }
     }
 
-    fun load(ctx: Context, threads: Int = 4): OcrEngine {
+    private fun <T> OcrEngine.use1(f: (OcrEngine) -> T): T = try { f(this) } finally { close() }
+
+    fun load(ctx: Context, threads: Int = 4, provider: String = "cpu"): OcrEngine {
         val det = ctx.assets.open("ocr/det.onnx").use { it.readBytes() }
         val rec = ctx.assets.open("ocr/rec.onnx").use { it.readBytes() }
         val keys = ctx.assets.open("ocr/keys.txt").use { String(it.readBytes(), Charsets.UTF_8) }.split("\n")
-        return OcrEngine(det, rec, keys, threads)
+        return OcrEngine(det, rec, keys, threads, provider)
     }
 
     fun readAll(ctx: Context, strips: List<StripInfo>, fast: Boolean = false, onProgress: (Progress) -> Unit): ReadResult {
