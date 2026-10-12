@@ -10,8 +10,9 @@ android {
         applicationId = "app.vocr"
         minSdk = 29
         targetSdk = 34
-        versionCode = 8
-        versionName = "0.2.5-m1g"
+        ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
+        versionCode = 9
+        versionName = "0.3.0-m2a"
     }
     buildTypes { release { isMinifyEnabled = false } }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
@@ -22,7 +23,8 @@ dependencies {
     implementation(platform("androidx.compose:compose-bom:2024.09.00"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.activity:activity-compose:1.9.2")
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.19.2")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("com.microsoft.onnxruntime:onnxruntime:1.19.2")
 }
