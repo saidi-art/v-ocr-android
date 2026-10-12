@@ -57,6 +57,7 @@ class OcrEngine(detModel: ByteArray, recModel: ByteArray, keys: List<String>) {
     private val chars: List<String> = listOf("") + keys + listOf(" ")   // 0 = CTC blank, last = space
     var detMs = 0L; var recMs = 0L; var postMs = 0L
     var maxSide = 960
+    var recH = 48
     var narrowBoost = 1.0f
     private val NARROW = setOf("i", "l", "I", "j", "t", "f", "r", "1", "|", "!", "'", ".", ",", ":", ";")
     var gapFrac = 0.16f   // a blank pixel run wider than this fraction of the line height is a word gap
@@ -120,8 +121,8 @@ class OcrEngine(detModel: ByteArray, recModel: ByteArray, keys: List<String>) {
     }
 
     private fun readLine(crop: Rgb): Triple<List<Int>, List<Int>, Pair<Int, Float>> {
-        val nw = max(16, ceil(48.0 * crop.w / crop.h).toInt())
-        val im = crop.resize(nw, 48)
+        val nw = max(16, ceil(recH.toDouble() * crop.w / crop.h).toInt())
+        val im = crop.resize(nw, recH)
         val t0 = System.nanoTime()
         val seq = ArrayList<Int>(); val pos = ArrayList<Int>(); var T = 0; var confSum = 0f
         tensor(im).use { inp ->
