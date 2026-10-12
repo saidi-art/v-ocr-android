@@ -24,7 +24,22 @@ object Pipeline {
         return Gray(w, h, d)
     }
 
+    /** One heavy job (decode or OCR) at a time across the app and the widget: parallel jobs only slow each other down. */
+    val gate = java.util.concurrent.locks.ReentrantLock(true)
+
+    /** Each job gets its own scratch folder so a second job can never wipe the first one's strips. */
+    @Synchronized private fun newJobDir(ctx: Context): File {
+        val now = System.currentTimeMillis()
+        ctx.cacheDir.listFiles()?.filter { it.isDirectory && it.name.startsWith("job") && now - it.lastModified() > 3 * 3600_000L }?.forEach { it.deleteRecursively() }
+        return File(ctx.cacheDir, "job-" + System.nanoTime()).apply { mkdirs() }
+    }
+
     fun run(ctx: Context, uri: Uri?, onProgress: (Progress) -> Unit, cancelled: () -> Boolean = { false }): Result {
+        gate.lock()
+        try { return runLocked(ctx, uri, onProgress, cancelled) } finally { gate.unlock() }
+    }
+
+    private fun runLocked(ctx: Context, uri: Uri?, onProgress: (Progress) -> Unit, cancelled: () -> Boolean): Result {
         val info = runCatching { Decoder.probe(ctx, uri) }.getOrNull()
         if (info != null && info.rotation == 0) {
             val r = runDecoded(ctx, uri, info, onProgress, cancelled)
@@ -36,7 +51,7 @@ object Pipeline {
     /** Sequential MediaCodec path: one decode pass, luma-only analysis, RGB only for kept strips. */
     private fun runDecoded(ctx: Context, uri: Uri?, info: Decoder.Info, onProgress: (Progress) -> Unit, cancelled: () -> Boolean): Result? {
         val t0 = System.currentTimeMillis()
-        val dir = File(ctx.cacheDir, "job").apply { deleteRecursively(); mkdirs() }
+        val dir = newJobDir(ctx)
         val fw = min(FRAME_W, info.width); val fh = (info.height.toLong() * fw / info.width).toInt()
         val dw = DET_W.coerceAtMost(fw); val dh = (fh.toLong() * dw / fw).toInt()
         val seconds = (info.durationUs / 1_000_000).toInt().coerceAtLeast(1)
@@ -109,7 +124,7 @@ object Pipeline {
 
     private fun runRetriever(ctx: Context, uri: Uri?, onProgress: (Progress) -> Unit, cancelled: () -> Boolean): Result {
         val t0 = System.currentTimeMillis()
-        val dir = File(ctx.cacheDir, "job").apply { deleteRecursively(); mkdirs() }
+        val dir = newJobDir(ctx)
         val r = MediaMetadataRetriever()
         if (uri != null) r.setDataSource(ctx, uri)
         else ctx.assets.openFd("demo.mp4").use { r.setDataSource(it.fileDescriptor, it.startOffset, it.length) }
