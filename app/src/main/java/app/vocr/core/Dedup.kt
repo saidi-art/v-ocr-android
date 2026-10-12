@@ -74,6 +74,11 @@ class StripBuilder(
     var lastDy = 0; private set
     var lastSpan = 0; private set
 
+    private val hdrHist = IntArray(64); private val ftrHist = IntArray(64)   // buckets of 4 analysis rows
+    /** Fixed header/footer rows (analysis frame) once seen consistently, else -1. Used to trim whole frames to the scrolling band. */
+    private fun mode(h: IntArray): Int { var bi = -1; var bv = 2; for (i in 2 until h.size) if (h[i] > bv) { bv = h[i]; bi = i }; return if (bi < 0) -1 else bi * 4 }
+    val bandTop: Int get() = mode(hdrHist)
+    val bandFooter: Int get() = mode(ftrHist)
     private var prevHash: Long? = null
     private var prev: Gray? = null
     private var acc = 0
@@ -91,6 +96,9 @@ class StripBuilder(
         if (p == null) {
             full++; out = Decision.Full
         } else {
+            val hv = headerRows(p, g); val fv = footerRows(p, g)
+            if (hv in 8..255) hdrHist[(hv / 4).coerceAtMost(63)]++
+            if (fv in 8..255) ftrHist[(fv / 4).coerceAtMost(63)]++
             val dy = detectScroll(p, g)
             if (dy == 0) {
                 full++; acc = 0; out = Decision.Full; lastFailed = true
