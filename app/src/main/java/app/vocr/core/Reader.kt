@@ -7,17 +7,18 @@ data class Line(val text: String, val yFrac: Float)
 
 /** Fixed app chrome (status bar, headers, nav bars) repeats at the same place in many strips: keep it once. */
 object Chrome {
+    /** A line that shows up at the same height in many strips (and with the same text) is fixed screen furniture, not content. */
     fun strip(strips: List<List<Line>>): List<List<Line>> {
         if (strips.size < 3) return strips
-        fun inTop(l: Line) = l.yFrac < 0.14f
-        fun inBot(l: Line) = l.yFrac > 0.92f
+        val need = maxOf(3, (strips.size * 0.3).toInt())
+        fun same(a: Line, b: Line) = Math.abs(a.yFrac - b.yFrac) < 0.012f && Stitch.sim(a.text, b.text) >= 0.8
+        val seenOnce = HashSet<String>()
         return strips.mapIndexed { si, lines ->
             lines.filter { l ->
-                val top = inTop(l); val bot = inBot(l)
-                if (!top && !bot) return@filter true
-                val others = strips.indices.count { o -> o != si && strips[o].any { m -> (if (top) inTop(m) else inBot(m)) && Stitch.sim(l.text, m.text) >= 0.8 } }
-                val repeated = others >= 2
-                !repeated || (top && si == 0) || (bot && si == strips.size - 1)
+                val n = strips.indices.count { o -> strips[o].any { m -> same(l, m) } }
+                if (n < need) return@filter true
+                val key = Stitch.normKey(l.text) + "@" + (l.yFrac * 80).toInt()
+                seenOnce.add(key)    // keep the first occurrence only
             }
         }
     }
@@ -53,7 +54,7 @@ object Reader {
                 val px = IntArray(bm.width * bm.height); bm.getPixels(px, 0, bm.width, 0, 0, bm.width, bm.height)
                 for (k in px.indices) px[k] = px[k] and 0xFFFFFF
                 val img = Rgb(bm.width, bm.height, px); bm.recycle()
-                perStrip.add(eng.recognize(img).filter { it.conf >= 0.55f && it.text.count { c -> c.isLetterOrDigit() } >= 1 }.map { Line(it.text, (it.y0 + it.y1) / 2f / img.h) })
+                perStrip.add(eng.recognize(img).map { Line(Clean.text(it.text), (it.y0 + it.y1) / 2f / img.h) }.filter { Clean.keep(it.text) }.let { ls -> ls })
             }
             onProgress(Progress("Stitching", strips.size, strips.size))
             val raw = perStrip.sumOf { it.size }
@@ -65,4 +66,23 @@ object Reader {
                 "detect ${eng.detMs}ms, recognize ${eng.recMs}ms, post ${eng.postMs}ms")
         } finally { eng.close() }
     }
+}
+
+/** Text hygiene: drop CJK/symbol junk the model hallucinates on wallpaper and icons, fix punctuation/digit splits. */
+object Clean {
+    private val cjk = Regex("[\\u2E80-\\u9FFF\\uA000-\\uD7FF\\uF900-\\uFAFF\\uFF00-\\uFFEF\\u2190-\\u21FF\\u25A0-\\u27BF]")
+    private val glued = Regex("([a-z])([.,;:!?])([A-Z][a-z])")
+    private val num = Regex("^[0-9:.,/]+$")
+    fun text(t: String): String {
+        var s = cjk.replace(t, "").replace(Regex("\\s+"), " ").trim()
+        s = glued.replace(s, "$1$2 $3")
+        val toks = s.split(' ').toMutableList()
+        var i = 0
+        while (i + 1 < toks.size) {   // "1 0:1 3" -> "10:13" (narrow digit 1 leaves a pixel gap)
+            val a = toks[i]; val b = toks[i + 1]
+            if (num.matches(a) && num.matches(b) && (a == "1" || b == "1" || a.endsWith("1") && b.length == 1 || b.startsWith("1") && a.length == 1)) { toks[i] = a + b; toks.removeAt(i + 1) } else i++
+        }
+        return toks.joinToString(" ")
+    }
+    fun keep(t: String): Boolean = t.count { it in 'A'..'Z' || it in 'a'..'z' || it in '0'..'9' } >= 2
 }
