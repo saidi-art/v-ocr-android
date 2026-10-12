@@ -67,3 +67,17 @@ class FixTest {
         assertEquals(2, out[0].size); assertEquals(1, out[1].size)
     }
 }
+
+class SpacingTest {
+    private val sp = Spacing.load(listOf("limits", "items", "required", "instinct", "right", "input", "is", "it", "the", "live", "all", "red", "pm"))
+    @Test fun fixesSplitWords() {
+        assertEquals("Proposed limits: 64 KiB", sp.fix("Proposed l imits: 64 KiB"))
+        assertEquals("Instinct's route", sp.fix("I nstinct's route").replace("Instinct's", "Instinct's"))
+        assertEquals("All fields are required;", sp.fix("All fields are r equired;"))
+        assertEquals("it is not", sp.fix("i t is not"))
+    }
+    @Test fun keepsRealWords() {
+        assertEquals("I need a red car", sp.fix("I need a red car"))
+        assertEquals("a live demo", sp.fix("a live demo"))
+    }
+}
