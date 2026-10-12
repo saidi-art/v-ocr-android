@@ -14,6 +14,15 @@ jobs:
         with: { distribution: temurin, java-version: 17 }
       - uses: gradle/actions/setup-gradle@v4
         with: { gradle-version: "8.7" }
+      - name: Fetch OCR models
+        run: |
+          pip install --break-system-packages rapidocr-onnxruntime==1.4.4
+          M=$(python -c "import rapidocr_onnxruntime,os;print(os.path.join(os.path.dirname(rapidocr_onnxruntime.__file__),'models'))")
+          mkdir -p app/src/main/assets/ocr
+          cp "$M/ch_PP-OCRv4_det_infer.onnx" app/src/main/assets/ocr/det.onnx
+          cp "$M/ch_PP-OCRv4_rec_infer.onnx" app/src/main/assets/ocr/rec.onnx
+          python -c "import onnxruntime as o;s=o.InferenceSession('app/src/main/assets/ocr/rec.onnx');open('app/src/main/assets/ocr/keys.txt','w').write(s.get_modelmeta().custom_metadata_map['character'])"
+          ls -la app/src/main/assets/ocr
       - name: Unit tests
         run: gradle --no-daemon testDebugUnitTest
       - name: Build debug APK
@@ -38,6 +47,10 @@ jobs:
             adb shell am start -n app.vocr/.MainActivity --ez demo true
             sleep 150
             adb exec-out screencap -p > shots/strips.png
+            adb shell am force-stop app.vocr
+            adb shell am start -n app.vocr/.MainActivity --ez demo true --ez read true
+            sleep 420
+            adb exec-out screencap -p > shots/text.png
       - name: Name artifacts
         run: |
           cp app/build/outputs/apk/debug/app-debug.apk vocr-debug-${{ github.run_number }}.apk
@@ -50,3 +63,4 @@ jobs:
             vocr-debug-${{ github.run_number }}.apk
             shots/home.png
             shots/strips.png
+            shots/text.png
