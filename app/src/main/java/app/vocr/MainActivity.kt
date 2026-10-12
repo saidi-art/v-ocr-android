@@ -93,7 +93,7 @@ fun Home(preview: Picked? = null) {
     val res = result
     if (res != null) { Strips(res, (ctx as? android.app.Activity)?.intent?.getBooleanExtra("read", false) == true) { result = null }; return }
     Column(
-        Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Ink, Color(0xFF111631)))).systemBarsPadding().padding(24.dp),
+        Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Ink, Color(0xFF111631)))).systemBarsPadding().verticalScroll(rememberScrollState()).padding(24.dp),
         horizontalAlignment = Alignment.Start
     ) {
         Spacer(Modifier.height(16.dp))
@@ -110,7 +110,7 @@ fun Home(preview: Picked? = null) {
         }
         Spacer(Modifier.height(12.dp))
         QueueList()
-        Spacer(Modifier.weight(1f))
+        Spacer(Modifier.height(16.dp))
         Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(Card).padding(24.dp)) {
             Text("\u25B6", color = Lilac, fontSize = 32.sp)
             Spacer(Modifier.height(12.dp))
@@ -317,7 +317,7 @@ fun QueueList() {
     val ctx = LocalContext.current
     val jobs = JobQueue.jobs
     if (jobs.isEmpty()) return
-    Column(Modifier.fillMaxWidth().heightIn(max = 300.dp).clip(RoundedCornerShape(20.dp)).background(Card).padding(12.dp)) {
+    Column(Modifier.fillMaxWidth().heightIn(max = 260.dp).clip(RoundedCornerShape(20.dp)).background(Card).padding(12.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("Queue", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, modifier = Modifier.weight(1f))
             if (jobs.any { it.state >= 2 }) Text("Clear finished", color = Lilac, fontSize = 13.sp, modifier = Modifier.clickable { JobQueue.clearFinished() })
