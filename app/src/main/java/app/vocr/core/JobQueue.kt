@@ -66,6 +66,8 @@ object JobQueue {
 
     private fun enqueue(ctx: Context, label: String, uri: Uri?, tmp: File?) {
         val app = ctx.applicationContext
+        // recordings left behind by a killed process (older than any job that could still be waiting)
+        runCatching { val old = System.currentTimeMillis() - 12 * 3600_000L; app.cacheDir.listFiles()?.filter { it.name.startsWith("rec-") && it.lastModified() < old }?.forEach { it.delete() } }
         synchronized(lock) {
             jobs.add(Job(nextId++, label, uri, tmp))
             if (!running) { running = true; Thread { worker(app) }.start() }
@@ -79,7 +81,7 @@ object JobQueue {
             val job = synchronized(lock) { jobs.firstOrNull { it.state == 0 } ?: run { running = false; null } } ?: break
             runJob(app, job)
         }
-        app.stopService(Intent(app, QueueService::class.java))
+        synchronized(lock) { if (!running) app.stopService(Intent(app, QueueService::class.java)) }   // not while a new job just arrived
         listener?.invoke()
     }
 
@@ -87,12 +89,14 @@ object JobQueue {
         job.state = 1; job.stage = "Scanning"; job.ringLabel = "SCAN"; notifyStatus(app); listener?.invoke()
         val wl = (app.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager).newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "vocr:queue").apply { acquire(45 * 60 * 1000L) }
         var lastNote = 0L
+        var stripDir: File? = null
         try {
             val src: Uri? = job.uri ?: job.tmp?.let { Uri.fromFile(it) }   // null = built-in demo video
             val res = Pipeline.run(app, src, { pr ->
                 job.frac = pr.done / pr.total.coerceAtLeast(1).toFloat()
                 listener?.invoke()
             }, { job.cancel })
+            stripDir = res.strips.firstOrNull()?.file?.parentFile
             if (job.cancel) { job.state = 4; job.stage = "Cancelled"; return }
             job.stage = "Reading"; job.frac = 0f; job.ringLabel = "0%"; listener?.invoke()
             val fast = app.getSharedPreferences("vocr", Context.MODE_PRIVATE).getBoolean("fast", false)
@@ -114,7 +118,7 @@ object JobQueue {
             nm(app).notify(100 + job.id, Notification.Builder(app, CH_DONE).setSmallIcon(android.R.drawable.stat_notify_error)
                 .setContentTitle("V-OCR could not read " + job.label).setContentText(e.message ?: e.javaClass.simpleName).setAutoCancel(true).build())
         } finally {
-            job.tmp?.delete(); runCatching { if (wl.isHeld) wl.release() }
+            job.tmp?.delete(); runCatching { stripDir?.deleteRecursively() }; runCatching { if (wl.isHeld) wl.release() }
             listener?.invoke(); notifyStatus(app)
         }
     }
