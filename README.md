@@ -13,6 +13,7 @@ V-OCR turns a screen recording of scrolling content into clean, searchable text.
 - Reads the text with an open-source OCR model that runs on the device.
 - Removes the overlap between frames so each line appears once.
 - Names the file from its content and saves it to `Downloads/V-OCR/`.
+- Queues work: add several videos at once (ADD, top right) or keep recording while earlier recordings are read. Jobs run one at a time, and each result is its own `.txt` you can open or share as a file.
 
 No account, no upload, no per-page fees. Your recording never leaves the phone.
 
@@ -60,13 +61,22 @@ Each push to `main` builds a new release (`build-N`) with a release APK and a de
 - **Speed depends on heat.** On the test phone a 126-strip run took about 185-215 s in Fast and 255-290 s in Normal. The same strip took 1.8x longer on a hot phone than a cool one, so long sessions get slower.
 - **Very fast flings** can lose lines. On a deliberately extreme test clip (about 30 screens per second) recall was about 90%.
 - **Auto-scroll and the 5-minute cap** are new and have had little real-device testing.
+- Two recordings read at once would be slower each, so the queue reads one at a time. Recording while a job is reading slows both.
 - Recordings of V-OCR's own result screen will return their own text, as expected.
 
 ## Build from source
 
+The OCR models are not stored in the repo. Fetch them first (this is what CI does), then build:
+
 ```
 git clone https://github.com/saidi-art/v-ocr-android
 cd v-ocr-android
+pip install rapidocr-onnxruntime==1.4.4
+M=$(python -c "import rapidocr_onnxruntime,os;print(os.path.join(os.path.dirname(rapidocr_onnxruntime.__file__),'models'))")
+mkdir -p app/src/main/assets/ocr
+cp "$M/ch_PP-OCRv4_det_infer.onnx" app/src/main/assets/ocr/det.onnx
+cp "$M/ch_PP-OCRv4_rec_infer.onnx" app/src/main/assets/ocr/rec.onnx
+python -c "import onnxruntime as o;s=o.InferenceSession('app/src/main/assets/ocr/rec.onnx');open('app/src/main/assets/ocr/keys.txt','w').write(s.get_modelmeta().custom_metadata_map['character'])"
 gradle assembleDebug   # Gradle 8.7, JDK 17
 ```
 
