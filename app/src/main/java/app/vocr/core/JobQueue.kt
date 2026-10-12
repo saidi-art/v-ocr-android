@@ -1,0 +1,153 @@
+package app.vocr.core
+
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.provider.OpenableColumns
+import androidx.compose.runtime.*
+import java.io.File
+import app.vocr.capture.QueueService
+
+/**
+ * One process-wide queue for everything that needs reading: files picked on the main page and recordings from the widget.
+ * Jobs run one at a time (4 OCR threads is the sweet spot on the phone; two jobs at once are slower each), but adding
+ * never blocks: a new file or recording just joins the line. Each job has its own scratch folder (see Pipeline).
+ */
+object JobQueue {
+    class Job(val id: Int, val label: String, val uri: Uri?, val tmp: File?) {
+        var state by mutableIntStateOf(0)        // 0 queued, 1 running, 2 done, 3 failed, 4 cancelled
+        var frac by mutableFloatStateOf(0f)
+        var ringLabel by mutableStateOf("")
+        var stage by mutableStateOf("Waiting")
+        var title by mutableStateOf("")
+        var result by mutableStateOf<Uri?>(null)
+        var lines by mutableIntStateOf(0)
+        var secs by mutableIntStateOf(0)
+        @Volatile var cancel = false
+    }
+
+    val jobs = mutableStateListOf<Job>()
+    /** Called from the worker thread when anything visible changed (progress, state). */
+    @Volatile var listener: (() -> Unit)? = null
+
+    private const val CH_STATUS = "vocr_status"
+    private const val CH_DONE = "vocr_done"
+    const val ID_QUEUE = 43
+    private val lock = Any()
+    private var nextId = 1
+    private var running = false
+
+    fun activeCount() = jobs.count { it.state <= 1 }
+    fun current(): Job? = jobs.firstOrNull { it.state == 1 }
+
+    fun addUris(ctx: Context, uris: List<Uri>) {
+        for (u in uris) {
+            runCatching { ctx.contentResolver.takePersistableUriPermission(u, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+            var name = "recording"
+            runCatching {
+                ctx.contentResolver.query(u, null, null, null, null)?.use { c ->
+                    val i = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (c.moveToFirst() && i >= 0) name = c.getString(i)
+                }
+            }
+            enqueue(ctx, name, u, null)
+        }
+    }
+
+    fun addDemo(ctx: Context) = enqueue(ctx, "demo.mp4 (built-in)", null, null)
+    fun addFile(ctx: Context, f: File, label: String) = enqueue(ctx, label, null, f)
+
+    fun cancel(j: Job) { j.cancel = true; synchronized(lock) { if (j.state == 0) { j.state = 4; j.stage = "Cancelled" } }; listener?.invoke() }
+    fun clearFinished() { synchronized(lock) { jobs.removeAll { it.state >= 2 } } }
+
+    private fun enqueue(ctx: Context, label: String, uri: Uri?, tmp: File?) {
+        val app = ctx.applicationContext
+        synchronized(lock) {
+            jobs.add(Job(nextId++, label, uri, tmp))
+            if (!running) { running = true; Thread { worker(app) }.start() }
+        }
+        runCatching { app.startForegroundService(Intent(app, QueueService::class.java)) }
+        listener?.invoke()
+    }
+
+    private fun worker(app: Context) {
+        while (true) {
+            val job = synchronized(lock) { jobs.firstOrNull { it.state == 0 } ?: run { running = false; null } } ?: break
+            runJob(app, job)
+        }
+        app.stopService(Intent(app, QueueService::class.java))
+        listener?.invoke()
+    }
+
+    private fun runJob(app: Context, job: Job) {
+        job.state = 1; job.stage = "Scanning"; job.ringLabel = "SCAN"; notifyStatus(app); listener?.invoke()
+        val wl = (app.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager).newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "vocr:queue").apply { acquire(45 * 60 * 1000L) }
+        var lastNote = 0L
+        try {
+            val src: Uri? = job.uri ?: job.tmp?.let { Uri.fromFile(it) }   // null = built-in demo video
+            val res = Pipeline.run(app, src, { pr ->
+                job.frac = pr.done / pr.total.coerceAtLeast(1).toFloat()
+                listener?.invoke()
+            }, { job.cancel })
+            if (job.cancel) { job.state = 4; job.stage = "Cancelled"; return }
+            job.stage = "Reading"; job.frac = 0f; job.ringLabel = "0%"; listener?.invoke()
+            val fast = app.getSharedPreferences("vocr", Context.MODE_PRIVATE).getBoolean("fast", false)
+            val rd = Reader.readAll(app, res.strips, fast) { pr ->
+                job.frac = pr.done / pr.total.coerceAtLeast(1).toFloat()
+                job.ringLabel = (pr.done * 100 / pr.total.coerceAtLeast(1)).toString() + "%"
+                val eta = if (pr.etaS >= 0) "  ~${pr.etaS / 60}m ${pr.etaS % 60}s left" else ""
+                job.stage = "Reading ${pr.done}/${pr.total}$eta"
+                val now = System.currentTimeMillis()
+                if (now - lastNote > 1500) { lastNote = now; notifyStatus(app) }
+                listener?.invoke()
+            }
+            val sv = Saver.save(app, rd.text)
+            job.title = sv.title; job.result = sv.uri; job.lines = rd.mergedLines; job.secs = (rd.ms / 1000).toInt()
+            job.stage = "Done"; job.state = 2; job.frac = 1f
+            postDone(app, job, rd.text)
+        } catch (e: Throwable) {
+            job.state = 3; job.stage = "Failed: " + (e.message ?: e.javaClass.simpleName)
+            nm(app).notify(100 + job.id, Notification.Builder(app, CH_DONE).setSmallIcon(android.R.drawable.stat_notify_error)
+                .setContentTitle("V-OCR could not read " + job.label).setContentText(e.message ?: e.javaClass.simpleName).setAutoCancel(true).build())
+        } finally {
+            job.tmp?.delete(); runCatching { if (wl.isHeld) wl.release() }
+            listener?.invoke(); notifyStatus(app)
+        }
+    }
+
+    private fun nm(c: Context) = c.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    private fun channels(c: Context) {
+        nm(c).createNotificationChannel(NotificationChannel(CH_STATUS, "Recorder status", NotificationManager.IMPORTANCE_LOW))
+        nm(c).createNotificationChannel(NotificationChannel(CH_DONE, "Text ready", NotificationManager.IMPORTANCE_HIGH))
+    }
+
+    fun statusNote(c: Context): Notification {
+        channels(c)
+        val cur = current(); val waiting = jobs.count { it.state == 0 }
+        val text = if (cur == null) (if (waiting > 0) "$waiting waiting" else "Finishing") else cur.label + " - " + cur.stage + (if (waiting > 0) "  (+$waiting waiting)" else "")
+        val b = Notification.Builder(c, CH_STATUS).setSmallIcon(android.R.drawable.ic_menu_camera).setContentTitle("V-OCR queue").setContentText(text).setOngoing(true)
+        if (cur != null) b.setProgress(100, (cur.frac * 100).toInt().coerceIn(0, 100), false)
+        return b.build()
+    }
+
+    private fun notifyStatus(c: Context) { if (activeCount() > 0) runCatching { nm(c).notify(ID_QUEUE, statusNote(c)) } }
+
+    private fun postDone(c: Context, job: Job, text: String) {
+        channels(c)
+        val b = Notification.Builder(c, CH_DONE).setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setContentTitle(job.title).setContentText("Text ready: ${job.lines} lines in ${job.secs}s. Tap to open.")
+            .setStyle(Notification.BigTextStyle().bigText(text.take(600))).setAutoCancel(true)
+        val uri = job.result
+        if (uri != null) {
+            val view = Intent(Intent.ACTION_VIEW).setDataAndType(uri, "text/plain").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            b.setContentIntent(PendingIntent.getActivity(c, 1000 + job.id, view, PendingIntent.FLAG_IMMUTABLE))
+            val send = Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Share text")
+            b.addAction(Notification.Action.Builder(null, "Share", PendingIntent.getActivity(c, 2000 + job.id, send, PendingIntent.FLAG_IMMUTABLE)).build())
+        }
+        nm(c).notify(100 + job.id, b.build())
+    }
+}
