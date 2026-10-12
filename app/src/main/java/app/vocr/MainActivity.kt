@@ -12,6 +12,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
@@ -69,9 +70,10 @@ fun Home(preview: Picked? = null) {
     var progress by remember { mutableStateOf<Progress?>(null) }
     var result by remember { mutableStateOf<Result?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
-    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        if (uri != null) { result = null; error = null; picked = runCatching { describe(ctx, uri) }.getOrNull() }
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(20)) { uris ->
+        if (uris.isNotEmpty()) JobQueue.addUris(ctx, uris)
     }
+    val addVideos = { launcher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)) }
     fun start(p: Picked) {
         progress = Progress("Starting", 0, 1); result = null; error = null
         Thread {
@@ -83,6 +85,7 @@ fun Home(preview: Picked? = null) {
         }.start()
     }
     LaunchedEffect(Unit) {
+        if ((ctx as? android.app.Activity)?.intent?.getBooleanExtra("queue", false) == true && JobQueue.jobs.isEmpty()) { JobQueue.addDemo(ctx); JobQueue.addDemo(ctx) }
         if ((ctx as? android.app.Activity)?.intent?.getBooleanExtra("demo", false) == true && progress == null && result == null) {
             val p = Picked(null, "demo.mp4 (built-in test video)", 9, 540, 960); picked = p; start(p)
         }
@@ -93,17 +96,25 @@ fun Home(preview: Picked? = null) {
         Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Ink, Color(0xFF111631)))).systemBarsPadding().padding(24.dp),
         horizontalAlignment = Alignment.Start
     ) {
-        Spacer(Modifier.height(32.dp))
-        Row {
-            Text("V-", fontSize = 44.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
-            Text("OCR", fontSize = 44.sp, fontWeight = FontWeight.ExtraBold, color = Violet)
+        Spacer(Modifier.height(16.dp))
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+            Column(Modifier.weight(1f)) {
+                Spacer(Modifier.height(16.dp))
+                Row {
+                    Text("V-", fontSize = 44.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
+                    Text("OCR", fontSize = 44.sp, fontWeight = FontWeight.ExtraBold, color = Violet)
+                }
+                Text("If you can scroll it, you can save it.", color = Muted, fontSize = 16.sp)
+            }
+            AddButton(JobQueue.activeCount()) { addVideos() }
         }
-        Text("If you can scroll it, you can save it.", color = Muted, fontSize = 16.sp)
+        Spacer(Modifier.height(12.dp))
+        QueueList()
         Spacer(Modifier.weight(1f))
         Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(Card).padding(24.dp)) {
             Text("\u25B6", color = Lilac, fontSize = 32.sp)
             Spacer(Modifier.height(12.dp))
-            Text(picked?.name ?: "Pick a screen recording", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+            Text(picked?.name ?: "Pick screen recordings", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(4.dp))
             Text(
                 picked?.let { "${it.seconds / 60}m ${it.seconds % 60}s  -  ${it.w}x${it.h}" } ?: "Free, offline and private. Nothing leaves your phone.",
@@ -130,12 +141,12 @@ fun Home(preview: Picked? = null) {
                 Spacer(Modifier.height(10.dp))
             }
             Button(
-                onClick = { launcher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)) },
+                onClick = { addVideos() },
                 enabled = progress == null,
                 modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(16.dp),
                 colors = if (picked == null) ButtonDefaults.buttonColors(containerColor = Violet, contentColor = Color.White)
                          else ButtonDefaults.buttonColors(containerColor = Color(0xFF232A45), contentColor = Color.White)
-            ) { Text(if (picked == null) "Choose video" else "Choose another", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
+            ) { Text("Choose videos (adds to the queue)", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
         }
         Spacer(Modifier.height(10.dp))
         val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
@@ -280,6 +291,68 @@ fun TextScreen(r: ReadResult, onBack: () -> Unit) {
         Spacer(Modifier.height(8.dp))
         androidx.compose.foundation.text.selection.SelectionContainer {
             Text(r.text, color = Color.White, fontSize = 14.sp, modifier = Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).clip(RoundedCornerShape(12.dp)).background(Card).padding(12.dp))
+        }
+    }
+}
+
+/** Circled plus, top right: opens the picker and puts the chosen videos on the queue. Badge = jobs waiting or running. */
+@Composable
+fun AddButton(count: Int, onClick: () -> Unit) {
+    Box(Modifier.size(52.dp).clip(androidx.compose.foundation.shape.CircleShape).background(Card).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+        androidx.compose.foundation.Canvas(Modifier.size(34.dp)) {
+            val c = center; val r = size.minDimension / 2
+            drawCircle(Color.White, r - 1.5f, c, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3f))
+            val a = r * 0.45f
+            drawLine(Color.White, androidx.compose.ui.geometry.Offset(c.x - a, c.y), androidx.compose.ui.geometry.Offset(c.x + a, c.y), strokeWidth = 4f, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+            drawLine(Color.White, androidx.compose.ui.geometry.Offset(c.x, c.y - a), androidx.compose.ui.geometry.Offset(c.x, c.y + a), strokeWidth = 4f, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+        }
+        if (count > 0) Box(Modifier.align(Alignment.TopEnd).size(20.dp).clip(androidx.compose.foundation.shape.CircleShape).background(Violet), contentAlignment = Alignment.Center) {
+            Text(count.toString(), color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+fun QueueList() {
+    val ctx = LocalContext.current
+    val jobs = JobQueue.jobs
+    if (jobs.isEmpty()) return
+    Column(Modifier.fillMaxWidth().heightIn(max = 300.dp).clip(RoundedCornerShape(20.dp)).background(Card).padding(12.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("Queue", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, modifier = Modifier.weight(1f))
+            if (jobs.any { it.state >= 2 }) Text("Clear finished", color = Lilac, fontSize = 13.sp, modifier = Modifier.clickable { JobQueue.clearFinished() })
+        }
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
+            items(jobs.toList(), key = { it.id }) { j ->
+                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Ink).padding(10.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(if (j.state == 2 && j.title.isNotEmpty()) j.title else j.label, color = Color.White, fontSize = 14.sp, maxLines = 1, modifier = Modifier.weight(1f))
+                        if (j.state <= 1) Text("Cancel", color = Color(0xFFFF7A7A), fontSize = 13.sp, modifier = Modifier.clickable { JobQueue.cancel(j) }.padding(4.dp))
+                    }
+                    when (j.state) {
+                        0 -> Text("Waiting", color = Muted, fontSize = 12.sp)
+                        1 -> { LinearProgressIndicator(progress = { j.frac }, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), color = Violet, trackColor = Card); Text(j.stage, color = Muted, fontSize = 12.sp) }
+                        2 -> {
+                            Text("${j.lines} lines in ${j.secs}s - saved to Downloads/V-OCR", color = Color(0xFF9DFFB0), fontSize = 12.sp)
+                            val u = j.result
+                            if (u != null) Row(horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.padding(top = 4.dp)) {
+                                Text("Open", color = Lilac, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.clickable {
+                                    ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW).setDataAndType(u, "text/plain").addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                                })
+                                Text("Share file", color = Lilac, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.clickable {
+                                    val i = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                                        type = "text/plain"; putExtra(android.content.Intent.EXTRA_STREAM, u)
+                                        clipData = android.content.ClipData.newRawUri(j.title, u)
+                                        addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    }
+                                    ctx.startActivity(android.content.Intent.createChooser(i, "Share text file"))
+                                })
+                            }
+                        }
+                        else -> Text(j.stage, color = if (j.state == 3) Color(0xFFFF7A7A) else Muted, fontSize = 12.sp)
+                    }
+                }
+            }
         }
     }
 }
