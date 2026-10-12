@@ -1,5 +1,6 @@
-build/
-.gradle/
-local.properties
 *.apk
+.gradle/
+app/src/main/assets/ocr/
+build/
+local.properties
 shots/
