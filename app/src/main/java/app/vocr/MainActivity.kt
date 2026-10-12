@@ -207,6 +207,20 @@ fun Strips(res: Result, autoRead: Boolean = false, onBack: () -> Unit) {
             Spacer(Modifier.width(8.dp))
             Text("Fast mode (about 25% quicker, a little less accurate)", color = Muted, fontSize = 12.sp)
         }
+        var bench by remember { mutableStateOf<List<String>>(emptyList()) }
+        var benching by remember { mutableStateOf(false) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Button(enabled = reading == null && !benching, onClick = {
+                benching = true; bench = listOf("Running...")
+                Thread {
+                    val acc = ArrayList<String>()
+                    try { Reader.bench(ctx, res.strips) { acc.add(it); bench = acc.toList() } } catch (e: Throwable) { acc.add("failed: " + (e.message ?: e.javaClass.simpleName)); bench = acc.toList() }
+                    benching = false
+                }.start()
+            }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF232A45), contentColor = Color.White)) { Text("Speed test") }
+            Spacer(Modifier.width(8.dp))
+            Text(bench.joinToString("\n"), color = Lilac, fontSize = 12.sp)
+        }
         reading?.let { pr ->
             Spacer(Modifier.height(6.dp))
             LinearProgressIndicator(progress = { pr.done / pr.total.coerceAtLeast(1).toFloat() }, modifier = Modifier.fillMaxWidth(), color = Violet, trackColor = Card)
