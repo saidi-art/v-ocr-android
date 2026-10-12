@@ -57,6 +57,8 @@ class OcrEngine(detModel: ByteArray, recModel: ByteArray, keys: List<String>) {
     private val chars: List<String> = listOf("") + keys + listOf(" ")   // 0 = CTC blank, last = space
     var detMs = 0L; var recMs = 0L; var postMs = 0L
     var maxSide = 960
+    var narrowBoost = 1.0f
+    private val NARROW = setOf("i", "l", "I", "j", "t", "f", "r", "1", "|", "!", "'", ".", ",", ":", ";")
     var gapFrac = 0.16f   // a blank pixel run wider than this fraction of the line height is a word gap
 
     fun close() { det.close(); rec.close(); opts.close() }
@@ -141,17 +143,17 @@ class OcrEngine(detModel: ByteArray, recModel: ByteArray, keys: List<String>) {
     }
 
     /** x positions (in crop pixels) of blank pixel runs wide enough to be a word gap. */
-    private fun wordGaps(crop: Rgb): List<Float> {
+    private fun wordGaps(crop: Rgb): List<Pair<Float, Float>> {
         val w = crop.w; val h = crop.h
         val g = IntArray(w * h) { crop.gray(it % w, it / w) }
         val bg = g.sortedArray()[g.size / 2]
         val ink = BooleanArray(w)
         for (x in 0 until w) { for (y in 0 until h) if (abs(g[y * w + x] - bg) > 35) { ink[x] = true; break } }
         val minRun = gapFrac * h
-        val out = ArrayList<Float>(); var st = -1
+        val out = ArrayList<Pair<Float, Float>>(); var st = -1
         for (x in 0 until w) {
             if (!ink[x] && st < 0) st = x
-            if (ink[x] && st >= 0) { if (st > 0 && x - st >= minRun) out.add((st + x) / 2f); st = -1 }
+            if (ink[x] && st >= 0) { if (st > 0 && x - st >= minRun) out.add(Pair((st + x) / 2f, (x - st).toFloat())); st = -1 }
         }
         return out
     }
@@ -173,7 +175,9 @@ class OcrEngine(detModel: ByteArray, recModel: ByteArray, keys: List<String>) {
                 val a = chars[seq[i - 1]]; val c = chars[seq[i]]
                 if (a != " " && c != " " && pos[i] - pos[i - 1] >= 0 * medGap) {
                     val xa = pos[i - 1] * crop.w.toFloat() / tc.first; val xb = pos[i] * crop.w.toFloat() / tc.first
-                    if (gaps.any { it > xa && it < xb }) sb.append(' ')
+                    val narrow = a in NARROW || c in NARROW
+                    val need = gapFrac * crop.h * (if (narrow) narrowBoost else 1f)
+                    if (gaps.any { it.first > xa && it.first < xb && it.second >= need }) sb.append(' ')
                 }
                 sb.append(c)
             }
