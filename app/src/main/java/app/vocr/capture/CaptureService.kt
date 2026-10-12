@@ -224,7 +224,13 @@ class CaptureService : Service() {
             mode.text = modeText(); ui.removeCallbacks(hideMenuRun); ui.postDelayed(hideMenuRun, 4000)
         }
         fun autoText() = if (prefs(this).getBoolean("autoscroll", false)) "Auto-scroll ON" else "Auto-scroll off"
+        fun autoOn() = prefs(this).getBoolean("autoscroll", false) && ScrollService.instance != null
         val auto = chip(autoText(), Color.parseColor("#232A45")) {}
+        fun styleAuto() {   // violet = armed, slate + dim text = off, so the state reads at a glance
+            (auto.background as GradientDrawable).setColor(Color.parseColor(if (autoOn()) "#7C5CFF" else "#232A45"))
+            auto.setTextColor(if (autoOn()) Color.WHITE else Color.parseColor("#8A93AD"))
+        }
+        styleAuto()
         auto.setOnClickListener {
             if (ScrollService.instance == null) {
                 toast("Turn on \"V-OCR auto-scroll\" in Accessibility settings first")
@@ -232,7 +238,7 @@ class CaptureService : Service() {
                 startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             } else {
                 val a = !prefs(this).getBoolean("autoscroll", false); prefs(this).edit().putBoolean("autoscroll", a).apply()
-                auto.text = autoText(); ui.removeCallbacks(hideMenuRun); ui.postDelayed(hideMenuRun, 4000)
+                auto.text = autoText(); styleAuto(); ui.removeCallbacks(hideMenuRun); ui.postDelayed(hideMenuRun, 4000)
             }
         }
         overlay(close, p.x - dp(14), p.y - dp(30))
