@@ -19,7 +19,7 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
-        <activity android:name=".capture.ConsentActivity" android:exported="false"
+        <activity android:name=".capture.ConsentActivity" android:exported="false" android:taskAffinity=""
             android:theme="@android:style/Theme.Translucent.NoTitleBar" android:excludeFromRecents="true"/>
         <provider android:name="androidx.core.content.FileProvider" android:authorities="${applicationId}.share"
             android:exported="false" android:grantUriPermissions="true">
