@@ -58,7 +58,8 @@ object Reader {
             onProgress(Progress("Stitching", strips.size, strips.size))
             val raw = perStrip.sumOf { it.size }
             val cleaned = Chrome.strip(perStrip)
-            val merged = Stitch.merge(cleaned.map { st -> st.map { it.text } }).map { Fix.lookalikes(it) }
+            val sp = Spacing.load(ctx.assets.open("words.txt").use { String(it.readBytes(), Charsets.UTF_8) }.split("\n"))
+            val merged = Stitch.merge(cleaned.map { st -> st.map { sp.fix(it.text) } }).map { Fix.lookalikes(it) }
             val ms = System.currentTimeMillis() - t0
             return ReadResult(merged.joinToString("\n"), strips.size, raw, merged.size, ms,
                 "detect ${eng.detMs}ms, recognize ${eng.recMs}ms, post ${eng.postMs}ms")
