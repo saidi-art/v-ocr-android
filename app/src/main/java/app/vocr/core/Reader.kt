@@ -43,18 +43,26 @@ object Reader {
         return OcrEngine(det, rec, keys)
     }
 
-    fun readAll(ctx: Context, strips: List<StripInfo>, onProgress: (Progress) -> Unit): ReadResult {
+    fun readAll(ctx: Context, strips: List<StripInfo>, fast: Boolean = false, onProgress: (Progress) -> Unit): ReadResult {
         val t0 = System.currentTimeMillis()
         val eng = load(ctx)
+        if (fast) { eng.recH = 42; eng.maxSide = 704 }   // ~25% faster, ~2-3 points less accurate on dense text
+        // strip areas give the time estimate (recognition cost follows the amount of text, which follows area)
+        val areas = strips.map { s -> val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }; BitmapFactory.decodeFile(s.file.path, o); (o.outWidth.toLong() * o.outHeight).coerceAtLeast(1L) }
+        val totalArea = areas.sum().coerceAtLeast(1L); var doneArea = 0L; var liveLines = 0; var live: List<String> = emptyList()
+        val tRead = System.currentTimeMillis()
         val perStrip = ArrayList<List<Line>>()
         try {
             for ((i, s) in strips.withIndex()) {
-                onProgress(Progress("Reading text", i, strips.size))
+                val el = System.currentTimeMillis() - tRead
+                val eta = if (doneArea > 0) ((el.toDouble() / doneArea * (totalArea - doneArea)) / 1000).toInt() else -1
+                onProgress(Progress("Reading text", i, strips.size, eta, live, liveLines))
                 val bm = BitmapFactory.decodeFile(s.file.path) ?: continue
                 val px = IntArray(bm.width * bm.height); bm.getPixels(px, 0, bm.width, 0, 0, bm.width, bm.height)
                 for (k in px.indices) px[k] = px[k] and 0xFFFFFF
                 val img = Rgb(bm.width, bm.height, px); bm.recycle()
-                perStrip.add(eng.recognize(img).map { Line(Clean.text(it.text), (it.y0 + it.y1) / 2f / img.h) }.filter { Clean.keep(it.text) }.let { ls -> ls })
+                val ls = eng.recognize(img).map { Line(Clean.text(it.text), (it.y0 + it.y1) / 2f / img.h) }.filter { Clean.keep(it.text) }
+                perStrip.add(ls); doneArea += areas[i]; liveLines += ls.size; live = ls.takeLast(6).map { it.text }
             }
             onProgress(Progress("Stitching", strips.size, strips.size))
             val raw = perStrip.sumOf { it.size }
