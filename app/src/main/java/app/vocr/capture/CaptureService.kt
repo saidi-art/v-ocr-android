@@ -28,6 +28,9 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.TextView
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.RectF
 import app.vocr.core.Pipeline
 import app.vocr.core.Reader
 import app.vocr.core.Title
@@ -55,7 +58,8 @@ class CaptureService : Service() {
 
     private val ui = Handler(Looper.getMainLooper())
     private var wm: WindowManager? = null
-    private var widget: TextView? = null
+    private var widget: Bubble? = null
+    private var menu: List<View> = emptyList()
     private var lp: WindowManager.LayoutParams? = null
     private var projection: MediaProjection? = null
     private var recorder: MediaRecorder? = null
@@ -142,6 +146,7 @@ class CaptureService : Service() {
     /** Collapse to a thin edge sliver (or pull back out). */
     private fun tuck(on: Boolean) {
         ui.removeCallbacks(tuckRun)
+        if (on && busy) return   // stay visible while reading so the progress ring can be seen
         tucked = on
         widget?.alpha = if (on) 0.6f else if (recording) 0.55f else 1f
         slideTo(targetX(on))
@@ -151,10 +156,7 @@ class CaptureService : Service() {
     private fun addWidget() {
         if (widget != null) return
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
-        val tv = TextView(this).apply {
-            text = "REC"; setTextColor(Color.WHITE); textSize = 11f; gravity = Gravity.CENTER
-            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.parseColor("#7C5CFF")) }
-        }
+        val tv = Bubble(this)
         val p = WindowManager.LayoutParams(dp(52), dp(52), WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS, PixelFormat.TRANSLUCENT).apply {
             gravity = Gravity.TOP or Gravity.START; x = screenW() - dp(14); y = dp(220)
@@ -162,7 +164,7 @@ class CaptureService : Service() {
         var sx = 0f; var sy = 0f; var ox = 0; var oy = 0; var moved = false; var longDone = false; var wasTucked = false
         val longRun = Runnable {
             longDone = true
-            if (recording || busy) toast("Stop recording first") else closeWidget()
+            showMenu()
         }
         tv.setOnTouchListener { _, e ->
             when (e.action) {
@@ -171,7 +173,7 @@ class CaptureService : Service() {
                     ui.removeCallbacks(tuckRun)
                     wasTucked = tucked
                     if (tucked) tuck(false)            // first touch on the sliver slides the bubble out
-                    else ui.postDelayed(longRun, 700)  // long press closes it
+                    else ui.postDelayed(longRun, 600)  // long press opens the close / Fast-Slow controls
                 }
                 MotionEvent.ACTION_MOVE -> {
                     if (Math.abs(e.rawX - sx) > dp(6) || Math.abs(e.rawY - sy) > dp(6)) { moved = true; ui.removeCallbacks(longRun) }
@@ -191,18 +193,57 @@ class CaptureService : Service() {
         ui.postDelayed(tuckRun, 3000)
     }
 
+    private fun hideMenu() { ui.removeCallbacks(hideMenuRun); menu.forEach { v -> runCatching { wm?.removeView(v) } }; menu = emptyList() }
+    private val hideMenuRun = Runnable { hideMenu() }
+
+    private fun chip(text: String, bg: Int, onClick: () -> Unit): TextView = TextView(this).apply {
+        this.text = text; setTextColor(Color.WHITE); textSize = 13f; gravity = Gravity.CENTER
+        setPadding(dp(12), dp(6), dp(12), dp(6))
+        background = GradientDrawable().apply { cornerRadius = dp(20).toFloat(); setColor(bg) }
+        setOnClickListener { onClick() }
+    }
+
+    private fun overlay(v: View, x: Int, y: Int) {
+        val q = WindowManager.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS, PixelFormat.TRANSLUCENT).apply { gravity = Gravity.TOP or Gravity.START; this.x = x; this.y = y }
+        wm?.addView(v, q)
+    }
+
+    /** Long press: a close X at the top-left corner of the bubble and a Fast/Slow switch below it. */
+    private fun showMenu() {
+        val p = lp ?: return
+        hideMenu(); tuck(false)
+        val close = chip("\u00D7", Color.parseColor("#E5484D")) {
+            hideMenu(); if (recording || busy) toast("Stop recording first") else closeWidget()
+        }
+        fun modeText() = if (prefs(this).getBoolean("fast", false)) "Fast" else "Slow"
+        val mode = chip(modeText(), Color.parseColor("#232A45")) {}
+        mode.setOnClickListener {
+            val f = !prefs(this).getBoolean("fast", false); prefs(this).edit().putBoolean("fast", f).apply()
+            mode.text = modeText(); ui.removeCallbacks(hideMenuRun); ui.postDelayed(hideMenuRun, 4000)
+        }
+        overlay(close, p.x - dp(14), p.y - dp(30))
+        overlay(mode, p.x - dp(6), p.y + p.height + dp(6))
+        menu = listOf(close, mode)
+        ui.postDelayed(hideMenuRun, 4000)
+    }
+
+    private fun setRing(f: Float, label: String?) {
+        widget?.let { it.ring = f; if (label != null) it.label = label; it.invalidate() }
+    }
+
     private fun closeWidget() { removeWidget(); stopForeground(STOP_FOREGROUND_REMOVE); stopSelf() }
 
-    private fun removeWidget() { ui.removeCallbacks(tuckRun); widget?.let { runCatching { wm?.removeView(it) } }; widget = null }
+    private fun removeWidget() { hideMenu(); ui.removeCallbacks(tuckRun); widget?.let { runCatching { wm?.removeView(it) } }; widget = null }
 
     private fun setWidgetIdle() {
-        widget?.apply { text = "REC"; alpha = 1f; textSize = 11f; (background as GradientDrawable).setColor(Color.parseColor("#7C5CFF")) }
+        widget?.apply { label = "REC"; alpha = 1f; labelSp = 11f; fill = Color.parseColor("#7C5CFF"); ring = -1f; invalidate() }
         lp?.let { it.width = dp(52); it.height = dp(52); widget?.let { w -> runCatching { wm?.updateViewLayout(w, it) } } }
         tuck(false)
     }
 
     private fun setWidgetRecording() {
-        widget?.apply { text = "STOP"; alpha = 0.55f; textSize = 9f; (background as GradientDrawable).setColor(Color.parseColor("#E5484D")) }
+        widget?.apply { label = "STOP"; alpha = 0.55f; labelSp = 9f; fill = Color.parseColor("#E5484D"); ring = -1f; invalidate() }
         lp?.let { it.width = dp(40); it.height = dp(40); widget?.let { w -> runCatching { wm?.updateViewLayout(w, it) } } }
         tuck(false)
     }
@@ -259,6 +300,7 @@ class CaptureService : Service() {
         setWidgetIdle()
         if (!ok || f == null || !f.exists() || f.length() < 1000) { fgIdle("Tap the floating button to record"); toast("Recording was too short"); return }
         busy = true
+        tuck(false); setRing(0f, "0%")
         nm().notify(ID_FG, statusNote("Reading the recording..."))
         val fast = prefs(this).getBoolean("fast", false)
         Thread {
@@ -267,6 +309,7 @@ class CaptureService : Service() {
                 var lastNote = 0L
                 val rd = Reader.readAll(applicationContext, res.strips, fast) { pr ->
                     val now = System.currentTimeMillis()
+                    ui.post { setRing(pr.done / pr.total.coerceAtLeast(1).toFloat(), (pr.done * 100 / pr.total.coerceAtLeast(1)).toString() + "%") }
                     if (now - lastNote > 1500) {
                         lastNote = now
                         val eta = if (pr.etaS >= 0) "  ~${pr.etaS / 60}m ${pr.etaS % 60}s left" else ""
@@ -282,7 +325,7 @@ class CaptureService : Service() {
                     .setContentTitle("V-OCR could not read that recording").setContentText(e.message ?: e.javaClass.simpleName).setAutoCancel(true).build())
             } finally {
                 f.delete(); busy = false
-                ui.post { fgIdle("Tap the floating button to record") }
+                ui.post { setWidgetIdle(); fgIdle("Tap the floating button to record") }
             }
         }.start()
     }
@@ -311,5 +354,24 @@ class CaptureService : Service() {
             b.addAction(Notification.Action.Builder(null, "Share", PendingIntent.getActivity(this, 2, send, PendingIntent.FLAG_IMMUTABLE)).build())
         }
         nm().notify(ID_DONE, b.build())
+    }
+}
+
+/** Round floating button with a progress ring on its circumference. */
+private class Bubble(ctx: Context) : View(ctx) {
+    var label = "REC"; var fill = Color.parseColor("#7C5CFF"); var ring = -1f; var labelSp = 11f
+    private val pf = Paint(Paint.ANTI_ALIAS_FLAG); private val pr = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
+    private val pt = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textAlign = Paint.Align.CENTER }
+    override fun onDraw(c: Canvas) {
+        val d = resources.displayMetrics.density; val w = width.toFloat(); val h = height.toFloat()
+        val sw = 4f * d; pr.strokeWidth = sw
+        val r = RectF(sw / 2, sw / 2, w - sw / 2, h - sw / 2)
+        pf.color = fill; c.drawOval(RectF(sw, sw, w - sw, h - sw), pf)
+        if (ring >= 0f) {
+            pr.color = Color.parseColor("#33FFFFFF"); c.drawOval(r, pr)
+            pr.color = Color.parseColor("#9DFFB0"); c.drawArc(r, -90f, 360f * ring.coerceIn(0f, 1f), false, pr)
+        }
+        pt.textSize = labelSp * d
+        c.drawText(label, w / 2, h / 2 - (pt.descent() + pt.ascent()) / 2, pt)
     }
 }
