@@ -9,7 +9,7 @@ import java.io.File
 import kotlin.math.min
 
 data class StripInfo(val file: File, val t: Double, val kind: String)
-data class Progress(val stage: String, val done: Int, val total: Int)
+data class Progress(val stage: String, val done: Int, val total: Int, val etaS: Int = -1, val live: List<String> = emptyList(), val lines: Int = 0)
 data class Result(val strips: List<StripInfo>, val framesTotal: Int, val dup: Int, val full: Int, val cropped: Int, val seconds: Int, val ms: Long, val timing: String = "")
 
 object Pipeline {
