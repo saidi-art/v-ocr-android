@@ -161,14 +161,17 @@ class OcrEngine(detModel: ByteArray, recModel: ByteArray, keys: List<String>) {
         for (b in detect(img)) {
             val x0 = b.x0.toInt().coerceIn(0, img.w - 1); val y0 = b.y0.toInt().coerceIn(0, img.h - 1)
             val x1 = b.x1.toInt().coerceIn(x0 + 1, img.w); val y1 = b.y1.toInt().coerceIn(y0 + 1, img.h)
+            if (y1 - y0 < 14 || x1 - x0 < 18) continue   // specks (wallpaper, icons) are not text lines
             val crop = img.crop(x0, y0, x1, y1)
             val (seq, pos, tc) = readLine(crop)
             if (seq.isEmpty()) continue
             val gaps = wordGaps(crop)
+            val d = IntArray(seq.size - 1) { pos[it + 1] - pos[it] }.sortedArray()
+            val medGap = if (d.isEmpty()) 1 else d[d.size / 2]
             val sb = StringBuilder(chars[seq[0]])
             for (i in 1 until seq.size) {
                 val a = chars[seq[i - 1]]; val c = chars[seq[i]]
-                if (a != " " && c != " ") {
+                if (a != " " && c != " " && pos[i] - pos[i - 1] >= 0 * medGap) {
                     val xa = pos[i - 1] * crop.w.toFloat() / tc.first; val xb = pos[i] * crop.w.toFloat() / tc.first
                     if (gaps.any { it > xa && it < xb }) sb.append(' ')
                 }
