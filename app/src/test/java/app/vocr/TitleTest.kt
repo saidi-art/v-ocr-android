@@ -32,3 +32,18 @@ class TitleTest {
         println("TITLE=" + Title.from(f.readText(), "x"))
     }
 }
+
+class TitleCleanTest {
+    private val words = File("src/main/assets/words.txt").readLines().map { it.trim().lowercase() }.filter { it.isNotEmpty() }.toHashSet()
+    @Test fun fastExportPicksCleanLine() {
+        val f = File("/downloads/file-923ec9a9.txt")
+        if (!f.exists()) return
+        val t = Title.from(f.readText(), "x", words)
+        println("FASTTITLE " + t)
+        assertTrue(t.startsWith("Instinct - Native it is"))
+    }
+    @Test fun cleanTextUnchanged() {
+        val t = "Instinct\nNative it is. Key-gate's dead then - nothing\nto share until the app exists."
+        assertEquals("Instinct - Native it is. Key-gate's dead then - nothing", Title.from(t, "x", words))
+    }
+}
