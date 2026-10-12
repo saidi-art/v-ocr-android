@@ -308,15 +308,15 @@ class CaptureService : Service() {
 
     // ---- auto-scroll ----------------------------------------------------------------------------------------------
     // Pace: a 0.6-screen swipe in 90 ms (about 0.11 screen per frame at 60 fps, a third of the 0.30 span limit the tracker is
-    // tuned to), then 650 ms for the fling to settle. After SWIPES swipes the recording stops and the text is read.
-    private var scrolling = false; private var swipes = 0
+    // tuned to), then 650 ms for the fling to settle. The recording stops after scrollcapsec seconds (default 300) and the text is read.
+    private var scrolling = false; private var swipes = 0; private var scrollT0 = 0L
     private val scrollRun = Runnable { scrollStep() }
-    private fun startAutoScroll() { scrolling = true; swipes = 0; ui.postDelayed(scrollRun, 2500) }
+    private fun startAutoScroll() { scrolling = true; swipes = 0; scrollT0 = System.currentTimeMillis(); ui.postDelayed(scrollRun, 2500) }
     private fun stopAutoScroll() { scrolling = false; ui.removeCallbacks(scrollRun) }
     private fun scrollStep() {
         val svc = ScrollService.instance
         if (!scrolling || !recording || svc == null) return
-        if (swipes >= prefs(this).getInt("scrollcap", 40)) { stopAutoScroll(); toast("Auto-scroll done"); stopRecording(); return }
+        if (System.currentTimeMillis() - scrollT0 >= prefs(this).getInt("scrollcapsec", 300) * 1000L) { stopAutoScroll(); toast("Auto-scroll done"); stopRecording(); return }
         val m = resources.displayMetrics
         svc.swipe(m.widthPixels, m.heightPixels, 0.80f, 0.20f, 90) { ok ->
             if (ok) swipes++
@@ -337,9 +337,11 @@ class CaptureService : Service() {
         tuck(false); setRing(0f, "0%")
         nm().notify(ID_FG, statusNote("Reading the recording..."))
         val fast = prefs(this).getBoolean("fast", false)
+        // keep the CPU awake: a long recording takes minutes to read and the screen may turn off meanwhile
+        val wl = (getSystemService(POWER_SERVICE) as android.os.PowerManager).newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "vocr:read").apply { acquire(45 * 60 * 1000L) }
         Thread {
             try {
-                val res = Pipeline.run(applicationContext, Uri.fromFile(f), { })
+                val res = Pipeline.run(applicationContext, Uri.fromFile(f), { pr -> ui.post { setRing(pr.done / pr.total.coerceAtLeast(1).toFloat(), "SCAN") } })
                 var lastNote = 0L
                 val rd = Reader.readAll(applicationContext, res.strips, fast) { pr ->
                     val now = System.currentTimeMillis()
@@ -357,7 +359,7 @@ class CaptureService : Service() {
                 nm().notify(ID_DONE, Notification.Builder(this, CH_DONE).setSmallIcon(android.R.drawable.stat_notify_error)
                     .setContentTitle("V-OCR could not read that recording").setContentText(e.message ?: e.javaClass.simpleName).setAutoCancel(true).build())
             } finally {
-                f.delete(); busy = false
+                f.delete(); busy = false; runCatching { if (wl.isHeld) wl.release() }
                 ui.post { setWidgetIdle(); fgIdle("Tap the floating button to record") }
             }
         }.start()
