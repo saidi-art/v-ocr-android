@@ -39,7 +39,7 @@ private val sections: List<Pair<String, String>> = listOf(
         "The (+) chip next to the bubble is described under \"Queue and (+)\" below.",
     "Auto-scroll (hands-free recording)" to
         "Auto-scroll swipes the screen for you while it records, so you only tap start.\n" +
-        "Setup, once: Android Settings > Accessibility > Installed apps > \"V-OCR auto-scroll\" > turn on. (The home screen button \"Auto-scroll\" opens that page.) If you just installed an update and it stops working, switch it off and on once.\n" +
+        "Setup, once: tap the home screen button \"Auto-scroll\" (or the Auto-scroll switch on the bubble). V-OCR first shows a notice explaining what the permission is used for (swipes, plus tiny grey 48x96 screenshots kept only in memory to spot the bottom of the page). If you agree, Android Settings > Accessibility > Installed apps > \"V-OCR auto-scroll\" > turn on. If you just installed an update and it stops working, switch it off and on once.\n" +
         "Use: long-press the bubble and tap the Auto-scroll switch. Violet means armed, grey means off. Then start a recording on the page you want. V-OCR scrolls down for you.\n" +
         "It stops by itself when the page stops moving (3 swipes in a row with no change) and shows \"Reached the bottom - reading now\". A 5-minute cap also stops it as a safety net. You can always tap the bubble to stop sooner.\n" +
         "Tip: start at the top of the content. Pages that load more as you scroll may keep moving; stop manually if needed.",
