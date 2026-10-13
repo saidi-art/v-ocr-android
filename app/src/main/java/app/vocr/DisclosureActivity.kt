@@ -80,7 +80,8 @@ fun Disclosure(onAgree: () -> Unit, onDecline: () -> Unit) {
             Spacer(Modifier.height(12.dp))
             Text(
                 "This is optional. V-OCR works without it; you just scroll by hand while recording. " +
-                    "If you agree, Android's Accessibility settings open next. Turn on \"V-OCR auto-scroll\" there. You can turn it off at any time.",
+                    "If you agree, Android's Accessibility settings open next. Turn on \"V-OCR\" there. You can turn it off at any time.\n\n" +
+                    "If Android refuses (\"App was denied access\", or V-OCR is greyed out as \"Controlled by restricted setting\"): tap Close, go to Settings > Apps > V-OCR > three dots at the top right > Allow restricted settings, then turn it on in Accessibility again. The manual has the full steps.",
                 color = Muted, fontSize = 13.sp, lineHeight = 19.sp
             )
         }
