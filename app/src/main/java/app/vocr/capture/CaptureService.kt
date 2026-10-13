@@ -49,8 +49,8 @@ class CaptureService : Service() {
         const val ACTION_CLOSE = "app.vocr.CLOSE"
         const val EXTRA_CODE = "code"
         const val EXTRA_DATA = "data"
-        private const val CH_STATUS = "vocr_status"
-        private const val CH_DONE = "vocr_done"
+        private const val CH_STATUS = "vocr_status2"
+        private const val CH_DONE = "vocr_done2"
         private const val ID_FG = 41
         fun prefs(ctx: Context) = ctx.getSharedPreferences("vocr", Context.MODE_PRIVATE)
     }
@@ -88,8 +88,9 @@ class CaptureService : Service() {
     private fun nm() = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
 
     private fun channels() {
-        nm().createNotificationChannel(NotificationChannel(CH_STATUS, "Recorder status", NotificationManager.IMPORTANCE_LOW))
-        nm().createNotificationChannel(NotificationChannel(CH_DONE, "Text ready", NotificationManager.IMPORTANCE_HIGH))
+        runCatching { nm().deleteNotificationChannel("vocr_status"); nm().deleteNotificationChannel("vocr_done") }
+        nm().createNotificationChannel(NotificationChannel(CH_STATUS, "Recorder status", NotificationManager.IMPORTANCE_LOW).apply { setShowBadge(false) })
+        nm().createNotificationChannel(NotificationChannel(CH_DONE, "Text ready", NotificationManager.IMPORTANCE_HIGH).apply { setShowBadge(false) })
     }
 
     private fun act(action: String, label: String): Notification.Action {
