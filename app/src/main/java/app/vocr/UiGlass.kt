@@ -55,7 +55,7 @@ fun Button(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    colors: ButtonColors = ButtonDefaults.buttonColors(containerColor = Color(0xFF232A45), contentColor = Color.White),
+    colors: ButtonColors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25262B), contentColor = Color.White),
     content: @Composable RowScope.() -> Unit
 ) {
     val src = remember { MutableInteractionSource() }
