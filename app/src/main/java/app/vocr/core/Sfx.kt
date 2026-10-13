@@ -22,14 +22,18 @@ object Sfx {
 
     @Synchronized private fun update() {
         val c = ctx ?: return
-        val wantScroll = scrollOn && !doneOn
-        val wantScan = scanOn && !scrollOn && !doneOn
+        val snd = c.getSharedPreferences("vocr", Context.MODE_PRIVATE).getBoolean("sound", true)
+        if (!snd) { doneP?.let { runCatching { it.release() } }; doneP = null; doneOn = false }
+        val wantScroll = snd && scrollOn && !doneOn
+        val wantScan = snd && scanOn && !scrollOn && !doneOn
         if (wantScroll) { if (scrollP == null) scrollP = make(c, R.raw.sfx_scroll, true); runCatching { scrollP?.let { if (!it.isPlaying) it.start() } } }
         else scrollP?.let { runCatching { it.release() }; scrollP = null }
         if (wantScan) { if (scanP == null) scanP = make(c, R.raw.sfx_scan, true)?.also { it.setVolume(0.5f, 0.5f) }; runCatching { scanP?.let { if (!it.isPlaying) it.start() } } }
         else scanP?.let { runCatching { it.release() }; scanP = null }
     }
 
+    /** Called when the Sound switch changes: stops everything when turned off. */
+    fun refresh(c: Context) { ctx = c.applicationContext; update() }
     fun scroll(c: Context, on: Boolean) { ctx = c.applicationContext; scrollOn = on; update() }
     fun scan(c: Context, on: Boolean) { ctx = c.applicationContext; scanOn = on; update() }
 
@@ -37,6 +41,7 @@ object Sfx {
     @Synchronized fun cue(c: Context) {
         if (doneP != null) return
         ctx = c.applicationContext
+        if (!c.getSharedPreferences("vocr", Context.MODE_PRIVATE).getBoolean("sound", true)) return
         doneOn = true; update()
         doneP = make(c.applicationContext, R.raw.sfx_done, false)?.also { p ->
             p.setOnCompletionListener { synchronized(this) { runCatching { it.release() }; if (doneP === it) doneP = null; doneOn = false; update() } }
