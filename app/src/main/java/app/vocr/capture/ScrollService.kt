@@ -3,7 +3,9 @@ package app.vocr.capture
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.graphics.Path
+import android.view.Display
 import android.view.accessibility.AccessibilityEvent
+import android.graphics.Bitmap
 
 /** Gesture-only accessibility service: swipes the foreground app up (scrolls down) at a set pace. Reads nothing. */
 class ScrollService : AccessibilityService() {
@@ -21,6 +23,35 @@ class ScrollService : AccessibilityService() {
             override fun onCancelled(d: GestureDescription?) { done(false) }
         }, null)
         if (!ok) done(false)
+    }
+
+    /**
+     * Small grey thumbnail of the screen (48x96) for the bottom-of-page check, or null when a screenshot is not available.
+     * Pixels only: nothing is read from the screen and nothing is stored. The right edge (floating widget) and top strip (clock) are blanked.
+     */
+    fun thumb(done: (IntArray?) -> Unit) {
+        if (android.os.Build.VERSION.SDK_INT < 30) { done(null); return }
+        val ok = runCatching {
+            takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, object : TakeScreenshotCallback {
+                override fun onSuccess(r: ScreenshotResult) {
+                    val out = runCatching {
+                        val hw = Bitmap.wrapHardwareBuffer(r.hardwareBuffer, r.colorSpace)
+                        val sw = hw?.copy(Bitmap.Config.ARGB_8888, false)
+                        r.hardwareBuffer.close()
+                        val sm = sw?.let { Bitmap.createScaledBitmap(it, 48, 96, true) }
+                        val a = IntArray(48 * 96)
+                        if (sm != null) for (y in 0 until 96) for (x in 0 until 48) {
+                            val c = sm.getPixel(x, y)
+                            a[y * 48 + x] = if (x >= 39 || y < 6) 0 else (((c shr 16) and 255) * 299 + ((c shr 8) and 255) * 587 + (c and 255) * 114) / 1000
+                        }
+                        if (sm == null) null else a
+                    }.getOrNull()
+                    done(out)
+                }
+                override fun onFailure(code: Int) { done(null) }
+            })
+        }.isSuccess
+        if (!ok) done(null)
     }
 
     companion object { @Volatile var instance: ScrollService? = null }
