@@ -209,7 +209,7 @@ fun Home(preview: Picked? = null) {
             Spacer(Modifier.height(10.dp))
             Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(20.dp)).padding(16.dp)) {
                 Button(
-                    onClick = { DisclosureActivity.openAccessibility(ctx) },
+                    onClick = { showSettings = false; DisclosureActivity.openAccessibility(ctx) },
                     modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25262B), contentColor = Color.White)
                 ) { Text(if (app.vocr.capture.ScrollService.instance != null) "Auto-scroll: enabled (long-press the bubble)" else "Auto-scroll: turn on in Accessibility", fontSize = 14.sp) }
