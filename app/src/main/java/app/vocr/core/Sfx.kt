@@ -26,21 +26,29 @@ object Sfx {
         val wantScan = scanOn && !scrollOn && !doneOn
         if (wantScroll) { if (scrollP == null) scrollP = make(c, R.raw.sfx_scroll, true); runCatching { scrollP?.let { if (!it.isPlaying) it.start() } } }
         else scrollP?.let { runCatching { it.release() }; scrollP = null }
-        if (wantScan) { if (scanP == null) scanP = make(c, R.raw.sfx_scan, true); runCatching { scanP?.let { if (!it.isPlaying) it.start() } } }
+        if (wantScan) { if (scanP == null) scanP = make(c, R.raw.sfx_scan, true)?.also { it.setVolume(0.5f, 0.5f) }; runCatching { scanP?.let { if (!it.isPlaying) it.start() } } }
         else scanP?.let { runCatching { it.release() }; scanP = null }
     }
 
     fun scroll(c: Context, on: Boolean) { ctx = c.applicationContext; scrollOn = on; update() }
     fun scan(c: Context, on: Boolean) { ctx = c.applicationContext; scanOn = on; update() }
 
-    @Synchronized fun done(c: Context) {
+    /** The 22 s end cue. Started by the queue when the job is estimated to finish in about that long; plays out in full. */
+    @Synchronized fun cue(c: Context) {
+        if (doneP != null) return
         ctx = c.applicationContext
-        doneP?.let { runCatching { it.release() } }
         doneOn = true; update()
         doneP = make(c.applicationContext, R.raw.sfx_done, false)?.also { p ->
             p.setOnCompletionListener { synchronized(this) { runCatching { it.release() }; if (doneP === it) doneP = null; doneOn = false; update() } }
             runCatching { p.start() }
         } ?: run { doneOn = false; null }
         update()
+    }
+
+    /** Cancelled or failed job: cut the cue. */
+    @Synchronized fun stopCue(c: Context) {
+        ctx = c.applicationContext
+        doneP?.let { runCatching { it.release() } }; doneP = null
+        doneOn = false; update()
     }
 }
