@@ -28,7 +28,7 @@ class FlingLabTest {
         System.getenv("FLRECH")?.let { eng.recH = it.toInt() }; System.getenv("FLDET")?.let { eng.maxSide = it.toInt() }
         val per = ArrayList<List<Line>>()
         fun handle(s: Rgb) {
-            val ls = eng.recognize(s).filter { it.conf >= 0.55f && it.text.count { c -> c.isLetterOrDigit() } >= 1 }.map { Line(it.text, (it.y0 + it.y1) / 2f / s.h) }
+            val tt = System.nanoTime(); val d0 = eng.detMs; val ls0 = eng.recognize(s); val tms = (System.nanoTime() - tt) / 1_000_000; println("TIME strip ${per.size} h=${s.h} area=${s.w * s.h} ms=$tms det=${eng.detMs - d0} lines=${ls0.size}"); val ls = ls0.filter { it.conf >= 0.55f && it.text.count { c -> c.isLetterOrDigit() } >= 1 }.map { Line(it.text, (it.y0 + it.y1) / 2f / s.h) }
             println("LAB strip ${per.size} ${s.w}x${s.h}: ${ls.size} lines"); per.add(ls)
         }
         val noocr = System.getenv("FLNOOCR") != null; var nstrips = 0
