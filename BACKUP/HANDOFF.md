@@ -35,9 +35,13 @@ All wrap edits on top of build 57 are in BACKUP/wrap/wrap-vs-build57.patch (git 
 - Sound: end cue only during processing; soft haptics while auto-scroll runs; haptic on all buttons; volume low.
 - Fast / Slow as an explicit two-tier choice. Slow = recH 48 baseline ("play safe, use Slow when data matters"). Fast = provisional recH 42 (GATE 1 below). Fast default OFF.
 - "Speed over market share"; EN-first engine. Head trim becomes English-only (GATE 2 below). French lines WILL garble under an EN-only head; document this.
-- Dropped: confidence-cascade router, recH 32 (missing-text loss).
+- Dropped: confidence-cascade router, recH 32 (recall 0.609; the loss is mostly substituted text, not missing lines).
 
 ## 5. Gates and open decisions
+- GATE 2 RESOLVED (2026-10-14 01:14, the user): the full 6,625-class head STAYS. EN-only and EN+FR trims are SHELVED. Reasoning: the trim buys only ~4.5% recognize speed and ~3 MB; EN-only never outputs accents (accent recall 0.00 on the synthetic French proxy vs 0.35 for the full model) and every other language garbles. Full head keeps French, Chinese and everything else. The speed work goes into pipeline levers instead (overlap dedup, execution providers).
+- GATE 1 PASSED: Fast = recH 42 (see section 10).
+- Remaining experiment: SAD overlap-dedup calibration curve (precision/recall vs threshold, false-positive rate stated at each threshold; planning baseline is the measured loose-match -7.1%, not the 29% ceiling).
+(Older text below about gates 1 and 2 is superseded by this.)
 - GATE 1 (Fast=42): the 0.905 -> 0.898 delta must be decomposed into missing lines vs substituted characters. Rule adopted from the advisor: if > 10% of the loss is missing lines, Fast pivots to detector maxSide reduction instead of recognizer height. Needs the per-line DUMP runs (base_dump, rech32_dump; see lab section).
 - GATE 2 (EN head): commit the 96-class EN-only head only after bench scoring; measure French-line recall on a named French sample and state its source.
 - Naming/package: com.kubeai.scrollon requested as new id; implications reported (new app on switch, settings do not migrate, Play id permanent once uploaded, no Play upload yet). Not applied; waiting for go-ahead (wrap or v3).
