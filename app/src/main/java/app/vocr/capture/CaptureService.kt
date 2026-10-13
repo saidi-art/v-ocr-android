@@ -318,8 +318,8 @@ class CaptureService : Service() {
     // tuned to), then 650 ms for the fling to settle. The recording stops after scrollcapsec seconds (default 300) and the text is read.
     private var scrolling = false; private var swipes = 0; private var scrollT0 = 0L
     private val scrollRun = Runnable { scrollStep() }
-    private fun startAutoScroll() { lastThumb = null; still = 0; scrolling = true; swipes = 0; scrollT0 = System.currentTimeMillis(); ui.postDelayed(scrollRun, 2500) }
-    private fun stopAutoScroll() { scrolling = false; ui.removeCallbacks(scrollRun) }
+    private fun startAutoScroll() { app.vocr.core.Sfx.scroll(this, true); lastThumb = null; still = 0; scrolling = true; swipes = 0; scrollT0 = System.currentTimeMillis(); ui.postDelayed(scrollRun, 2500) }
+    private fun stopAutoScroll() { app.vocr.core.Sfx.scroll(this, false); scrolling = false; ui.removeCallbacks(scrollRun) }
     private fun scrollStep() {
         val svc = ScrollService.instance
         if (!scrolling || !recording || svc == null) return
