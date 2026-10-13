@@ -172,6 +172,7 @@ class CaptureService : Service() {
         tv.setOnTouchListener { _, e ->
             when (e.action) {
                 MotionEvent.ACTION_DOWN -> {
+                    tv.pressedState = true; tv.invalidate(); tv.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP, android.view.HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING)
                     sx = e.rawX; sy = e.rawY; ox = p.x; oy = p.y; moved = false; longDone = false
                     ui.removeCallbacks(tuckRun)
                     wasTucked = tucked
@@ -183,6 +184,7 @@ class CaptureService : Service() {
                     if (moved) { p.x = ox + (e.rawX - sx).toInt(); p.y = oy + (e.rawY - sy).toInt(); wm?.updateViewLayout(tv, p) }
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    tv.pressedState = false; tv.invalidate()
                     ui.removeCallbacks(longRun)
                     if (moved) { sideRight = p.x + p.width / 2 > screenW() / 2; tuck(false) }   // snap to the nearest edge, tuck after a moment
                     else if (!longDone && !wasTucked && e.action == MotionEvent.ACTION_UP) { onWidgetTap(); ui.postDelayed(tuckRun, 3000) }
@@ -199,12 +201,7 @@ class CaptureService : Service() {
     private fun hideMenu() { ui.removeCallbacks(hideMenuRun); menu.forEach { v -> runCatching { wm?.removeView(v) } }; menu = emptyList() }
     private val hideMenuRun = Runnable { hideMenu() }
 
-    private fun chip(text: String, bg: Int, onClick: () -> Unit): TextView = TextView(this).apply {
-        this.text = text; setTextColor(Color.WHITE); textSize = 13f; gravity = Gravity.CENTER
-        setPadding(dp(12), dp(6), dp(12), dp(6))
-        background = GradientDrawable().apply { cornerRadius = dp(20).toFloat(); setColor(bg) }
-        setOnClickListener { onClick() }
-    }
+    private fun chip(text: String, bg: Int, onClick: () -> Unit): TextView = glassChip(this, text, bg).apply { setOnClickListener { onClick() } }
 
     private fun overlay(v: View, x: Int, y: Int) {
         val q = WindowManager.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
@@ -417,40 +414,4 @@ class CaptureService : Service() {
         }
     }
 
-}
-
-/** Round floating button with a progress ring on its circumference. */
-private class Bubble(ctx: Context) : View(ctx) {
-    var label = "REC"; var fill = Color.parseColor("#7C5CFF"); var ring = -1f; var labelSp = 11f
-    private val pf = Paint(Paint.ANTI_ALIAS_FLAG); private val pr = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
-    private val pt = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textAlign = Paint.Align.CENTER }
-    override fun onDraw(c: Canvas) {
-        val d = resources.displayMetrics.density; val w = width.toFloat(); val h = height.toFloat()
-        val sw = 4f * d; pr.strokeWidth = sw
-        val r = RectF(sw / 2, sw / 2, w - sw / 2, h - sw / 2)
-        pf.color = fill; c.drawOval(RectF(sw, sw, w - sw, h - sw), pf)
-        if (ring >= 0f) {
-            pr.color = Color.parseColor("#33FFFFFF"); c.drawOval(r, pr)
-            pr.color = Color.parseColor("#9DFFB0"); c.drawArc(r, -90f, 360f * ring.coerceIn(0f, 1f), false, pr)
-        }
-        pt.textSize = labelSp * d
-        c.drawText(label, w / 2, h / 2 - (pt.descent() + pt.ascent()) / 2, pt)
-    }
-}
-
-/** Circled plus (the ADD button), shown above the widget while recordings are being read. Badge = jobs in the queue. */
-private class AddChip(ctx: Context) : View(ctx) {
-    var count = 0
-    private val pf = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#232A45") }
-    private val ps = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = Color.WHITE; strokeCap = Paint.Cap.ROUND }
-    private val pt = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textAlign = Paint.Align.CENTER; isFakeBoldText = true }
-    private val pb = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#7C5CFF") }
-    override fun onDraw(c: Canvas) {
-        val d = resources.displayMetrics.density; val w = width.toFloat(); val h = height.toFloat(); val cx = w / 2; val cy = h / 2
-        c.drawCircle(cx, cy, w / 2 - 2 * d, pf)
-        ps.strokeWidth = 2f * d; c.drawCircle(cx, cy, w / 2 - 4 * d, ps)
-        ps.strokeWidth = 2.5f * d; val a = 8f * d
-        c.drawLine(cx - a, cy, cx + a, cy, ps); c.drawLine(cx, cy - a, cx, cy + a, ps)
-        if (count > 1) { c.drawCircle(w - 8 * d, 8 * d, 8 * d, pb); pt.textSize = 10f * d; c.drawText(count.toString(), w - 8 * d, 8 * d - (pt.descent() + pt.ascent()) / 2, pt) }
-    }
 }
