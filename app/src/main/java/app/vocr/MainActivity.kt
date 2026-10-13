@@ -412,7 +412,7 @@ fun QueueList() {
                 Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(12.dp), Ink).padding(10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(if (j.state == 2 && j.title.isNotEmpty()) j.title else j.label, color = Color.White, fontSize = 14.sp, maxLines = 1, modifier = Modifier.weight(1f))
-                        if (j.state <= 1) Text("Cancel", color = Color(0xFFFF7A7A), fontSize = 13.sp, modifier = Modifier.clickable { JobQueue.cancel(j) }.padding(4.dp))
+                        if (j.state <= 1) Text("Cancel", color = Color(0xFFFF7A7A), fontSize = 13.sp, modifier = Modifier.clickable { JobQueue.cancel(j) }.padding(horizontal = 10.dp, vertical = 8.dp))
                     }
                     when (j.state) {
                         0 -> Text("Waiting", color = Muted, fontSize = 12.sp)
