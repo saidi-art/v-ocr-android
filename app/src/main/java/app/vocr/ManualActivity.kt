@@ -97,7 +97,7 @@ private val sections: List<Pair<String, String>> = listOf(
 fun Manual(onBack: () -> Unit) {
     Column(Modifier.fillMaxSize().scrollOnBackdrop().systemBarsPadding()) {
         Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-            Button(onClick = onBack, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF232A45), contentColor = Color.White)) { Text("Back") }
+            Button(onClick = onBack, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25262B), contentColor = Color.White)) { Text("Back") }
             Spacer(Modifier.width(12.dp))
             Text("User manual", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.SemiBold, fontFamily = DisplayFont)
         }
