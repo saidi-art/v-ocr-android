@@ -169,7 +169,7 @@ object JobQueue {
             .setStyle(Notification.BigTextStyle().bigText(text.take(600))).setAutoCancel(true)
         val uri = job.result
         if (uri != null) {
-            val view = Intent(Intent.ACTION_VIEW).setDataAndType(uri, "text/plain").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            val view = Intent(c, app.vocr.SavedActivity::class.java).setData(uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)   // opens the text inside the app
             b.setContentIntent(PendingIntent.getActivity(c, 1000 + job.id, view, PendingIntent.FLAG_IMMUTABLE))
             val send = Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Share text")
             b.addAction(Notification.Action.Builder(null, "Share", PendingIntent.getActivity(c, 2000 + job.id, send, PendingIntent.FLAG_IMMUTABLE)).build())
