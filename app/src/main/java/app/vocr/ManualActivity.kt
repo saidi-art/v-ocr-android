@@ -66,7 +66,8 @@ private val sections: List<Pair<String, String>> = listOf(
         "The text screen also shows how many lines were read and how long it took.",
     "Settings" to
         "Fast mode (home screen, text screen, or bubble long-press): about 25% quicker, slightly less accurate. Off by default.\n" +
-        "Settings button (home screen): opens Auto-scroll setup, Auto-scroll speed and the screenshots switch.\n" +
+        "Settings button (home screen): opens Auto-scroll setup, Auto-scroll speed, the Sound switch and the screenshots switch.\n" +
+        "Sound: on by default. Turn it off in Settings and none of the three sounds play (auto-scroll loop, scan loop, end-of-processing sound).\n" +
         "Show extracted screenshots: shows the kept frames (\"strips\") so you can check what was read. Off by default.\n" +
         "Auto-scroll: see above.\n" +
         "Everything else is automatic. There is no account and no cloud option.",
