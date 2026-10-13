@@ -100,7 +100,7 @@ class CaptureService : Service() {
 
     private fun statusNote(text: String, withStop: Boolean = false, progress: Pair<Int, Int>? = null): Notification {
         channels()
-        val b = Notification.Builder(this, CH_STATUS).setSmallIcon(android.R.drawable.ic_menu_camera).setContentTitle("V-OCR").setContentText(text).setOngoing(true)
+        val b = Notification.Builder(this, CH_STATUS).setSmallIcon(android.R.drawable.ic_menu_camera).setContentTitle("ScrOllOn").setContentText(text).setOngoing(true)
         if (progress != null) b.setProgress(progress.second, progress.first, false)
         if (withStop) b.addAction(act(ACTION_STOP, "Stop and read"))
         else b.addAction(act(ACTION_CLOSE, "Close recorder"))
@@ -217,17 +217,17 @@ class CaptureService : Service() {
             hideMenu(); if (recording) toast("Stop recording first") else closeWidget()
         }
         fun modeText() = if (prefs(this).getBoolean("fast", false)) "Fast" else "Slow"
-        val mode = chip(modeText(), Color.parseColor("#232A45")) {}
+        val mode = chip(modeText(), Color.parseColor("#25262B")) {}
         mode.setOnClickListener {
             val f = !prefs(this).getBoolean("fast", false); prefs(this).edit().putBoolean("fast", f).apply()
             mode.text = modeText(); ui.removeCallbacks(hideMenuRun); ui.postDelayed(hideMenuRun, 4000)
         }
         fun autoText() = if (prefs(this).getBoolean("autoscroll", false)) "Auto-scroll ON" else "Auto-scroll off"
         fun autoOn() = prefs(this).getBoolean("autoscroll", false) && ScrollService.instance != null
-        val auto = chip(autoText(), Color.parseColor("#232A45")) {}
+        val auto = chip(autoText(), Color.parseColor("#25262B")) {}
         fun styleAuto() {   // violet = armed, slate + dim text = off, so the state reads at a glance
-            (auto.background as GradientDrawable).setColor(Color.parseColor(if (autoOn()) "#7C5CFF" else "#232A45"))
-            auto.setTextColor(if (autoOn()) Color.WHITE else Color.parseColor("#8A93AD"))
+            (auto.background as GradientDrawable).setColor(Color.parseColor(if (autoOn()) "#D2B08A" else "#25262B"))
+            auto.setTextColor(if (autoOn()) Color.parseColor("#17120C") else Color.parseColor("#A9A6A0"))
         }
         styleAuto()
         auto.setOnClickListener {
@@ -256,7 +256,7 @@ class CaptureService : Service() {
     private fun removeWidget() { app.vocr.core.JobQueue.listener = null; hideAddChip(); hideMenu(); ui.removeCallbacks(tuckRun); widget?.let { runCatching { wm?.removeView(it) } }; widget = null }
 
     private fun setWidgetIdle() {
-        widget?.apply { label = "REC"; alpha = 1f; labelSp = 11f; fill = Color.parseColor("#7C5CFF"); ring = -1f; invalidate() }
+        widget?.apply { label = "REC"; alpha = 1f; labelSp = 11f; fill = Color.parseColor("#3A3B42"); ring = -1f; invalidate() }
         lp?.let { it.width = dp(52); it.height = dp(52); widget?.let { w -> runCatching { wm?.updateViewLayout(w, it) } } }
         tuck(false)
     }
@@ -295,7 +295,7 @@ class CaptureService : Service() {
             r.prepare()
             display = mp.createVirtualDisplay("vocr", w, h, m.densityDpi, DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, r.surface, null, null)
             r.start()
-            projection = mp; recorder = r; recFile = f; recording = true
+            projection = mp; recorder = r; recFile = f; recording = true; app.vocr.Haptics.recStart(this)
             setWidgetRecording()
             if (prefs(this).getBoolean("autoscroll", false) && ScrollService.instance != null) startAutoScroll()
         } catch (e: Throwable) {
@@ -315,8 +315,8 @@ class CaptureService : Service() {
     // tuned to), then 650 ms for the fling to settle. The recording stops after scrollcapsec seconds (default 300) and the text is read.
     private var scrolling = false; private var swipes = 0; private var scrollT0 = 0L
     private val scrollRun = Runnable { scrollStep() }
-    private fun startAutoScroll() { app.vocr.core.Sfx.scroll(this, true); lastThumb = null; still = 0; scrolling = true; swipes = 0; scrollT0 = System.currentTimeMillis(); ui.postDelayed(scrollRun, 2500) }
-    private fun stopAutoScroll() { app.vocr.core.Sfx.scroll(this, false); scrolling = false; ui.removeCallbacks(scrollRun) }
+    private fun startAutoScroll() { app.vocr.Haptics.autoStart(this); app.vocr.core.Sfx.scroll(this, true); lastThumb = null; still = 0; scrolling = true; swipes = 0; scrollT0 = System.currentTimeMillis(); ui.postDelayed(scrollRun, 2500) }
+    private fun stopAutoScroll() { if (scrolling) app.vocr.Haptics.autoEnd(this); app.vocr.core.Sfx.scroll(this, false); scrolling = false; ui.removeCallbacks(scrollRun) }
     // Speed 0..10 (home > Settings). 10 = today's tested pace (a 90 ms swipe, then a 650 ms settle) and is the default.
     // 9 down to 1: one slow, steady drag per step (no fling), at a constant speed that falls smoothly from 0.60 screen/s at 9
     // to 0.03 screen/s at 1 (about 33 s per screen). 0 = stopped: no gestures at all, the recording just keeps running.
@@ -341,12 +341,14 @@ class CaptureService : Service() {
         if (lvl >= 10) {
             svc.swipe(m.widthPixels, m.heightPixels, 0.80f, 0.20f, 90) { ok ->
                 if (ok) swipes++
+                app.vocr.Haptics.autoPulse(this)
                 ui.postDelayed({ checkBottom(svc) }, 650L)   // let the fling settle, then look at the screen
             }
         } else {
             val v = crawlSpeed(lvl)
             val dist = (v * 4.0).coerceIn(0.2, 0.6)           // screens per drag
             val dur = (dist / v * 1000).toLong()               // constant speed, no fling at the lift
+            for (k in 1..(dur / 1500L).toInt()) ui.postDelayed({ if (scrolling && recording && speedLevel() > 0) app.vocr.Haptics.autoPulse(this) }, k * 1500L)   // gentle pulse every ~1.5 s during a slow drag
             svc.swipe(m.widthPixels, m.heightPixels, 0.80f, (0.80 - dist).toFloat(), dur) { ok ->
                 if (ok) swipes++
                 ui.postDelayed({ checkBottom(svc) }, 120L)
@@ -414,10 +416,10 @@ class CaptureService : Service() {
         val q = lp ?: return
         hideMenu()
         val x = (q.x - dp(176)).coerceAtLeast(dp(4)); val y = (q.y - dp(46)).coerceAtLeast(dp(4))
-        val old = chip("Add old recordings", Color.parseColor("#232A45")) {
+        val old = chip("Add old recordings", Color.parseColor("#25262B")) {
             hideMenu(); startActivity(Intent(this, AddActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         }
-        val neu = chip(if (recording) "Recording now" else "New recording" + (if (prefs(this).getBoolean("autoscroll", false) && ScrollService.instance != null) " (auto-scroll)" else ""), Color.parseColor("#7C5CFF")) {
+        val neu = chip(if (recording) "Recording now" else "New recording" + (if (prefs(this).getBoolean("autoscroll", false) && ScrollService.instance != null) " (auto-scroll)" else ""), Color.parseColor("#D2B08A")) {
             hideMenu()
             if (recording) toast("Already recording - tap the bubble to stop")
             else startActivity(Intent(this, ConsentActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
