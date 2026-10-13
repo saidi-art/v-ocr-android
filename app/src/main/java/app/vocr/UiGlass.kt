@@ -1,5 +1,7 @@
 package app.vocr
 
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.composed
 import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -86,4 +88,10 @@ fun Switch(checked: Boolean, onCheckedChange: ((Boolean) -> Unit)?, modifier: Mo
         onCheckedChange = onCheckedChange?.let { f -> { v: Boolean -> Haptics.toggle(view, v); f(v) } },
         colors = SwitchDefaults.colors(checkedTrackColor = Violet, checkedThumbColor = OnBronze, checkedBorderColor = BronzeHi, uncheckedTrackColor = Color(0x33FFFFFF), uncheckedThumbColor = Color(0xFFA9A6A0), uncheckedBorderColor = Color(0x33FFFFFF))
     )
+}
+
+/** clickable with the light-press haptic: every tap confirms. */
+fun Modifier.hapticClickable(onClick: () -> Unit): Modifier = composed {
+    val view = androidx.compose.ui.platform.LocalView.current
+    this.clickable { Haptics.secondary(view); onClick() }
 }

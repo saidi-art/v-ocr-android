@@ -36,7 +36,8 @@ private val sections: List<Pair<String, String>> = listOf(
         "Tap: start or stop a recording. The ring shows progress while recording or reading.\n" +
         "Drag: move it anywhere. After a few idle seconds it tucks against the screen edge; tap the edge to bring it back.\n" +
         "Long-press: opens three small controls: a red X to close the bubble (not while recording), a Fast/Slow switch, and an Auto-scroll switch. They disappear after 4 seconds.\n" +
-        "The (+) chip next to the bubble is described under \"Queue and (+)\" below.",
+        "The (+) chip next to the bubble is described under \"Queue and (+)\" below.\n" +
+        "Scroll only (hands-free reading): long-press the bubble and switch \"Scroll\" on, under Auto-scroll. ScrOllOn scrolls the page for you at your Auto-scroll speed without recording or saving anything. Tap the bubble to stop. It stops by itself at the bottom of the page. Needs Auto-scroll switched on in Accessibility.",
     "Auto-scroll (hands-free recording)" to
         "Auto-scroll swipes the screen for you while it records, so you only tap start.\n" +
         "Setup, once: tap home screen > Settings > \"Auto-scroll\" (or the Auto-scroll switch on the bubble). ScrOllOn first shows a notice explaining what the permission is used for (swipes, plus tiny grey 48x96 screenshots kept only in memory to spot the bottom of the page). If you agree, Android Settings > Accessibility > Installed apps > ScrOllOn > turn on. If you just installed an update and it stops working, switch it off and on once.\n" +
@@ -66,6 +67,7 @@ private val sections: List<Pair<String, String>> = listOf(
         "The text screen also shows how many lines were read and how long it took.",
     "Settings" to
         "Fast mode (home screen, text screen, or bubble long-press): about 25% quicker, slightly less accurate. Off by default.\n" +
+        "Fast or Slow: Fast is for casual captures. Play safe and use Slow when the data really matters.\n" +
         "Settings button (home screen): opens Auto-scroll setup, Auto-scroll speed, the Sound switch and the screenshots switch.\n" +
         "Sound: on by default. Turn it off in Settings and none of the three sounds play (auto-scroll loop, scan loop, end-of-processing sound).\n" +
         "Show extracted screenshots: shows the kept frames (\"strips\") so you can check what was read. Off by default.\n" +

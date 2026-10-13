@@ -1,0 +1,512 @@
+diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
+index e4007ed..595e284 100644
+--- a/app/src/main/AndroidManifest.xml
++++ b/app/src/main/AndroidManifest.xml
+@@ -22,6 +22,7 @@
+         </activity>
+         <activity android:name=".ManualActivity" android:exported="false" />
+         <activity android:name=".SavedActivity" android:exported="false" />
++        <activity android:name=".AboutActivity" android:exported="false" />
+         <activity android:name=".DisclosureActivity" android:exported="false" android:noHistory="true" android:excludeFromRecents="true" />
+         <activity android:name=".capture.ConsentActivity" android:exported="false" android:taskAffinity=""
+             android:theme="@android:style/Theme.Translucent.NoTitleBar" android:excludeFromRecents="true"/>
+diff --git a/app/src/main/java/app/vocr/AboutActivity.kt b/app/src/main/java/app/vocr/AboutActivity.kt
+new file mode 100644
+index 0000000..3716a79
+--- /dev/null
++++ b/app/src/main/java/app/vocr/AboutActivity.kt
+@@ -0,0 +1,65 @@
++package app.vocr
++
++import android.os.Bundle
++import androidx.activity.ComponentActivity
++import androidx.activity.compose.setContent
++import androidx.compose.foundation.layout.*
++import androidx.compose.foundation.rememberScrollState
++import androidx.compose.foundation.shape.RoundedCornerShape
++import androidx.compose.foundation.verticalScroll
++import androidx.compose.material3.*
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.remember
++import androidx.compose.foundation.clickable
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.graphics.Color
++import androidx.compose.ui.platform.LocalContext
++import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.unit.dp
++import androidx.compose.ui.unit.sp
++
++/** Minimal About page: name, version, contact, privacy note. Back returns to Home. */
++class AboutActivity : ComponentActivity() {
++    override fun onCreate(savedInstanceState: Bundle?) {
++        super.onCreate(savedInstanceState)
++        setContent { MaterialTheme(colorScheme = darkColorScheme(primary = Violet, background = Ink, surface = Card), typography = ScrollOnTypography) { About { finish() } } }
++    }
++}
++
++const val CONTACT_EMAIL = "__CONTACT_EMAIL__"
++
++@Composable
++fun About(onBack: () -> Unit) {
++    val ctx = LocalContext.current
++    val ver = remember { runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: "" }
++    Column(Modifier.fillMaxSize().scrollOnBackdrop().systemBarsPadding()) {
++        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
++            Button(onClick = onBack, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25262B), contentColor = Color.White)) { Text("Back") }
++            Spacer(Modifier.width(12.dp))
++            Text("About", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.SemiBold, fontFamily = DisplayFont)
++        }
++        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
++            Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(20.dp)).padding(18.dp)) {
++                Wordmark(36.sp)
++                Spacer(Modifier.height(6.dp))
++                Text("If you can scroll it, you can save it.", color = Muted, fontSize = 14.sp)
++                Spacer(Modifier.height(10.dp))
++                Label("VERSION")
++                Text(ver, color = Color.White, fontSize = 15.sp)
++            }
++            Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(20.dp)).padding(18.dp)) {
++                Label("PRIVACY")
++                Spacer(Modifier.height(6.dp))
++                Text("ScrOllOn reads your screen recordings on this phone. Nothing is uploaded and there is no account. Text files are saved in Downloads/V-OCR on your device. Auto-scroll, if you turn it on, uses Android's accessibility permission only to swipe the screen and to take tiny in-memory screenshots that detect the end of the page.", color = Color.White, fontSize = 14.sp, lineHeight = 20.sp)
++            }
++            Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(20.dp)).padding(18.dp)) {
++                Label("CONTACT")
++                Spacer(Modifier.height(6.dp))
++                Text(CONTACT_EMAIL, color = Lilac, fontSize = 15.sp, modifier = Modifier.hapticClickable {
++                    runCatching { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_SENDTO, android.net.Uri.parse("mailto:$CONTACT_EMAIL"))) }
++                })
++            }
++        }
++    }
++}
+diff --git a/app/src/main/java/app/vocr/MainActivity.kt b/app/src/main/java/app/vocr/MainActivity.kt
+index 7861919..f63d99f 100644
+--- a/app/src/main/java/app/vocr/MainActivity.kt
++++ b/app/src/main/java/app/vocr/MainActivity.kt
+@@ -105,6 +105,26 @@ fun Home(preview: Picked? = null) {
+     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(20)) { uris ->
+         if (uris.isNotEmpty()) JobQueue.addUris(ctx, uris)
+     }
++    var bench by remember { mutableStateOf<List<String>>(emptyList()) }
++    var benching by remember { mutableStateOf(false) }
++    val benchPick = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
++        if (uri != null) {
++            if (JobQueue.activeCount() > 0) { bench = listOf("The queue is busy. Wait until it is empty, then run the test again.") }
++            else {
++                benching = true; bench = listOf("Extracting strips from your clip...")
++                Thread {
++                    val acc = ArrayList<String>()
++                    try {
++                        val r = Pipeline.run(ctx, uri, { })
++                        acc.add("clip: ${r.strips.size} strips"); bench = acc.toList()
++                        Reader.bench(ctx, r.strips) { acc.add(it); bench = acc.toList() }
++                        acc.add("done"); bench = acc.toList()
++                    } catch (e: Throwable) { acc.add("failed: " + (e.message ?: e.javaClass.simpleName)); bench = acc.toList() }
++                    benching = false
++                }.start()
++            }
++        }
++    }
+     val addVideos = { launcher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)) }
+     fun start(p: Picked) {
+         progress = Progress("Starting", 0, 1); result = null; error = null
+@@ -180,7 +200,7 @@ fun Home(preview: Picked? = null) {
+         Spacer(Modifier.height(10.dp))
+         Button(
+             onClick = { ctx.startActivity(android.content.Intent(ctx, SavedActivity::class.java)) },
+-            modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(16.dp),
++            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = RoundedCornerShape(16.dp),
+             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25262B), contentColor = Color.White)
+         ) { Text("Saved files", fontSize = 14.sp) }
+         Spacer(Modifier.height(10.dp))
+@@ -202,7 +222,7 @@ fun Home(preview: Picked? = null) {
+         var showSettings by remember { mutableStateOf(false) }
+         Button(
+             onClick = { showSettings = !showSettings },
+-            modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(16.dp),
++            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = RoundedCornerShape(16.dp),
+             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25262B), contentColor = Color.White)
+         ) { Text(if (showSettings) "Settings  \u25B2" else "Settings  \u25BC", fontSize = 14.sp) }
+         if (showSettings) {
+@@ -210,9 +230,9 @@ fun Home(preview: Picked? = null) {
+             Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(20.dp)).padding(16.dp)) {
+                 Button(
+                     onClick = { showSettings = false; DisclosureActivity.openAccessibility(ctx) },
+-                    modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(16.dp),
++                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = RoundedCornerShape(16.dp),
+                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25262B), contentColor = Color.White)
+-                ) { Text(if (app.vocr.capture.ScrollService.instance != null) "Auto-scroll: enabled (long-press the bubble)" else "Auto-scroll: turn on in Accessibility", fontSize = 14.sp) }
++                ) { Text(if (app.vocr.capture.ScrollService.instance != null) "Auto-scroll: enabled" else "Auto-scroll: turn on in Accessibility", fontSize = 14.sp) }
+                 Spacer(Modifier.height(14.dp))
+                 val view = androidx.compose.ui.platform.LocalView.current
+                 var speed by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getInt("scrollspeed", 10).toFloat()) }
+@@ -237,7 +257,7 @@ fun Home(preview: Picked? = null) {
+                 Row(verticalAlignment = Alignment.CenterVertically) {
+                     Switch(checked = snd, onCheckedChange = { snd = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("sound", it).apply(); app.vocr.core.Sfx.refresh(ctx) })
+                     Spacer(Modifier.width(8.dp))
+-                    Text("Sound (scroll, scan and end sounds)", color = Muted, fontSize = 13.sp)
++                    Text("Sound (auto-scroll and end cue)", color = Muted, fontSize = 13.sp)
+                 }
+                 Spacer(Modifier.height(6.dp))
+                 var hap by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("haptics", true)) }
+@@ -253,14 +273,31 @@ fun Home(preview: Picked? = null) {
+                     Spacer(Modifier.width(8.dp))
+                     Text("Show extracted screenshots", color = Muted, fontSize = 13.sp)
+                 }
++                Spacer(Modifier.height(14.dp))
++                Button(
++                    enabled = !benching,
++                    onClick = { bench = emptyList(); benchPick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)) },
++                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = RoundedCornerShape(16.dp),
++                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25262B), contentColor = Color.White)
++                ) { Text(if (benching) "Speed test running..." else "Speed test (pick one clip)", fontSize = 14.sp) }
++                if (bench.isNotEmpty()) {
++                    Spacer(Modifier.height(8.dp))
++                    bench.forEach { Text(it, color = Muted, fontSize = 12.sp) }
++                }
+             }
+         }
+         Spacer(Modifier.height(10.dp))
+         Button(
+             onClick = { ctx.startActivity(android.content.Intent(ctx, ManualActivity::class.java)) },
+-            modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(16.dp),
++            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = RoundedCornerShape(16.dp),
+             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25262B), contentColor = Color.White)
+         ) { Text("User manual (how to use)", fontSize = 14.sp) }
++        Spacer(Modifier.height(10.dp))
++        Button(
++            onClick = { ctx.startActivity(android.content.Intent(ctx, AboutActivity::class.java)) },
++            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = RoundedCornerShape(16.dp),
++            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25262B), contentColor = Color.White)
++        ) { Text("About and contact", fontSize = 14.sp) }
+         Spacer(Modifier.height(6.dp))
+         Text("v" + (runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: "?") + "  -  strips + on-device text", color = Muted, fontSize = 12.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
+     }
+@@ -383,7 +420,7 @@ fun TextScreen(r: ReadResult, onBack: () -> Unit) {
+ /** Circled plus, top right: opens the picker and puts the chosen videos on the queue. Badge = jobs waiting or running. */
+ @Composable
+ fun AddButton(count: Int, onClick: () -> Unit) {
+-    Box(Modifier.size(52.dp).glassPanel(androidx.compose.foundation.shape.CircleShape).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
++    Box(Modifier.size(52.dp).glassPanel(androidx.compose.foundation.shape.CircleShape).hapticClickable(onClick), contentAlignment = Alignment.Center) {
+         androidx.compose.foundation.Canvas(Modifier.size(34.dp)) {
+             val c = center; val r = size.minDimension / 2
+             drawCircle(Color.White, r - 1.5f, c, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3f))
+@@ -405,14 +442,14 @@ fun QueueList() {
+     Column(Modifier.fillMaxWidth().heightIn(max = 260.dp).glassPanel(RoundedCornerShape(20.dp)).padding(12.dp)) {
+         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+             Label("Queue", modifier = Modifier.weight(1f))
+-            if (jobs.any { it.state >= 2 }) Text("Clear finished", color = Lilac, fontSize = 13.sp, modifier = Modifier.clickable { JobQueue.clearFinished() })
++            if (jobs.any { it.state >= 2 }) Text("Clear finished", color = Lilac, fontSize = 13.sp, modifier = Modifier.hapticClickable { JobQueue.clearFinished() })
+         }
+         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
+             items(jobs.toList(), key = { it.id }) { j ->
+                 Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(12.dp), Ink).padding(10.dp)) {
+                     Row(verticalAlignment = Alignment.CenterVertically) {
+                         Text(if (j.state == 2 && j.title.isNotEmpty()) j.title else j.label, color = Color.White, fontSize = 14.sp, maxLines = 1, modifier = Modifier.weight(1f))
+-                        if (j.state <= 1) Text("Cancel", color = Color(0xFFFF7A7A), fontSize = 13.sp, modifier = Modifier.clickable { JobQueue.cancel(j) }.padding(horizontal = 10.dp, vertical = 8.dp))
++                        if (j.state <= 1) Text("Cancel", color = Color(0xFFFF7A7A), fontSize = 13.sp, modifier = Modifier.hapticClickable { JobQueue.cancel(j) }.padding(horizontal = 10.dp, vertical = 8.dp))
+                     }
+                     when (j.state) {
+                         0 -> Text("Waiting", color = Muted, fontSize = 12.sp)
+@@ -421,10 +458,10 @@ fun QueueList() {
+                             Text("${j.lines} lines in ${j.secs}s - saved to Downloads/V-OCR", color = Success, fontSize = 12.sp)
+                             val u = j.result
+                             if (u != null) Row(horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.padding(top = 4.dp)) {
+-                                Text("Open", color = Lilac, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.clickable {
++                                Text("Open", color = Lilac, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.hapticClickable {
+                                     ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW).setDataAndType(u, "text/plain").addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                                 })
+-                                Text("Share file", color = Lilac, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.clickable {
++                                Text("Share file", color = Lilac, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.hapticClickable {
+                                     val i = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                                         type = "text/plain"; putExtra(android.content.Intent.EXTRA_STREAM, u)
+                                         clipData = android.content.ClipData.newRawUri(j.title, u)
+diff --git a/app/src/main/java/app/vocr/ManualActivity.kt b/app/src/main/java/app/vocr/ManualActivity.kt
+index 1a7236a..c4e7fdb 100644
+--- a/app/src/main/java/app/vocr/ManualActivity.kt
++++ b/app/src/main/java/app/vocr/ManualActivity.kt
+@@ -36,7 +36,8 @@ private val sections: List<Pair<String, String>> = listOf(
+         "Tap: start or stop a recording. The ring shows progress while recording or reading.\n" +
+         "Drag: move it anywhere. After a few idle seconds it tucks against the screen edge; tap the edge to bring it back.\n" +
+         "Long-press: opens three small controls: a red X to close the bubble (not while recording), a Fast/Slow switch, and an Auto-scroll switch. They disappear after 4 seconds.\n" +
+-        "The (+) chip next to the bubble is described under \"Queue and (+)\" below.",
++        "The (+) chip next to the bubble is described under \"Queue and (+)\" below.\n" +
++        "Scroll only (hands-free reading): long-press the bubble and switch \"Scroll\" on, under Auto-scroll. ScrOllOn scrolls the page for you at your Auto-scroll speed without recording or saving anything. Tap the bubble to stop. It stops by itself at the bottom of the page. Needs Auto-scroll switched on in Accessibility.",
+     "Auto-scroll (hands-free recording)" to
+         "Auto-scroll swipes the screen for you while it records, so you only tap start.\n" +
+         "Setup, once: tap home screen > Settings > \"Auto-scroll\" (or the Auto-scroll switch on the bubble). ScrOllOn first shows a notice explaining what the permission is used for (swipes, plus tiny grey 48x96 screenshots kept only in memory to spot the bottom of the page). If you agree, Android Settings > Accessibility > Installed apps > ScrOllOn > turn on. If you just installed an update and it stops working, switch it off and on once.\n" +
+@@ -66,6 +67,7 @@ private val sections: List<Pair<String, String>> = listOf(
+         "The text screen also shows how many lines were read and how long it took.",
+     "Settings" to
+         "Fast mode (home screen, text screen, or bubble long-press): about 25% quicker, slightly less accurate. Off by default.\n" +
++        "Fast or Slow: Fast is for casual captures. Play safe and use Slow when the data really matters.\n" +
+         "Settings button (home screen): opens Auto-scroll setup, Auto-scroll speed, the Sound switch and the screenshots switch.\n" +
+         "Sound: on by default. Turn it off in Settings and none of the three sounds play (auto-scroll loop, scan loop, end-of-processing sound).\n" +
+         "Show extracted screenshots: shows the kept frames (\"strips\") so you can check what was read. Off by default.\n" +
+diff --git a/app/src/main/java/app/vocr/SavedActivity.kt b/app/src/main/java/app/vocr/SavedActivity.kt
+index f7e4dbb..6d6ecec 100644
+--- a/app/src/main/java/app/vocr/SavedActivity.kt
++++ b/app/src/main/java/app/vocr/SavedActivity.kt
+@@ -75,7 +75,7 @@ private fun SavedScreen(onExit: () -> Unit) {
+             if (loaded && items.isEmpty()) Text("Nothing saved yet. Finished captures appear here.", color = Muted, modifier = Modifier.padding(20.dp))
+             LazyColumn(Modifier.weight(1f).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                 items(items) { it ->
+-                    Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(18.dp)).clickable {
++                    Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(18.dp)).hapticClickable {
+                         Haptics.secondary(view); text = runCatching { ctx.contentResolver.openInputStream(it.uri)?.use { s -> String(s.readBytes(), Charsets.UTF_8) } }.getOrNull() ?: "Could not read this file."; open = it
+                     }.padding(16.dp)) {
+                         Text(it.name.removeSuffix(".txt"), color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 2)
+diff --git a/app/src/main/java/app/vocr/UiGlass.kt b/app/src/main/java/app/vocr/UiGlass.kt
+index 6fdd590..67e5e6d 100644
+--- a/app/src/main/java/app/vocr/UiGlass.kt
++++ b/app/src/main/java/app/vocr/UiGlass.kt
+@@ -1,5 +1,7 @@
+ package app.vocr
+ 
++import androidx.compose.foundation.clickable
++import androidx.compose.ui.composed
+ import android.os.Build
+ import androidx.compose.foundation.background
+ import androidx.compose.foundation.border
+@@ -87,3 +89,9 @@ fun Switch(checked: Boolean, onCheckedChange: ((Boolean) -> Unit)?, modifier: Mo
+         colors = SwitchDefaults.colors(checkedTrackColor = Violet, checkedThumbColor = OnBronze, checkedBorderColor = BronzeHi, uncheckedTrackColor = Color(0x33FFFFFF), uncheckedThumbColor = Color(0xFFA9A6A0), uncheckedBorderColor = Color(0x33FFFFFF))
+     )
+ }
++
++/** clickable with the light-press haptic: every tap confirms. */
++fun Modifier.hapticClickable(onClick: () -> Unit): Modifier = composed {
++    val view = androidx.compose.ui.platform.LocalView.current
++    this.clickable { Haptics.secondary(view); onClick() }
++}
+diff --git a/app/src/main/java/app/vocr/capture/CaptureService.kt b/app/src/main/java/app/vocr/capture/CaptureService.kt
+index ac20883..80f0682 100644
+--- a/app/src/main/java/app/vocr/capture/CaptureService.kt
++++ b/app/src/main/java/app/vocr/capture/CaptureService.kt
+@@ -65,6 +65,8 @@ class CaptureService : Service() {
+     private var display: VirtualDisplay? = null
+     private var recFile: File? = null
+     private var recording = false
++    private var readMode = false   // hands-free reading: auto-scroll without recording or queue jobs
++    private fun active() = recording || readMode
+     private val busy: Boolean get() = app.vocr.core.JobQueue.activeCount() > 0
+     private var addChip: AddChip? = null
+ 
+@@ -81,7 +83,7 @@ class CaptureService : Service() {
+         return START_NOT_STICKY
+     }
+ 
+-    override fun onDestroy() { stopAutoScroll(); removeWidget(); releaseRecording(); super.onDestroy() }
++    override fun onDestroy() { readMode = false; stopAutoScroll(); removeWidget(); releaseRecording(); super.onDestroy() }
+     override fun onConfigurationChanged(c: android.content.res.Configuration) { super.onConfigurationChanged(c); hideMenu(); ui.post { if (widget != null) { lp?.let { it.y = it.y.coerceIn(0, (resources.displayMetrics.heightPixels - dp(60)).coerceAtLeast(0)) }; tuck(true) } } }
+ 
+     // ---- notifications --------------------------------------------------------------------------------------------
+@@ -201,7 +203,7 @@ class CaptureService : Service() {
+     private fun hideMenu() { ui.removeCallbacks(hideMenuRun); menu.forEach { v -> runCatching { wm?.removeView(v) } }; menu = emptyList() }
+     private val hideMenuRun = Runnable { hideMenu() }
+ 
+-    private fun chip(text: String, bg: Int, onClick: () -> Unit): TextView = glassChip(this, text, bg).apply { setOnClickListener { onClick() } }
++    private fun chip(text: String, bg: Int, onClick: () -> Unit): TextView = glassChip(this, text, bg).apply { setOnClickListener { it.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP); onClick() } }
+ 
+     private fun overlay(v: View, x: Int, y: Int) {
+         val q = WindowManager.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+@@ -214,11 +216,11 @@ class CaptureService : Service() {
+         val p = lp ?: return
+         hideMenu(); tuck(false)
+         val close = chip("\u00D7", Color.parseColor("#E5484D")) {
+-            hideMenu(); if (recording) toast("Stop recording first") else closeWidget()
++            hideMenu(); if (recording) toast("Stop recording first") else { if (readMode) stopReadMode(); closeWidget() }
+         }
+         fun modeText() = if (prefs(this).getBoolean("fast", false)) "Fast" else "Slow"
+         val mode = chip(modeText(), Color.parseColor("#25262B")) {}
+-        mode.setOnClickListener {
++        mode.setOnClickListener { it.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP)
+             val f = !prefs(this).getBoolean("fast", false); prefs(this).edit().putBoolean("fast", f).apply()
+             mode.text = modeText(); ui.removeCallbacks(hideMenuRun); ui.postDelayed(hideMenuRun, 4000)
+         }
+@@ -230,7 +232,7 @@ class CaptureService : Service() {
+             auto.setTextColor(if (autoOn()) Color.parseColor("#17120C") else Color.parseColor("#A9A6A0"))
+         }
+         styleAuto()
+-        auto.setOnClickListener {
++        auto.setOnClickListener { it.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP)
+             if (ScrollService.instance == null) {
+                 toast("Auto-scroll needs Accessibility. Read the notice first.")
+                 hideMenu()
+@@ -242,8 +244,48 @@ class CaptureService : Service() {
+         }
+         overlay(close, p.x - dp(14), p.y - dp(30))
+         overlay(mode, p.x - dp(6), p.y + p.height + dp(6))
++        fun rdText() = if (readMode) "Scroll: ON" else "Scroll: off"
++        val rd = chip(rdText(), Color.parseColor("#25262B")) {}
++        fun styleRd() {
++            (rd.background as GradientDrawable).setColor(Color.parseColor(if (readMode) "#D2B08A" else "#25262B"))
++            rd.setTextColor(if (readMode) Color.parseColor("#17120C") else Color.parseColor("#A9A6A0"))
++        }
++        styleRd()
++        rd.setOnClickListener { it.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP)
++            if (readMode) { stopReadMode(); hideMenu() }
++            else {
++                startReadMode()
++                if (readMode) {   // pace slider pops up under the chip, same bronze as the Settings slider; bubble tap stops
++                    rd.text = rdText(); styleRd()
++                    val bar = android.widget.SeekBar(this).apply {
++                        max = 10; progress = speedLevel()
++                        val bronze = android.content.res.ColorStateList.valueOf(Color.parseColor("#D2B08A"))
++                        progressTintList = bronze; thumbTintList = bronze
++                        progressBackgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#55FFFFFF"))
++                        setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
++                            override fun onProgressChanged(sb: android.widget.SeekBar?, v: Int, fromUser: Boolean) {
++                                if (fromUser) { prefs(this@CaptureService).edit().putInt("scrollspeed", v).apply(); ui.removeCallbacks(hideMenuRun); ui.postDelayed(hideMenuRun, 4000) }
++                            }
++                            override fun onStartTrackingTouch(sb: android.widget.SeekBar?) { ui.removeCallbacks(hideMenuRun) }
++                            override fun onStopTrackingTouch(sb: android.widget.SeekBar?) { it.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP); ui.postDelayed(hideMenuRun, 4000) }
++                        })
++                    }
++                    val pill = android.widget.LinearLayout(this).apply {
++                        orientation = android.widget.LinearLayout.VERTICAL
++                        setPadding(dp(14), dp(8), dp(14), dp(6))
++                        background = GradientDrawable().apply { setColor(Color.parseColor("#E625262B")); cornerRadius = dp(18).toFloat() }
++                        addView(android.widget.TextView(this@CaptureService).apply { text = "Pace  (10 = normal, 0 = pause)"; setTextColor(Color.parseColor("#A9A6A0")); textSize = 11f })
++                        addView(bar, android.widget.LinearLayout.LayoutParams(dp(190), android.widget.LinearLayout.LayoutParams.WRAP_CONTENT))
++                    }
++                    overlay(pill, p.x - dp(6), p.y + p.height + dp(126))
++                    menu = menu + pill
++                    ui.removeCallbacks(hideMenuRun); ui.postDelayed(hideMenuRun, 5000)
++                } else hideMenu()
++            }
++        }
+         overlay(auto, p.x - dp(6), p.y + p.height + dp(46))
+-        menu = listOf(close, mode, auto)
++        overlay(rd, p.x - dp(6), p.y + p.height + dp(86))
++        menu = listOf(close, mode, auto, rd)
+         ui.postDelayed(hideMenuRun, 4000)
+     }
+ 
+@@ -268,7 +310,8 @@ class CaptureService : Service() {
+     }
+ 
+     private fun onWidgetTap() {
+-        if (recording) stopRecording()
++        if (readMode) stopReadMode()
++        else if (recording) stopRecording()
+         else startActivity(Intent(this, ConsentActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+     }
+ 
+@@ -329,14 +372,14 @@ class CaptureService : Service() {
+     private var pausedSince = 0L
+     private fun scrollStep() {
+         val svc = ScrollService.instance
+-        if (!scrolling || !recording || svc == null) return
++        if (!scrolling || !active() || svc == null) return
+         val lvl = speedLevel()
+         if (lvl == 0) {   // stopped: wait, and do not let the time cap run while paused
+             if (pausedSince == 0L) pausedSince = System.currentTimeMillis()
+             ui.postDelayed(scrollRun, 400); return
+         }
+         if (pausedSince != 0L) { scrollT0 += System.currentTimeMillis() - pausedSince; pausedSince = 0L; still = 0 }
+-        if (System.currentTimeMillis() - scrollT0 >= capMs()) { stopAutoScroll(); toast("Auto-scroll done"); stopRecording(); return }
++        if (System.currentTimeMillis() - scrollT0 >= capMs()) { endScroll("Auto-scroll done"); return }
+         val m = resources.displayMetrics
+         if (lvl >= 10) {
+             svc.swipe(m.widthPixels, m.heightPixels, 0.80f, 0.20f, 90) { ok ->
+@@ -348,7 +391,7 @@ class CaptureService : Service() {
+             val v = crawlSpeed(lvl)
+             val dist = (v * 4.0).coerceIn(0.2, 0.6)           // screens per drag
+             val dur = (dist / v * 1000).toLong()               // constant speed, no fling at the lift
+-            for (k in 1..(dur / 1500L).toInt()) ui.postDelayed({ if (scrolling && recording && speedLevel() > 0) app.vocr.Haptics.autoPulse(this) }, k * 1500L)   // gentle pulse every ~1.5 s during a slow drag
++            for (k in 1..(dur / 1500L).toInt()) ui.postDelayed({ if (scrolling && active() && speedLevel() > 0) app.vocr.Haptics.autoPulse(this) }, k * 1500L)   // gentle pulse every ~1.5 s during a slow drag
+             svc.swipe(m.widthPixels, m.heightPixels, 0.80f, (0.80 - dist).toFloat(), dur) { ok ->
+                 if (ok) swipes++
+                 ui.postDelayed({ checkBottom(svc) }, 120L)
+@@ -360,16 +403,16 @@ class CaptureService : Service() {
+     // change nothing = the page has ended, so stop and read. The time cap above stays as the safety net.
+     private var lastThumb: IntArray? = null; private var still = 0
+     private fun checkBottom(svc: ScrollService) {
+-        if (!scrolling || !recording) return
++        if (!scrolling || !active()) return
+         svc.thumb { t ->
+             ui.post {
+-                if (!scrolling || !recording) return@post
++                if (!scrolling || !active()) return@post
+                 val prev = lastThumb
+                 if (t != null && prev != null) {
+                     var d = 0L; for (i in t.indices) d += Math.abs(t[i] - prev[i])
+                     val mad = d.toDouble() / t.size
+                     still = if (mad < 1.2) still + 1 else 0
+-                    if (still >= 3) { stopAutoScroll(); toast("Reached the bottom - reading now"); stopRecording(); return@post }
++                    if (still >= 3) { endScroll(if (readMode) "Reached the bottom" else "Reached the bottom - reading now"); return@post }
+                 }
+                 if (t != null) lastThumb = t
+                 ui.postDelayed(scrollRun, 50)
+@@ -377,6 +420,22 @@ class CaptureService : Service() {
+         }
+     }
+ 
++    /** The page ended or the time cap hit: stop the recording (and read it) or, in hands-free mode, just stop scrolling. */
++    private fun endScroll(msg: String) { if (readMode) { toast(msg); stopReadMode() } else { stopAutoScroll(); toast(msg); stopRecording() } }
++
++    /** Hands-free reading: auto-scroll with NO recording, no capture and no queue job. Tap the bubble to stop. */
++    private fun startReadMode() {
++        if (recording) { toast("Stop recording first"); return }
++        if (readMode) { toast("Already scrolling - tap the bubble to stop"); return }
++        if (ScrollService.instance == null) { toast("Turn on Auto-scroll in ScrOllOn Settings first"); return }
++        readMode = true; pausedSince = 0L
++        widget?.apply { label = "STOP"; alpha = 0.7f; labelSp = 9f; fill = Color.parseColor("#3A3B42"); ring = -1f; invalidate() }
++        lp?.let { it.width = dp(40); it.height = dp(40); widget?.let { w -> runCatching { wm?.updateViewLayout(w, it) } } }
++        tuck(false)
++        startAutoScroll()
++    }
++    private fun stopReadMode() { if (!readMode) return; readMode = false; stopAutoScroll(); setWidgetIdle(); ui.post { refreshQueueUi() } }
++
+     private fun stopRecording() {
+         if (!recording) return
+         stopAutoScroll()
+@@ -405,7 +464,7 @@ class CaptureService : Service() {
+     private fun showAddChip() {
+         if (addChip != null || widget == null) return
+         val c = AddChip(this)
+-        c.setOnClickListener { showAddMenu() }
++        c.setOnClickListener { it.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP); showAddMenu() }
+         val q = WindowManager.LayoutParams(dp(40), dp(40), WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS, PixelFormat.TRANSLUCENT).apply { gravity = Gravity.TOP or Gravity.START; x = lp?.x ?: 0; y = (lp?.y ?: dp(60)) - dp(46) }
+         runCatching { wm?.addView(c, q); addChip = c; ui.postDelayed(chipPoll, 300) }
+@@ -436,7 +495,7 @@ class CaptureService : Service() {
+         if (widget == null) return
+         val n = app.vocr.core.JobQueue.activeCount()
+         if (n > 0) { showAddChip(); addChip?.count = n; addChip?.invalidate() } else hideAddChip()
+-        if (!recording) {
++        if (!recording && !readMode) {
+             val j = app.vocr.core.JobQueue.current()
+             if (j != null) { setRing(j.frac, j.ringLabel) } else if (n == 0) { widget?.let { it.ring = -1f; it.label = "REC"; it.invalidate() } }
+         }
+diff --git a/app/src/main/java/app/vocr/core/Sfx.kt b/app/src/main/java/app/vocr/core/Sfx.kt
+index dcc6ea0..9e4e370 100644
+--- a/app/src/main/java/app/vocr/core/Sfx.kt
++++ b/app/src/main/java/app/vocr/core/Sfx.kt
+@@ -15,9 +15,14 @@ object Sfx {
+     private var scanP: MediaPlayer? = null
+     private var doneP: MediaPlayer? = null
+ 
++    /** Playback levels (0..1 of the media volume). Tuned low on request; flag for S24 tuning. */
++    private const val VOL_SCROLL = 0.30f
++    private const val VOL_DONE = 0.35f
++    private const val VOL_SCAN = 0.25f
++
+     private fun make(c: Context, res: Int, loop: Boolean): MediaPlayer? = runCatching {
+         MediaPlayer.create(c, res, android.media.AudioAttributes.Builder()
+-            .setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build(), 0)?.apply { isLooping = loop }
++            .setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build(), 0)?.apply { isLooping = loop; val v = when (res) { R.raw.sfx_done -> VOL_DONE; R.raw.sfx_scan -> VOL_SCAN; else -> VOL_SCROLL }; setVolume(v, v) }
+     }.getOrNull()
+ 
+     @Synchronized private fun update() {
+@@ -28,7 +33,7 @@ object Sfx {
+         val wantScan = snd && scanOn && !scrollOn && !doneOn
+         if (wantScroll) { if (scrollP == null) scrollP = make(c, R.raw.sfx_scroll, true); runCatching { scrollP?.let { if (!it.isPlaying) it.start() } } }
+         else scrollP?.let { runCatching { it.release() }; scrollP = null }
+-        if (wantScan) { if (scanP == null) scanP = make(c, R.raw.sfx_scan, true)?.also { it.setVolume(0.5f, 0.5f) }; runCatching { scanP?.let { if (!it.isPlaying) it.start() } } }
++        if (wantScan) { if (scanP == null) scanP = make(c, R.raw.sfx_scan, true); runCatching { scanP?.let { if (!it.isPlaying) it.start() } } }
+         else scanP?.let { runCatching { it.release() }; scanP = null }
+     }
+ 

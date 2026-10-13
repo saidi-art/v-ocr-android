@@ -65,6 +65,8 @@ class CaptureService : Service() {
     private var display: VirtualDisplay? = null
     private var recFile: File? = null
     private var recording = false
+    private var readMode = false   // hands-free reading: auto-scroll without recording or queue jobs
+    private fun active() = recording || readMode
     private val busy: Boolean get() = app.vocr.core.JobQueue.activeCount() > 0
     private var addChip: AddChip? = null
 
@@ -81,7 +83,7 @@ class CaptureService : Service() {
         return START_NOT_STICKY
     }
 
-    override fun onDestroy() { stopAutoScroll(); removeWidget(); releaseRecording(); super.onDestroy() }
+    override fun onDestroy() { readMode = false; stopAutoScroll(); removeWidget(); releaseRecording(); super.onDestroy() }
     override fun onConfigurationChanged(c: android.content.res.Configuration) { super.onConfigurationChanged(c); hideMenu(); ui.post { if (widget != null) { lp?.let { it.y = it.y.coerceIn(0, (resources.displayMetrics.heightPixels - dp(60)).coerceAtLeast(0)) }; tuck(true) } } }
 
     // ---- notifications --------------------------------------------------------------------------------------------
@@ -201,7 +203,7 @@ class CaptureService : Service() {
     private fun hideMenu() { ui.removeCallbacks(hideMenuRun); menu.forEach { v -> runCatching { wm?.removeView(v) } }; menu = emptyList() }
     private val hideMenuRun = Runnable { hideMenu() }
 
-    private fun chip(text: String, bg: Int, onClick: () -> Unit): TextView = glassChip(this, text, bg).apply { setOnClickListener { onClick() } }
+    private fun chip(text: String, bg: Int, onClick: () -> Unit): TextView = glassChip(this, text, bg).apply { setOnClickListener { it.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP); onClick() } }
 
     private fun overlay(v: View, x: Int, y: Int) {
         val q = WindowManager.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
@@ -214,11 +216,11 @@ class CaptureService : Service() {
         val p = lp ?: return
         hideMenu(); tuck(false)
         val close = chip("\u00D7", Color.parseColor("#E5484D")) {
-            hideMenu(); if (recording) toast("Stop recording first") else closeWidget()
+            hideMenu(); if (recording) toast("Stop recording first") else { if (readMode) stopReadMode(); closeWidget() }
         }
         fun modeText() = if (prefs(this).getBoolean("fast", false)) "Fast" else "Slow"
         val mode = chip(modeText(), Color.parseColor("#25262B")) {}
-        mode.setOnClickListener {
+        mode.setOnClickListener { it.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP)
             val f = !prefs(this).getBoolean("fast", false); prefs(this).edit().putBoolean("fast", f).apply()
             mode.text = modeText(); ui.removeCallbacks(hideMenuRun); ui.postDelayed(hideMenuRun, 4000)
         }
@@ -230,7 +232,7 @@ class CaptureService : Service() {
             auto.setTextColor(if (autoOn()) Color.parseColor("#17120C") else Color.parseColor("#A9A6A0"))
         }
         styleAuto()
-        auto.setOnClickListener {
+        auto.setOnClickListener { it.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP)
             if (ScrollService.instance == null) {
                 toast("Auto-scroll needs Accessibility. Read the notice first.")
                 hideMenu()
@@ -242,8 +244,48 @@ class CaptureService : Service() {
         }
         overlay(close, p.x - dp(14), p.y - dp(30))
         overlay(mode, p.x - dp(6), p.y + p.height + dp(6))
+        fun rdText() = if (readMode) "Scroll: ON" else "Scroll: off"
+        val rd = chip(rdText(), Color.parseColor("#25262B")) {}
+        fun styleRd() {
+            (rd.background as GradientDrawable).setColor(Color.parseColor(if (readMode) "#D2B08A" else "#25262B"))
+            rd.setTextColor(if (readMode) Color.parseColor("#17120C") else Color.parseColor("#A9A6A0"))
+        }
+        styleRd()
+        rd.setOnClickListener { it.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP)
+            if (readMode) { stopReadMode(); hideMenu() }
+            else {
+                startReadMode()
+                if (readMode) {   // pace slider pops up under the chip, same bronze as the Settings slider; bubble tap stops
+                    rd.text = rdText(); styleRd()
+                    val bar = android.widget.SeekBar(this).apply {
+                        max = 10; progress = speedLevel()
+                        val bronze = android.content.res.ColorStateList.valueOf(Color.parseColor("#D2B08A"))
+                        progressTintList = bronze; thumbTintList = bronze
+                        progressBackgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#55FFFFFF"))
+                        setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+                            override fun onProgressChanged(sb: android.widget.SeekBar?, v: Int, fromUser: Boolean) {
+                                if (fromUser) { prefs(this@CaptureService).edit().putInt("scrollspeed", v).apply(); ui.removeCallbacks(hideMenuRun); ui.postDelayed(hideMenuRun, 4000) }
+                            }
+                            override fun onStartTrackingTouch(sb: android.widget.SeekBar?) { ui.removeCallbacks(hideMenuRun) }
+                            override fun onStopTrackingTouch(sb: android.widget.SeekBar?) { it.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP); ui.postDelayed(hideMenuRun, 4000) }
+                        })
+                    }
+                    val pill = android.widget.LinearLayout(this).apply {
+                        orientation = android.widget.LinearLayout.VERTICAL
+                        setPadding(dp(14), dp(8), dp(14), dp(6))
+                        background = GradientDrawable().apply { setColor(Color.parseColor("#E625262B")); cornerRadius = dp(18).toFloat() }
+                        addView(android.widget.TextView(this@CaptureService).apply { text = "Pace  (10 = normal, 0 = pause)"; setTextColor(Color.parseColor("#A9A6A0")); textSize = 11f })
+                        addView(bar, android.widget.LinearLayout.LayoutParams(dp(190), android.widget.LinearLayout.LayoutParams.WRAP_CONTENT))
+                    }
+                    overlay(pill, p.x - dp(6), p.y + p.height + dp(126))
+                    menu = menu + pill
+                    ui.removeCallbacks(hideMenuRun); ui.postDelayed(hideMenuRun, 5000)
+                } else hideMenu()
+            }
+        }
         overlay(auto, p.x - dp(6), p.y + p.height + dp(46))
-        menu = listOf(close, mode, auto)
+        overlay(rd, p.x - dp(6), p.y + p.height + dp(86))
+        menu = listOf(close, mode, auto, rd)
         ui.postDelayed(hideMenuRun, 4000)
     }
 
@@ -268,7 +310,8 @@ class CaptureService : Service() {
     }
 
     private fun onWidgetTap() {
-        if (recording) stopRecording()
+        if (readMode) stopReadMode()
+        else if (recording) stopRecording()
         else startActivity(Intent(this, ConsentActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
 
@@ -329,14 +372,14 @@ class CaptureService : Service() {
     private var pausedSince = 0L
     private fun scrollStep() {
         val svc = ScrollService.instance
-        if (!scrolling || !recording || svc == null) return
+        if (!scrolling || !active() || svc == null) return
         val lvl = speedLevel()
         if (lvl == 0) {   // stopped: wait, and do not let the time cap run while paused
             if (pausedSince == 0L) pausedSince = System.currentTimeMillis()
             ui.postDelayed(scrollRun, 400); return
         }
         if (pausedSince != 0L) { scrollT0 += System.currentTimeMillis() - pausedSince; pausedSince = 0L; still = 0 }
-        if (System.currentTimeMillis() - scrollT0 >= capMs()) { stopAutoScroll(); toast("Auto-scroll done"); stopRecording(); return }
+        if (System.currentTimeMillis() - scrollT0 >= capMs()) { endScroll("Auto-scroll done"); return }
         val m = resources.displayMetrics
         if (lvl >= 10) {
             svc.swipe(m.widthPixels, m.heightPixels, 0.80f, 0.20f, 90) { ok ->
@@ -348,7 +391,7 @@ class CaptureService : Service() {
             val v = crawlSpeed(lvl)
             val dist = (v * 4.0).coerceIn(0.2, 0.6)           // screens per drag
             val dur = (dist / v * 1000).toLong()               // constant speed, no fling at the lift
-            for (k in 1..(dur / 1500L).toInt()) ui.postDelayed({ if (scrolling && recording && speedLevel() > 0) app.vocr.Haptics.autoPulse(this) }, k * 1500L)   // gentle pulse every ~1.5 s during a slow drag
+            for (k in 1..(dur / 1500L).toInt()) ui.postDelayed({ if (scrolling && active() && speedLevel() > 0) app.vocr.Haptics.autoPulse(this) }, k * 1500L)   // gentle pulse every ~1.5 s during a slow drag
             svc.swipe(m.widthPixels, m.heightPixels, 0.80f, (0.80 - dist).toFloat(), dur) { ok ->
                 if (ok) swipes++
                 ui.postDelayed({ checkBottom(svc) }, 120L)
@@ -360,22 +403,38 @@ class CaptureService : Service() {
     // change nothing = the page has ended, so stop and read. The time cap above stays as the safety net.
     private var lastThumb: IntArray? = null; private var still = 0
     private fun checkBottom(svc: ScrollService) {
-        if (!scrolling || !recording) return
+        if (!scrolling || !active()) return
         svc.thumb { t ->
             ui.post {
-                if (!scrolling || !recording) return@post
+                if (!scrolling || !active()) return@post
                 val prev = lastThumb
                 if (t != null && prev != null) {
                     var d = 0L; for (i in t.indices) d += Math.abs(t[i] - prev[i])
                     val mad = d.toDouble() / t.size
                     still = if (mad < 1.2) still + 1 else 0
-                    if (still >= 3) { stopAutoScroll(); toast("Reached the bottom - reading now"); stopRecording(); return@post }
+                    if (still >= 3) { endScroll(if (readMode) "Reached the bottom" else "Reached the bottom - reading now"); return@post }
                 }
                 if (t != null) lastThumb = t
                 ui.postDelayed(scrollRun, 50)
             }
         }
     }
+
+    /** The page ended or the time cap hit: stop the recording (and read it) or, in hands-free mode, just stop scrolling. */
+    private fun endScroll(msg: String) { if (readMode) { toast(msg); stopReadMode() } else { stopAutoScroll(); toast(msg); stopRecording() } }
+
+    /** Hands-free reading: auto-scroll with NO recording, no capture and no queue job. Tap the bubble to stop. */
+    private fun startReadMode() {
+        if (recording) { toast("Stop recording first"); return }
+        if (readMode) { toast("Already scrolling - tap the bubble to stop"); return }
+        if (ScrollService.instance == null) { toast("Turn on Auto-scroll in ScrOllOn Settings first"); return }
+        readMode = true; pausedSince = 0L
+        widget?.apply { label = "STOP"; alpha = 0.7f; labelSp = 9f; fill = Color.parseColor("#3A3B42"); ring = -1f; invalidate() }
+        lp?.let { it.width = dp(40); it.height = dp(40); widget?.let { w -> runCatching { wm?.updateViewLayout(w, it) } } }
+        tuck(false)
+        startAutoScroll()
+    }
+    private fun stopReadMode() { if (!readMode) return; readMode = false; stopAutoScroll(); setWidgetIdle(); ui.post { refreshQueueUi() } }
 
     private fun stopRecording() {
         if (!recording) return
@@ -405,7 +464,7 @@ class CaptureService : Service() {
     private fun showAddChip() {
         if (addChip != null || widget == null) return
         val c = AddChip(this)
-        c.setOnClickListener { showAddMenu() }
+        c.setOnClickListener { it.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP); showAddMenu() }
         val q = WindowManager.LayoutParams(dp(40), dp(40), WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS, PixelFormat.TRANSLUCENT).apply { gravity = Gravity.TOP or Gravity.START; x = lp?.x ?: 0; y = (lp?.y ?: dp(60)) - dp(46) }
         runCatching { wm?.addView(c, q); addChip = c; ui.postDelayed(chipPoll, 300) }
@@ -436,7 +495,7 @@ class CaptureService : Service() {
         if (widget == null) return
         val n = app.vocr.core.JobQueue.activeCount()
         if (n > 0) { showAddChip(); addChip?.count = n; addChip?.invalidate() } else hideAddChip()
-        if (!recording) {
+        if (!recording && !readMode) {
             val j = app.vocr.core.JobQueue.current()
             if (j != null) { setRing(j.frac, j.ringLabel) } else if (n == 0) { widget?.let { it.ring = -1f; it.label = "REC"; it.invalidate() } }
         }
