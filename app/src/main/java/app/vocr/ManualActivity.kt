@@ -39,9 +39,10 @@ private val sections: List<Pair<String, String>> = listOf(
         "The (+) chip next to the bubble is described under \"Queue and (+)\" below.",
     "Auto-scroll (hands-free recording)" to
         "Auto-scroll swipes the screen for you while it records, so you only tap start.\n" +
-        "Setup, once: tap the home screen button \"Auto-scroll\" (or the Auto-scroll switch on the bubble). V-OCR first shows a notice explaining what the permission is used for (swipes, plus tiny grey 48x96 screenshots kept only in memory to spot the bottom of the page). If you agree, Android Settings > Accessibility > Installed apps > V-OCR > turn on. If you just installed an update and it stops working, switch it off and on once.\n" +
+        "Setup, once: tap home screen > Settings > \"Auto-scroll\" (or the Auto-scroll switch on the bubble). V-OCR first shows a notice explaining what the permission is used for (swipes, plus tiny grey 48x96 screenshots kept only in memory to spot the bottom of the page). If you agree, Android Settings > Accessibility > Installed apps > V-OCR > turn on. If you just installed an update and it stops working, switch it off and on once.\n" +
         "Use: long-press the bubble and tap the Auto-scroll switch. Violet means armed, grey means off. Then start a recording on the page you want. V-OCR scrolls down for you.\n" +
         "It stops by itself when the page stops moving (3 swipes in a row with no change) and shows \"Reached the bottom - reading now\". A 5-minute cap also stops it as a safety net. You can always tap the bubble to stop sooner.\n" +
+        "Speed: home screen > Settings > Auto-scroll speed, 0 to 10. 10 (default) is the best working pace. Lower numbers scroll slower so you can read along. 0 is a slow crawl, not a stop.\n" +
         "Tip: start at the top of the content. Pages that load more as you scroll may keep moving; stop manually if needed.",
     "Turning on auto-scroll (step by step)" to
         "Phones block accessibility for apps installed from a downloaded file (not from a store) until you allow it once. The \"Allow restricted settings\" option only appears after Android has refused once, so do it in this order:\n" +
@@ -65,6 +66,7 @@ private val sections: List<Pair<String, String>> = listOf(
         "The text screen also shows how many lines were read and how long it took.",
     "Settings" to
         "Fast mode (home screen, text screen, or bubble long-press): about 25% quicker, slightly less accurate. Off by default.\n" +
+        "Settings button (home screen): opens Auto-scroll setup, Auto-scroll speed and the screenshots switch.\n" +
         "Show extracted screenshots: shows the kept frames (\"strips\") so you can check what was read. Off by default.\n" +
         "Auto-scroll: see above.\n" +
         "Everything else is automatic. There is no account and no cloud option.",
