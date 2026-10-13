@@ -46,7 +46,9 @@ class DisclosureActivity : ComponentActivity() {
         fun openAccessibility(ctx: android.content.Context) {
             val ok = ctx.getSharedPreferences("vocr", android.content.Context.MODE_PRIVATE).getBoolean("a11y_ok", false)
             val i = if (ok) Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS) else Intent(ctx, DisclosureActivity::class.java)
-            ctx.startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            // from an Activity: stay in the same task so Back returns to the screen the user left; only a Service needs a new task
+            if (ctx !is android.app.Activity) i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            ctx.startActivity(i)
         }
     }
 }
