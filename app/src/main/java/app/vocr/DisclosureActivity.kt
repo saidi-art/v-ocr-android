@@ -29,8 +29,8 @@ class DisclosureActivity : ComponentActivity() {
                 Disclosure(
                     onAgree = {
                         getSharedPreferences("vocr", MODE_PRIVATE).edit().putBoolean("a11y_ok", true).apply()
+                        finish()   // close this screen first (it is noHistory + excluded from recents), then hand over to Settings
                         startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-                        finish()
                     },
                     onDecline = {
                         Toast.makeText(this, "Auto-scroll stays off. You can still scroll by hand while recording.", Toast.LENGTH_LONG).show()
