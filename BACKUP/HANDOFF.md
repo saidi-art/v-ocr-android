@@ -89,3 +89,21 @@ Same-machine baseline: recognize 231.1 s, detect 39.3 s.
 - French cost (SYNTHETIC proxy: 25 French sentences x 2 fonts, lab/french_proxy.py; not the user's captures): char match full 0.951 / EN+FR 0.951 / EN-only 0.927; accented-char recall full 0.35 / EN+FR 0.35 / EN-only 0.00. EN-only never emits accents. GATE 2 OPEN: recommend keeping EN+FR; needs a real French clip with known text for a real number.
 - Machine note: the sandbox only advances while the agent is running commands (idle time freezes background jobs). Keep runs under supervision with sleep loops.
 Still to do: SAD overlap-dedup calibration curve; batching on S24; Speed test on S24 (wrap build).
+
+## 11. SAD overlap-dedup calibration (lab x86, fling clip, 2026-10-14)
+Method: lab/thumb-dump.patch (apply to a lab copy only; env FLTHUMB=1 FLDUMP=1) dumps a 16x16 grayscale thumbnail of every recognized line crop. lab/sad_curve.py compares each line in strip s+1 with all lines of strip s (sum of 256 absolute gray differences, 0-255 scale) and labels a pair "same line" when the normalized texts have difflib ratio >= 0.9 (lines with < 6 normalized chars are ignored). A line is "flagged" when its best SAD is below the threshold. WRONG = flagged but the matching line's text differs (a real line that would have been silently skipped). Labels come from OCR text, so identical-looking short lines are label noise.
+```
+lines checked 2831 with a true duplicate in previous strip 948 (33.5%)
+SAD(sum of 256 abs diffs) | flagged | correct dup | WRONG (real line deleted) | precision | recall of dups | FP rate of non-dups
+  100 |    2 |    2 |    0 | 1.000 | 0.002 | 0.0000
+  200 |    6 |    6 |    0 | 1.000 | 0.006 | 0.0000
+  400 |   17 |   17 |    0 | 1.000 | 0.018 | 0.0000
+  600 |   29 |   29 |    0 | 1.000 | 0.031 | 0.0000
+  800 |   48 |   48 |    0 | 1.000 | 0.051 | 0.0000
+ 1200 |   99 |   99 |    0 | 1.000 | 0.104 | 0.0000
+ 1800 |  176 |  176 |    0 | 1.000 | 0.186 | 0.0000
+ 2500 |  274 |  255 |   19 | 0.931 | 0.269 | 0.0101
+ 3500 |  445 |  398 |   47 | 0.894 | 0.420 | 0.0250
+ 5000 |  684 |  609 |   75 | 0.890 | 0.642 | 0.0398
+```
+Reading: below SAD 1800 there are no wrong skips on this clip (precision 1.000) but only 18.6% of true duplicates are caught (about 6% of lines). Above 2500, precision falls to 0.89-0.93 and 19-75 real lines would be deleted per 2,831 checked. Zero false positives are not reachable at useful recall; the curve is the deliverable and the threshold is the user's risk choice. One clip, adjacent-strip comparison only, no position constraint, x86 lab - not an S24 result. The 29% overlap is a ceiling; at SAD 1800 the reclaim is far lower (and the loose-match baseline was -7.1% recognize time).

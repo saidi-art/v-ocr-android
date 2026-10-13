@@ -1,0 +1,31 @@
+--- app/src/main/java/app/vocr/core/Ocr.kt	2026-10-13 22:49:59.322789678 +0200
++++ /tmp/wt-c/app/src/main/java/app/vocr/core/Ocr.kt	2026-10-14 01:15:45.046507639 +0200
+@@ -62,6 +62,7 @@
+     private val rec = env.createSession(recModel, opts)
+     private val chars: List<String> = listOf("") + keys + listOf(" ")   // 0 = CTC blank, last = space
+     var detMs = 0L; var recMs = 0L; var postMs = 0L
++    val thumbs = ArrayList<String>()
+     var maxSide = 960
+     var recH = 48
+     var narrowBoost = 1.0f
+@@ -202,6 +203,7 @@
+                 }
+                 sb.append(c)
+             }
++            if (System.getenv("FLTHUMB") != null) { val t = crop.resize(16, 16); val sbT = StringBuilder(); for (yy in 0 until 16) for (xx in 0 until 16) sbT.append("%02x".format(t.gray(xx, yy))); thumbs.add(sbT.toString()) }
+             lines.add(OcrLine(sb.toString().trim(), x0, y0, x1, y1, tc.second))
+         }
+         return lines
+--- app/src/test/java/app/vocr/FlingLabTest.kt	2026-10-13 22:58:56.358789678 +0200
++++ /tmp/wt-c/app/src/test/java/app/vocr/FlingLabTest.kt	2026-10-14 01:15:45.050507639 +0200
+@@ -28,8 +28,8 @@
+         System.getenv("FLRECH")?.let { eng.recH = it.toInt() }; System.getenv("FLDET")?.let { eng.maxSide = it.toInt() }
+         val per = ArrayList<List<Line>>()
+         fun handle(s: Rgb) {
+-            val tt = System.nanoTime(); val d0 = eng.detMs; val ls0 = eng.recognize(s); val tms = (System.nanoTime() - tt) / 1_000_000; println("TIME strip ${per.size} h=${s.h} area=${s.w * s.h} ms=$tms det=${eng.detMs - d0} lines=${ls0.size}"); val ls = ls0.filter { it.conf >= 0.55f && it.text.count { c -> c.isLetterOrDigit() } >= 1 }.map { Line(it.text, (it.y0 + it.y1) / 2f / s.h) }
+-            println("LAB strip ${per.size} ${s.w}x${s.h}: ${ls.size} lines"); if (System.getenv("FLDUMP") != null) ls0.forEachIndexed { k, l -> println("DUMP ${per.size} $k ${l.y0} ${"%.3f".format(l.conf)} ${l.text}") }; per.add(ls)
++            val tt = System.nanoTime(); val d0 = eng.detMs; eng.thumbs.clear(); val ls0 = eng.recognize(s); val tms = (System.nanoTime() - tt) / 1_000_000; println("TIME strip ${per.size} h=${s.h} area=${s.w * s.h} ms=$tms det=${eng.detMs - d0} lines=${ls0.size}"); val ls = ls0.filter { it.conf >= 0.55f && it.text.count { c -> c.isLetterOrDigit() } >= 1 }.map { Line(it.text, (it.y0 + it.y1) / 2f / s.h) }
++            println("LAB strip ${per.size} ${s.w}x${s.h}: ${ls.size} lines"); if (System.getenv("FLTHUMB") != null) eng.thumbs.forEachIndexed { k, h -> println("THUMB ${per.size} $k ${ls0[k].y0} ${ls0[k].y1} $h") }; if (System.getenv("FLDUMP") != null) ls0.forEachIndexed { k, l -> println("DUMP ${per.size} $k ${l.y0} ${"%.3f".format(l.conf)} ${l.text}") }; per.add(ls)
+         }
+         val noocr = System.getenv("FLNOOCR") != null; var nstrips = 0
+         val sb = StripBuilder(overlapPx = 18); val rate = RateCtl(3.0)
