@@ -57,7 +57,7 @@ class FlingLabTest {
         if (flushed is Decision.Crop) { val sc = h / 780f; val t = (flushed.top * sc).toInt().coerceIn(0, h - 1); val bb = (flushed.bottom * sc).toInt().coerceIn(t + 1, h); handle(frame(lastI).crop(0, t, w, bb)) }
         val sp = Spacing.load(File("src/main/assets/words.txt").readText().split("\n"))
         val merged = Stitch.merge(Chrome.strip(per).map { st -> st.map { sp.fix(it.text) } })
-        println("LAB raw=${per.sumOf { it.size }} merged=${merged.size} ocrMs det=${eng.detMs} rec=${eng.recMs}")
+        println("LAB raw=${per.sumOf { it.size }} merged=${merged.size} ocrMs det=${eng.detMs} rec=${eng.recMs} hires=${eng.hiCount}")
         merged.forEach { println("LABTXT $it") }
     }
 }
