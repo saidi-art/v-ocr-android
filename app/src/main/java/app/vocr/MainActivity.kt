@@ -45,7 +45,37 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (intent.getBooleanExtra("glassdemo", false)) { setContent { GlassDemo() }; return }
         setContent { MaterialTheme(colorScheme = darkColorScheme(primary = Violet, background = Ink, surface = Card)) { Home() } }
+    }
+}
+
+/** Preview of the widget look on a dark and a light background (CI screenshot only; reached with the "glassdemo" extra). */
+@Composable
+fun GlassDemo() {
+    @Composable fun half(bg: Brush, modifier: Modifier) {
+        Column(modifier.background(bg).padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                androidx.compose.ui.viewinterop.AndroidView(factory = { app.vocr.capture.Bubble(it) }, modifier = Modifier.size(52.dp))
+                androidx.compose.ui.viewinterop.AndroidView(factory = { app.vocr.capture.Bubble(it).apply { pressedState = true } }, modifier = Modifier.size(52.dp))
+                androidx.compose.ui.viewinterop.AndroidView(factory = { app.vocr.capture.Bubble(it).apply { ring = 0.62f; label = "62%" } }, modifier = Modifier.size(52.dp))
+                androidx.compose.ui.viewinterop.AndroidView(factory = { app.vocr.capture.Bubble(it).apply { label = "STOP"; labelSp = 9f; fill = android.graphics.Color.parseColor("#E5484D") } }, modifier = Modifier.size(52.dp))
+                androidx.compose.ui.viewinterop.AndroidView(factory = { app.vocr.capture.AddChip(it).apply { count = 3 } }, modifier = Modifier.size(40.dp))
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                androidx.compose.ui.viewinterop.AndroidView(factory = { app.vocr.capture.glassChip(it, "\u00D7", android.graphics.Color.parseColor("#E5484D")) })
+                androidx.compose.ui.viewinterop.AndroidView(factory = { app.vocr.capture.glassChip(it, "Slow", android.graphics.Color.parseColor("#232A45")) })
+                androidx.compose.ui.viewinterop.AndroidView(factory = { app.vocr.capture.glassChip(it, "Auto-scroll ON", android.graphics.Color.parseColor("#7C5CFF")) })
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                androidx.compose.ui.viewinterop.AndroidView(factory = { app.vocr.capture.glassChip(it, "Add old recordings", android.graphics.Color.parseColor("#232A45")) })
+                androidx.compose.ui.viewinterop.AndroidView(factory = { app.vocr.capture.glassChip(it, "New recording", android.graphics.Color.parseColor("#7C5CFF")) })
+            }
+        }
+    }
+    Column(Modifier.fillMaxSize()) {
+        half(Brush.linearGradient(listOf(Color(0xFF0B0E17), Color(0xFF1C2B52), Color(0xFF3B1F6B))), Modifier.weight(1f).fillMaxWidth())
+        half(Brush.linearGradient(listOf(Color(0xFFF4F1EA), Color(0xFFD8E4F2), Color(0xFFFFFFFF))), Modifier.weight(1f).fillMaxWidth())
     }
 }
 
