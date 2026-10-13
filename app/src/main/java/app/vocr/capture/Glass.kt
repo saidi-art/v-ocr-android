@@ -16,8 +16,8 @@ internal fun mix(c: Int, with: Int, t: Float): Int {
 /** Pill-shaped glass chip used by the long-press and (+) menus. */
 internal fun glassChip(ctx: Context, text: String, bg: Int): TextView = TextView(ctx).apply {
     val d = ctx.resources.displayMetrics.density
-    this.text = text; setTextColor(Color.WHITE); textSize = 13f; gravity = Gravity.CENTER
-    setShadowLayer(2f * d, 0f, 1f * d, Color.parseColor("#99000000"))
+    this.text = text; setTextColor(if (androidx.core.graphics.ColorUtils.calculateLuminance(bg) > 0.4) Color.parseColor("#17120C") else Color.WHITE); textSize = 13f; gravity = Gravity.CENTER
+    setShadowLayer(if (androidx.core.graphics.ColorUtils.calculateLuminance(bg) > 0.4) 0f else 2f * d, 0f, 1f * d, Color.parseColor("#99000000"))
     setPadding((13 * d).toInt(), (7 * d).toInt(), (13 * d).toInt(), (7 * d).toInt())
     val top = Color.argb(0xE6, Color.red(mix(bg, Color.WHITE, 0.30f)), Color.green(mix(bg, Color.WHITE, 0.30f)), Color.blue(mix(bg, Color.WHITE, 0.30f)))
     val bot = Color.argb(0xD0, Color.red(mix(bg, Color.BLACK, 0.25f)), Color.green(mix(bg, Color.BLACK, 0.25f)), Color.blue(mix(bg, Color.BLACK, 0.25f)))
@@ -28,7 +28,7 @@ internal fun glassChip(ctx: Context, text: String, bg: Int): TextView = TextView
 
 /** Round floating button with a progress ring on its circumference. */
 internal class Bubble(ctx: Context) : View(ctx) {
-    var label = "REC"; var fill = Color.parseColor("#7C5CFF"); var ring = -1f; var labelSp = 11f
+    var label = "REC"; var fill = Color.parseColor("#3A3B42"); var ring = -1f; var labelSp = 11f
     var pressedState = false
     private val pf = Paint(Paint.ANTI_ALIAS_FLAG); private val pr = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
     private val pt = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textAlign = Paint.Align.CENTER; isFakeBoldText = true }
@@ -66,8 +66,8 @@ internal class Bubble(ctx: Context) : View(ctx) {
         if (ring >= 0f) {
             pr.clearShadowLayer()
             pr.color = Color.parseColor("#33FFFFFF"); c.drawOval(ringRect, pr)
-            pr.setShadowLayer(4f * d, 0f, 0f, Color.parseColor("#AA9DFFB0"))
-            pr.color = Color.parseColor("#9DFFB0"); c.drawArc(ringRect, -90f, 360f * ring.coerceIn(0f, 1f), false, pr)
+            pr.setShadowLayer(4f * d, 0f, 0f, Color.parseColor("#AAE3C7A2"))
+            pr.color = Color.parseColor("#E3C7A2"); c.drawArc(ringRect, -90f, 360f * ring.coerceIn(0f, 1f), false, pr)
             pr.clearShadowLayer()
         }
         // 6. label
@@ -84,7 +84,7 @@ internal class AddChip(ctx: Context) : View(ctx) {
     private val pf = Paint(Paint.ANTI_ALIAS_FLAG)
     private val ps = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = Color.WHITE; strokeCap = Paint.Cap.ROUND }
     private val pt = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textAlign = Paint.Align.CENTER; isFakeBoldText = true }
-    private val pb = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#7C5CFF") }
+    private val pb = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#9A7650") }
     private val pg = Paint(Paint.ANTI_ALIAS_FLAG)
     init { setLayerType(LAYER_TYPE_SOFTWARE, null) }
     override fun onDraw(c: Canvas) {
