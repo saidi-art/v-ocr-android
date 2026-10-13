@@ -113,8 +113,9 @@ object JobQueue {
                     val totalS = (System.currentTimeMillis() - readT0) / 1000 + pr.etaS
                     if (totalS >= CUE_MIN_JOB_S) Sfx.cue(app)
                 }
-                job.frac = pr.done / pr.total.coerceAtLeast(1).toFloat()
-                job.ringLabel = (pr.done * 100 / pr.total.coerceAtLeast(1)).toString() + "%"
+                val fr = if (pr.frac >= 0f) pr.frac else pr.done / pr.total.coerceAtLeast(1).toFloat()
+                job.frac = fr
+                job.ringLabel = (fr * 100).toInt().toString() + "%"
                 val eta = if (pr.etaS >= 0) "  ~${pr.etaS / 60}m ${pr.etaS % 60}s left" else ""
                 job.stage = "Reading ${pr.done}/${pr.total}$eta"
                 val now = System.currentTimeMillis()
