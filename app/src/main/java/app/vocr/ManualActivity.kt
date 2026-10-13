@@ -39,10 +39,17 @@ private val sections: List<Pair<String, String>> = listOf(
         "The (+) chip next to the bubble is described under \"Queue and (+)\" below.",
     "Auto-scroll (hands-free recording)" to
         "Auto-scroll swipes the screen for you while it records, so you only tap start.\n" +
-        "Setup, once: tap the home screen button \"Auto-scroll\" (or the Auto-scroll switch on the bubble). V-OCR first shows a notice explaining what the permission is used for (swipes, plus tiny grey 48x96 screenshots kept only in memory to spot the bottom of the page). If you agree, Android Settings > Accessibility > Installed apps > \"V-OCR auto-scroll\" > turn on. If you just installed an update and it stops working, switch it off and on once.\n" +
+        "Setup, once: tap the home screen button \"Auto-scroll\" (or the Auto-scroll switch on the bubble). V-OCR first shows a notice explaining what the permission is used for (swipes, plus tiny grey 48x96 screenshots kept only in memory to spot the bottom of the page). If you agree, Android Settings > Accessibility > Installed apps > V-OCR > turn on. If you just installed an update and it stops working, switch it off and on once.\n" +
         "Use: long-press the bubble and tap the Auto-scroll switch. Violet means armed, grey means off. Then start a recording on the page you want. V-OCR scrolls down for you.\n" +
         "It stops by itself when the page stops moving (3 swipes in a row with no change) and shows \"Reached the bottom - reading now\". A 5-minute cap also stops it as a safety net. You can always tap the bubble to stop sooner.\n" +
         "Tip: start at the top of the content. Pages that load more as you scroll may keep moving; stop manually if needed.",
+    "Turning on auto-scroll (step by step)" to
+        "Phones block accessibility for apps installed from a downloaded file (not from a store) until you allow it once. The \"Allow restricted settings\" option only appears after Android has refused once, so do it in this order:\n" +
+        "1. Settings > Accessibility > Installed apps > V-OCR. Try to switch it on. If V-OCR is greyed out (\"Controlled by restricted setting\"), tap it. Android shows \"App was denied access\". Tap Close.\n" +
+        "2. Settings > Apps > V-OCR. Tap the three dots at the top right > \"Allow restricted settings\". Confirm with your PIN or fingerprint if asked.\n" +
+        "3. Back to Settings > Accessibility > Installed apps > V-OCR. It now shows Off and is no longer greyed out. Switch it on, then tap Allow in Android's \"Allow V-OCR to have full control of your device?\" box.\n" +
+        "That last box uses Android's standard wording for every accessibility app. V-OCR only swipes and takes tiny grey screenshots, as described at the top of this section.\n" +
+        "If V-OCR is not greyed out in step 1, you can skip step 2. Steps can differ a little between phone makers; this was checked on a Samsung Galaxy S24 Ultra.",
     "Queue and (+)" to
         "V-OCR reads one recording at a time and lines the rest up. You can keep recording or adding while one is being read.\n" +
         "On the home screen, the ADD button (top right) opens the video picker. Pick one or several screen recordings; each becomes a job in the queue. The badge on it shows how many are still active.\n" +
