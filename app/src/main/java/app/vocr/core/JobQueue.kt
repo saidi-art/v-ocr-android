@@ -11,6 +11,7 @@ import android.provider.OpenableColumns
 import androidx.compose.runtime.*
 import java.io.File
 import app.vocr.capture.QueueService
+import app.vocr.Haptics
 
 /**
  * One process-wide queue for everything that needs reading: files picked on the main page and recordings from the widget.
@@ -124,12 +125,12 @@ object JobQueue {
             }
             val sv = Saver.save(app, rd.text)
             job.title = sv.title; job.result = sv.uri; job.lines = rd.mergedLines; job.secs = (rd.ms / 1000).toInt()
-            job.stage = "Done"; job.state = 2; job.frac = 1f
+            job.stage = "Done"; job.state = 2; job.frac = 1f; Haptics.saved(app)
             postDone(app, job, rd.text)
         } catch (e: Throwable) {
-            job.state = 3; job.stage = "Failed: " + (e.message ?: e.javaClass.simpleName)
+            job.state = 3; Haptics.failure(app); job.stage = "Failed: " + (e.message ?: e.javaClass.simpleName)
             nm(app).notify(100 + job.id, Notification.Builder(app, CH_DONE).setSmallIcon(android.R.drawable.stat_notify_error)
-                .setContentTitle("V-OCR could not read " + job.label).setContentText(e.message ?: e.javaClass.simpleName).setAutoCancel(true).build())
+                .setContentTitle("ScrOllOn could not read " + job.label).setContentText(e.message ?: e.javaClass.simpleName).setAutoCancel(true).build())
         } finally {
             Sfx.scan(app, false); if (job.state != 2) Sfx.stopCue(app)
             job.tmp?.delete(); runCatching { stripDir?.deleteRecursively() }; runCatching { if (wl.isHeld) wl.release() }
@@ -154,7 +155,7 @@ object JobQueue {
         channels(c)
         val cur = current(); val waiting = jobs.count { it.state == 0 }
         val text = if (cur == null) (if (waiting > 0) "$waiting waiting" else "Finishing") else cur.label + " - " + cur.stage + (if (waiting > 0) "  (+$waiting waiting)" else "")
-        val b = Notification.Builder(c, CH_STATUS).setSmallIcon(android.R.drawable.ic_menu_camera).setContentTitle("V-OCR queue").setContentText(text).setOngoing(true)
+        val b = Notification.Builder(c, CH_STATUS).setSmallIcon(android.R.drawable.ic_menu_camera).setContentTitle("ScrOllOn queue").setContentText(text).setOngoing(true)
         if (cur != null) b.setProgress(100, (cur.frac * 100).toInt().coerceIn(0, 100), false)
         return b.build()
     }
