@@ -125,7 +125,7 @@ fun Home(preview: Picked? = null) {
     val res = result
     if (res != null) { Strips(res, (ctx as? android.app.Activity)?.intent?.getBooleanExtra("read", false) == true) { result = null }; return }
     Column(
-        Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Ink, Color(0xFF111631)))).systemBarsPadding().verticalScroll(rememberScrollState()).padding(24.dp),
+        Modifier.fillMaxSize().background(GlassBackdrop).systemBarsPadding().verticalScroll(rememberScrollState()).padding(24.dp),
         horizontalAlignment = Alignment.Start
     ) {
         Spacer(Modifier.height(16.dp))
@@ -143,7 +143,7 @@ fun Home(preview: Picked? = null) {
         Spacer(Modifier.height(12.dp))
         QueueList()
         Spacer(Modifier.height(16.dp))
-        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(Card).padding(24.dp)) {
+        Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(28.dp)).padding(24.dp)) {
             Text("\u25B6", color = Lilac, fontSize = 32.sp)
             Spacer(Modifier.height(12.dp))
             Text(picked?.name ?: "Pick screen recordings", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
@@ -159,7 +159,7 @@ fun Home(preview: Picked? = null) {
                 Spacer(Modifier.height(6.dp))
                 val eta = if (pr.etaS >= 0) "  ~${pr.etaS / 60}m ${pr.etaS % 60}s left" else ""
             Text("${pr.stage}  ${pr.done}/${pr.total}$eta  ${pr.lines} lines", color = Muted, fontSize = 13.sp)
-            if (pr.live.isNotEmpty()) Text(pr.live.joinToString("\n"), color = Lilac, fontSize = 12.sp, maxLines = 6, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Card).padding(8.dp))
+            if (pr.live.isNotEmpty()) Text(pr.live.joinToString("\n"), color = Lilac, fontSize = 12.sp, maxLines = 6, modifier = Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(8.dp)).padding(8.dp))
             }
             error?.let { Spacer(Modifier.height(8.dp)); Text(it, color = Color(0xFFFF7A7A), fontSize = 13.sp) }
             Spacer(Modifier.height(20.dp))
@@ -210,7 +210,7 @@ fun Home(preview: Picked? = null) {
         ) { Text(if (showSettings) "Settings  \u25B2" else "Settings  \u25BC", fontSize = 14.sp) }
         if (showSettings) {
             Spacer(Modifier.height(10.dp))
-            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Card).padding(16.dp)) {
+            Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(20.dp)).padding(16.dp)) {
                 Button(
                     onClick = { DisclosureActivity.openAccessibility(ctx) },
                     modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(16.dp),
@@ -231,7 +231,7 @@ fun Home(preview: Picked? = null) {
                 Row { Text("0 slowest", color = Muted, fontSize = 11.sp, modifier = Modifier.weight(1f)); Text("10 = best pace", color = Muted, fontSize = 11.sp) }
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "10 is the best working pace for the text reader. Lower numbers scroll slower so you can read along while it records. 0 is a slow crawl, never a stop.",
+                    "10 is the best working pace for the text reader. Lower numbers scroll slower so you can read along while it records. 1 is a very slow, smooth crawl. 0 stops the scrolling completely (the recording keeps running).",
                     color = Muted, fontSize = 12.sp, lineHeight = 17.sp
                 )
                 Spacer(Modifier.height(14.dp))
@@ -283,7 +283,7 @@ fun Strips(res: Result, autoRead: Boolean = false, onBack: () -> Unit) {
     LaunchedEffect(Unit) { if (autoRead && read == null && reading == null) startRead() }
     val rd = read
     if (rd != null) { TextScreen(rd) { read = null }; return }
-    Column(Modifier.fillMaxSize().background(Ink).systemBarsPadding().padding(16.dp)) {
+    Column(Modifier.fillMaxSize().background(GlassBackdrop).systemBarsPadding().padding(16.dp)) {
         Text("Kept ${res.strips.size} strips", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
         Text(
             "${res.seconds}s video, ${res.framesTotal} frames read, ${res.dup} skipped (dup/accumulating), ${res.full} full, ${res.cropped} cropped. " +
@@ -330,7 +330,7 @@ fun Strips(res: Result, autoRead: Boolean = false, onBack: () -> Unit) {
         LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             items(if (showShots) res.strips else emptyList()) { s ->
                 val bm = remember(s.file) { BitmapFactory.decodeFile(s.file.path, BitmapFactory.Options().apply { inSampleSize = 2 }) }
-                Column(Modifier.clip(RoundedCornerShape(12.dp)).background(Card).padding(8.dp)) {
+                Column(Modifier.glassPanel(RoundedCornerShape(12.dp)).padding(8.dp)) {
                     Text("${s.kind}  t=${"%.1f".format(s.t)}s  ${bm.width * 2}x${bm.height * 2}", color = Lilac, fontSize = 12.sp)
                     Image(bm.asImageBitmap(), null, Modifier.fillMaxWidth(), contentScale = ContentScale.FillWidth)
                 }
@@ -342,7 +342,7 @@ fun Strips(res: Result, autoRead: Boolean = false, onBack: () -> Unit) {
 @Composable
 fun TextScreen(r: ReadResult, onBack: () -> Unit) {
     val ctx = LocalContext.current
-    Column(Modifier.fillMaxSize().background(Ink).systemBarsPadding().padding(16.dp)) {
+    Column(Modifier.fillMaxSize().background(GlassBackdrop).systemBarsPadding().padding(16.dp)) {
         Text("Text from ${r.strips} strips", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
         Text("${r.rawLines} lines read, ${r.mergedLines} after removing overlap. Took ${r.ms / 1000.0}s  (${r.detail})", color = Muted, fontSize = 13.sp)
         if (r.savedTitle.isNotEmpty())
@@ -370,7 +370,7 @@ fun TextScreen(r: ReadResult, onBack: () -> Unit) {
         }
         Spacer(Modifier.height(8.dp))
         androidx.compose.foundation.text.selection.SelectionContainer {
-            Text(r.text, color = Color.White, fontSize = 14.sp, modifier = Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).clip(RoundedCornerShape(12.dp)).background(Card).padding(12.dp))
+            Text(r.text, color = Color.White, fontSize = 14.sp, modifier = Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).glassPanel(RoundedCornerShape(12.dp)).padding(12.dp))
         }
     }
 }
@@ -378,7 +378,7 @@ fun TextScreen(r: ReadResult, onBack: () -> Unit) {
 /** Circled plus, top right: opens the picker and puts the chosen videos on the queue. Badge = jobs waiting or running. */
 @Composable
 fun AddButton(count: Int, onClick: () -> Unit) {
-    Box(Modifier.size(52.dp).clip(androidx.compose.foundation.shape.CircleShape).background(Card).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+    Box(Modifier.size(52.dp).glassPanel(androidx.compose.foundation.shape.CircleShape).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
         androidx.compose.foundation.Canvas(Modifier.size(34.dp)) {
             val c = center; val r = size.minDimension / 2
             drawCircle(Color.White, r - 1.5f, c, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3f))
@@ -397,14 +397,14 @@ fun QueueList() {
     val ctx = LocalContext.current
     val jobs = JobQueue.jobs
     if (jobs.isEmpty()) return
-    Column(Modifier.fillMaxWidth().heightIn(max = 260.dp).clip(RoundedCornerShape(20.dp)).background(Card).padding(12.dp)) {
+    Column(Modifier.fillMaxWidth().heightIn(max = 260.dp).glassPanel(RoundedCornerShape(20.dp)).padding(12.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("Queue", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, modifier = Modifier.weight(1f))
             if (jobs.any { it.state >= 2 }) Text("Clear finished", color = Lilac, fontSize = 13.sp, modifier = Modifier.clickable { JobQueue.clearFinished() })
         }
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
             items(jobs.toList(), key = { it.id }) { j ->
-                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Ink).padding(10.dp)) {
+                Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(12.dp), Ink).padding(10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(if (j.state == 2 && j.title.isNotEmpty()) j.title else j.label, color = Color.White, fontSize = 14.sp, maxLines = 1, modifier = Modifier.weight(1f))
                         if (j.state <= 1) Text("Cancel", color = Color(0xFFFF7A7A), fontSize = 13.sp, modifier = Modifier.clickable { JobQueue.cancel(j) }.padding(4.dp))
