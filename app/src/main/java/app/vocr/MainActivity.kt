@@ -179,17 +179,17 @@ fun Home(preview: Picked? = null) {
         }
         Spacer(Modifier.height(10.dp))
         Button(
-            onClick = { openFolder(ctx) },
+            onClick = { ctx.startActivity(android.content.Intent(ctx, SavedActivity::class.java)) },
             modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(16.dp),
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25262B), contentColor = Color.White)
-        ) { Text("Open ScrOllOn folder (all files)", fontSize = 14.sp) }
+        ) { Text("Saved files", fontSize = 14.sp) }
         Spacer(Modifier.height(10.dp))
         val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
         Button(
             onClick = {
                 if (android.os.Build.VERSION.SDK_INT >= 33) notifLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
                 if (!android.provider.Settings.canDrawOverlays(ctx)) {
-                    ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION, android.net.Uri.parse("package:" + ctx.packageName)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                    ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION, android.net.Uri.parse("package:" + ctx.packageName)))
                 } else {
                     ctx.startForegroundService(android.content.Intent(ctx, app.vocr.capture.CaptureService::class.java).setAction(app.vocr.capture.CaptureService.ACTION_WIDGET))
                     (ctx as? android.app.Activity)?.moveTaskToBack(true)
@@ -444,7 +444,7 @@ fun QueueList() {
 
 /** Opens Downloads/V-OCR in the system Files app; falls back to the Downloads view if the folder link is not handled. */
 fun openFolder(ctx: android.content.Context) {
-    val flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+    val flags = if (ctx is android.app.Activity) 0 else android.content.Intent.FLAG_ACTIVITY_NEW_TASK   // same task when launched from an Activity, so Back returns here
     val dir = android.net.Uri.parse("content://com.android.externalstorage.documents/document/primary%3ADownload%2FV-OCR")
     val tries = listOf(
         android.content.Intent(android.content.Intent.ACTION_VIEW).setDataAndType(dir, "vnd.android.document/directory").addFlags(flags),
