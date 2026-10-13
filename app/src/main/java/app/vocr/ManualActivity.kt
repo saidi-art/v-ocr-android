@@ -82,6 +82,8 @@ private val sections: List<Pair<String, String>> = listOf(
         "Keep the screen on and unlocked, and use normal brightness.\n" +
         "Hide pop-ups and floating notifications while you record.\n" +
         "Recording a single app: Android only lets V-OCR record what stays on screen. If you leave the app, the recording keeps what was shown but cannot follow it.\n" +
+        "Long captures (capture tips): reading time follows the number of screens, not the length of the article. A page that shows more text per screen needs fewer screens, so it records and reads faster. For a long article, try your browser's desktop site mode, or a smaller text size, before you record.\n" +
+        "Do not go too small: when letters look about 40% of the size of normal phone text or smaller, accuracy drops and words get misread. Do one short test capture first and check the result.\n" +
         "Light text on dark or dark on light both work. Handwriting and languages other than English and French are not supported.",
     "Troubleshooting" to
         "The bubble does not appear: allow \"Display over other apps\", then tap \"Floating recorder\" again.\n" +
