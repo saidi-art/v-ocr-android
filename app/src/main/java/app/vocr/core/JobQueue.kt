@@ -62,7 +62,7 @@ object JobQueue {
     fun addDemo(ctx: Context) = enqueue(ctx, "demo.mp4 (built-in)", null, null)
     fun addFile(ctx: Context, f: File, label: String) = enqueue(ctx, label, null, f)
 
-    fun cancel(j: Job) { j.cancel = true; synchronized(lock) { if (j.state == 0) { j.state = 4; j.stage = "Cancelled" } }; listener?.invoke() }
+    fun cancel(j: Job) { j.cancel = true; synchronized(lock) { if (j.state == 0) { j.state = 4; j.stage = "Cancelled" } else if (j.state == 1) j.stage = "Cancelling..." }; listener?.invoke() }
     fun clearFinished() { synchronized(lock) { jobs.removeAll { it.state >= 2 } } }
 
     private fun enqueue(ctx: Context, label: String, uri: Uri?, tmp: File?) {
@@ -106,7 +106,7 @@ object JobQueue {
             val fast = app.getSharedPreferences("vocr", Context.MODE_PRIVATE).getBoolean("fast", false)
             val readT0 = System.currentTimeMillis()
             var cueDone = false
-            val rd = Reader.readAll(app, res.strips, fast) { pr ->
+            val rd = Reader.readAll(app, res.strips, fast, { job.cancel }) { pr ->
                 // End cue: the sound is 22 s long, so start it when the job should have ~21 s left (1 s for stitching and saving).
                 // Skipped for jobs whose whole reading takes under 8 s. Started at once when the first estimate is already under 21 s.
                 if (!cueDone && !job.cancel && pr.etaS >= 0 && pr.etaS <= CUE_LEAD_S) {
@@ -127,6 +127,8 @@ object JobQueue {
             job.title = sv.title; job.result = sv.uri; job.lines = rd.mergedLines; job.secs = (rd.ms / 1000).toInt()
             job.stage = "Done"; job.state = 2; job.frac = 1f; Haptics.saved(app)
             postDone(app, job, rd.text)
+        } catch (e: JobCancelled) {
+            job.state = 4; job.stage = "Cancelled"
         } catch (e: Throwable) {
             job.state = 3; Haptics.failure(app); job.stage = "Failed: " + (e.message ?: e.javaClass.simpleName)
             nm(app).notify(100 + job.id, Notification.Builder(app, CH_DONE).setSmallIcon(android.R.drawable.stat_notify_error)
