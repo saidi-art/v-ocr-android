@@ -91,7 +91,7 @@ internal class AddChip(ctx: Context) : View(ctx) {
         val d = resources.displayMetrics.density; val w = width.toFloat(); val h = height.toFloat(); val cx = w / 2; val cy = h / 2
         val rad = w / 2 - 4 * d
         pf.setShadowLayer(5f * d, 0f, 2f * d, Color.parseColor("#80000000"))
-        pf.shader = LinearGradient(0f, cy - rad, 0f, cy + rad, Color.argb(0xE6, 0x4A, 0x55, 0x85), Color.argb(0xD0, 0x14, 0x19, 0x30), Shader.TileMode.CLAMP)
+        pf.shader = LinearGradient(0f, cy - rad, 0f, cy + rad, Color.argb(0xEE, 0x7B, 0x88, 0xC8), Color.argb(0xDC, 0x2C, 0x34, 0x66), Shader.TileMode.CLAMP)
         c.drawCircle(cx, cy, rad, pf); pf.clearShadowLayer(); pf.shader = null
         pg.shader = LinearGradient(0f, cy - rad, 0f, cy, Color.argb(0x70, 255, 255, 255), Color.argb(0, 255, 255, 255), Shader.TileMode.CLAMP)
         c.drawOval(RectF(cx - rad * 0.7f, cy - rad * 0.92f, cx + rad * 0.7f, cy + rad * 0.05f), pg)
