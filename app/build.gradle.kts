@@ -5,14 +5,14 @@ plugins {
 }
 android {
     namespace = "app.vocr"
-    compileSdk = 34
+    compileSdk = 36
     defaultConfig {
         applicationId = "app.vocr"
         minSdk = 29
-        targetSdk = 34
+        targetSdk = 36
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
-        versionCode = 41
-        versionName = "0.8.0-m8"
+        versionCode = 42
+        versionName = "0.9.0-m9"
     }
     buildTypes { release { isMinifyEnabled = false; isDebuggable = false; signingConfig = signingConfigs.getByName("debug") } }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
@@ -25,8 +25,8 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.activity:activity-compose:1.9.2")
-    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.19.2")
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.22.0")
     testImplementation("junit:junit:4.13.2")
-    testImplementation("com.microsoft.onnxruntime:onnxruntime:1.19.2")
+    testImplementation("com.microsoft.onnxruntime:onnxruntime:1.22.0")
 }
 tasks.withType<Test> { System.getProperty("nb")?.let { systemProperty("nb", it) } }
