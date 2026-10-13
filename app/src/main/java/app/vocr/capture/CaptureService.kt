@@ -235,9 +235,9 @@ class CaptureService : Service() {
         styleAuto()
         auto.setOnClickListener {
             if (ScrollService.instance == null) {
-                toast("Turn on \"V-OCR auto-scroll\" in Accessibility settings first")
+                toast("Auto-scroll needs Accessibility. Read the notice first.")
                 hideMenu()
-                startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                app.vocr.DisclosureActivity.openAccessibility(this)
             } else {
                 val a = !prefs(this).getBoolean("autoscroll", false); prefs(this).edit().putBoolean("autoscroll", a).apply()
                 auto.text = autoText(); styleAuto(); ui.removeCallbacks(hideMenuRun); ui.postDelayed(hideMenuRun, 4000)
@@ -282,7 +282,7 @@ class CaptureService : Service() {
             val code = intent.getIntExtra(EXTRA_CODE, 0)
             @Suppress("DEPRECATION") val data: Intent = intent.getParcelableExtra(EXTRA_DATA)!!
             val mgr = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-            val mp = mgr.getMediaProjection(code, data)
+            val mp = mgr.getMediaProjection(code, data)!!
             mp.registerCallback(object : MediaProjection.Callback() { override fun onStop() { ui.post { if (recording) stopRecording() } } }, ui)
             val m = resources.displayMetrics
             var w = m.widthPixels; var h = m.heightPixels
