@@ -56,6 +56,10 @@ jobs:
             adb logcat -d -b crash > shots/crash.txt || true
             adb logcat -d | grep -E 'AndroidRuntime|FATAL|vocr' | tail -80 > shots/logcat.txt || true
             adb shell am force-stop app.vocr
+            adb shell am start -n app.vocr/.MainActivity --ez glassdemo true
+            sleep 6
+            adb exec-out screencap -p > shots/glass.png
+            adb shell am force-stop app.vocr
             adb shell am start -n app.vocr/.MainActivity --ez queue true
             sleep 25
             adb exec-out screencap -p > shots/queue.png
@@ -86,6 +90,7 @@ jobs:
             align-${{ github.run_number }}.txt
             vocr-release-${{ github.run_number }}.apk
             shots/home.png
+            shots/glass.png
             shots/strips.png
             shots/text.png
             shots/crash.txt
