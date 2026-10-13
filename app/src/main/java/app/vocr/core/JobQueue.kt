@@ -86,7 +86,7 @@ object JobQueue {
     }
 
     private fun runJob(app: Context, job: Job) {
-        job.state = 1; job.stage = "Scanning"; job.ringLabel = "SCAN"; notifyStatus(app); listener?.invoke()
+        job.state = 1; job.stage = "Scanning"; job.ringLabel = "SCAN"; Sfx.scan(app, true); notifyStatus(app); listener?.invoke()
         val wl = (app.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager).newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "vocr:queue").apply { acquire(45 * 60 * 1000L) }
         var lastNote = 0L
         var stripDir: File? = null
@@ -113,11 +113,13 @@ object JobQueue {
             job.title = sv.title; job.result = sv.uri; job.lines = rd.mergedLines; job.secs = (rd.ms / 1000).toInt()
             job.stage = "Done"; job.state = 2; job.frac = 1f
             postDone(app, job, rd.text)
+            Sfx.scan(app, false); Sfx.done(app)
         } catch (e: Throwable) {
             job.state = 3; job.stage = "Failed: " + (e.message ?: e.javaClass.simpleName)
             nm(app).notify(100 + job.id, Notification.Builder(app, CH_DONE).setSmallIcon(android.R.drawable.stat_notify_error)
                 .setContentTitle("V-OCR could not read " + job.label).setContentText(e.message ?: e.javaClass.simpleName).setAutoCancel(true).build())
         } finally {
+            Sfx.scan(app, false)
             job.tmp?.delete(); runCatching { stripDir?.deleteRecursively() }; runCatching { if (wl.isHeld) wl.release() }
             listener?.invoke(); notifyStatus(app)
         }
