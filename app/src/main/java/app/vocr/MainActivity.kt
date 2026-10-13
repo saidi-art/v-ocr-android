@@ -41,6 +41,8 @@ val Lilac = Color(0xFFB7A8FF)
 val Muted = Color(0xFF8A93AD)
 
 class MainActivity : ComponentActivity() {
+    override fun onResume() { super.onResume(); JobQueue.clearDoneNotifications(this) }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent { MaterialTheme(colorScheme = darkColorScheme(primary = Violet, background = Ink, surface = Card)) { Home() } }
