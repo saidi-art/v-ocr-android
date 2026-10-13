@@ -318,7 +318,7 @@ class CaptureService : Service() {
     // tuned to), then 650 ms for the fling to settle. The recording stops after scrollcapsec seconds (default 300) and the text is read.
     private var scrolling = false; private var swipes = 0; private var scrollT0 = 0L
     private val scrollRun = Runnable { scrollStep() }
-    private fun startAutoScroll() { scrolling = true; swipes = 0; scrollT0 = System.currentTimeMillis(); ui.postDelayed(scrollRun, 2500) }
+    private fun startAutoScroll() { lastThumb = null; still = 0; scrolling = true; swipes = 0; scrollT0 = System.currentTimeMillis(); ui.postDelayed(scrollRun, 2500) }
     private fun stopAutoScroll() { scrolling = false; ui.removeCallbacks(scrollRun) }
     private fun scrollStep() {
         val svc = ScrollService.instance
@@ -327,7 +327,28 @@ class CaptureService : Service() {
         val m = resources.displayMetrics
         svc.swipe(m.widthPixels, m.heightPixels, 0.80f, 0.20f, 90) { ok ->
             if (ok) swipes++
-            ui.postDelayed(scrollRun, 650)
+            ui.postDelayed({ checkBottom(svc) }, 650)   // let the fling settle, then look at the screen
+        }
+    }
+
+    // Bottom of page: after each swipe compare a small grey thumbnail with the previous one. 3 swipes in a row that
+    // change nothing = the page has ended, so stop and read. The time cap above stays as the safety net.
+    private var lastThumb: IntArray? = null; private var still = 0
+    private fun checkBottom(svc: ScrollService) {
+        if (!scrolling || !recording) return
+        svc.thumb { t ->
+            ui.post {
+                if (!scrolling || !recording) return@post
+                val prev = lastThumb
+                if (t != null && prev != null) {
+                    var d = 0L; for (i in t.indices) d += Math.abs(t[i] - prev[i])
+                    val mad = d.toDouble() / t.size
+                    still = if (mad < 1.2) still + 1 else 0
+                    if (still >= 3) { stopAutoScroll(); toast("Reached the bottom - reading now"); stopRecording(); return@post }
+                }
+                if (t != null) lastThumb = t
+                ui.postDelayed(scrollRun, 50)
+            }
         }
     }
 
