@@ -93,7 +93,7 @@ fun Disclosure(onAgree: () -> Unit, onDecline: () -> Unit) {
         Spacer(Modifier.height(8.dp))
         Button(
             onClick = onDecline, modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(16.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF232A45), contentColor = Color.White)
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25262B), contentColor = Color.White)
         ) { Text("No thanks", fontSize = 14.sp) }
     }
 }
