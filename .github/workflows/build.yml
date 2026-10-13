@@ -13,7 +13,7 @@ jobs:
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: 17 }
       - uses: gradle/actions/setup-gradle@v4
-        with: { gradle-version: "8.7" }
+        with: { gradle-version: "8.13" }
       - name: Fetch OCR models
         run: |
           pip install --break-system-packages rapidocr-onnxruntime==1.4.4
@@ -30,6 +30,13 @@ jobs:
       - name: Build release APK (speed test)
         continue-on-error: true
         run: gradle --no-daemon assembleRelease
+      - name: Build release bundle (AAB for Play)
+        continue-on-error: true
+        run: gradle --no-daemon bundleRelease
+      - name: Check 16 KB alignment of native libs
+        run: |
+          mkdir -p /tmp/x && cd /tmp/x && unzip -oq $GITHUB_WORKSPACE/app/build/outputs/apk/release/app-release.apk 'lib/*'
+          for f in lib/*/*.so; do echo "$f $(readelf -lW $f | awk '/LOAD/{print $NF}' | sort -u | tr '\n' ' ')"; done | tee $GITHUB_WORKSPACE/shots-align.txt || true
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -65,6 +72,8 @@ jobs:
         run: |
           for f in shots/crash.txt shots/logcat.txt shots/queuelog.txt; do echo "-- capture $f" >> $f; done
           cp app/build/outputs/apk/debug/app-debug.apk vocr-debug-${{ github.run_number }}.apk
+          cp app/build/outputs/bundle/release/app-release.aab vocr-release-${{ github.run_number }}.aab || true
+          cp shots-align.txt align-${{ github.run_number }}.txt || true
           cp app/build/outputs/apk/release/app-release.apk vocr-release-${{ github.run_number }}.apk || true
       - name: Release
         uses: softprops/action-gh-release@v2
@@ -73,6 +82,8 @@ jobs:
           name: V-OCR build ${{ github.run_number }}
           files: |
             vocr-debug-${{ github.run_number }}.apk
+            vocr-release-${{ github.run_number }}.aab
+            align-${{ github.run_number }}.txt
             vocr-release-${{ github.run_number }}.apk
             shots/home.png
             shots/strips.png
