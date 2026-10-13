@@ -380,10 +380,29 @@ class CaptureService : Service() {
     private fun showAddChip() {
         if (addChip != null || widget == null) return
         val c = AddChip(this)
-        c.setOnClickListener { startActivity(Intent(this, AddActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        c.setOnClickListener { showAddMenu() }
         val q = WindowManager.LayoutParams(dp(40), dp(40), WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS, PixelFormat.TRANSLUCENT).apply { gravity = Gravity.TOP or Gravity.START; x = lp?.x ?: 0; y = (lp?.y ?: dp(60)) - dp(46) }
         runCatching { wm?.addView(c, q); addChip = c; ui.postDelayed(chipPoll, 300) }
+    }
+
+    /** The (+) offers both: queue old recordings, or start a new (auto-scroll) recording while earlier ones are still being read. */
+    private fun showAddMenu() {
+        val q = lp ?: return
+        hideMenu()
+        val x = (q.x - dp(176)).coerceAtLeast(dp(4)); val y = (q.y - dp(46)).coerceAtLeast(dp(4))
+        val old = chip("Add old recordings", Color.parseColor("#232A45")) {
+            hideMenu(); startActivity(Intent(this, AddActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
+        val neu = chip(if (recording) "Recording now" else "New recording" + (if (prefs(this).getBoolean("autoscroll", false) && ScrollService.instance != null) " (auto-scroll)" else ""), Color.parseColor("#7C5CFF")) {
+            hideMenu()
+            if (recording) toast("Already recording - tap the bubble to stop")
+            else startActivity(Intent(this, ConsentActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
+        overlay(old, x, y)
+        overlay(neu, x, y + dp(42))
+        menu = listOf(old, neu)
+        ui.postDelayed(hideMenuRun, 5000)
     }
 
     private fun hideAddChip() { ui.removeCallbacks(chipPoll); addChip?.let { runCatching { wm?.removeView(it) } }; addChip = null }
