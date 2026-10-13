@@ -35,6 +35,8 @@ object Fix {
 
 data class ReadResult(val text: String, val strips: Int, val rawLines: Int, val mergedLines: Int, val ms: Long, val detail: String, val savedTitle: String = "", val savedOk: Boolean = false)
 
+class JobCancelled : RuntimeException("Cancelled")
+
 object Reader {
     /** Device speed test: recognise one mid-clip strip with different ONNX thread counts and report ms per count. */
     fun bench(ctx: Context, strips: List<StripInfo>, onLine: (String) -> Unit) {
@@ -79,14 +81,14 @@ object Reader {
         return OcrEngine(det, rec, keys, threads, provider)
     }
 
-    fun readAll(ctx: Context, strips: List<StripInfo>, fast: Boolean = false, onProgress: (Progress) -> Unit): ReadResult {
+    fun readAll(ctx: Context, strips: List<StripInfo>, fast: Boolean = false, cancelled: () -> Boolean = { false }, onProgress: (Progress) -> Unit): ReadResult {
         Pipeline.gate.lock()
-        try { return readAllLocked(ctx, strips, fast, onProgress) } finally { Pipeline.gate.unlock() }
+        try { return readAllLocked(ctx, strips, fast, cancelled, onProgress) } finally { Pipeline.gate.unlock() }
     }
 
     /** Lab data (151 strips): area-weighted ETA ran 5-19% short late in a job; strip count alone ran 16-38% short. */
     private const val ETA_BIAS = 1.10
-    private fun readAllLocked(ctx: Context, strips: List<StripInfo>, fast: Boolean, onProgress: (Progress) -> Unit): ReadResult {
+    private fun readAllLocked(ctx: Context, strips: List<StripInfo>, fast: Boolean, cancelled: () -> Boolean, onProgress: (Progress) -> Unit): ReadResult {
         val t0 = System.currentTimeMillis()
         val eng = load(ctx)
         if (fast) { eng.recH = 42; eng.maxSide = 704; eng.adaptive = false }   // ~25% faster, ~2-3 points less accurate on dense text
@@ -97,6 +99,7 @@ object Reader {
         val perStrip = ArrayList<List<Line>>()
         try {
             for ((i, s) in strips.withIndex()) {
+                if (cancelled()) throw JobCancelled()   // user pressed Cancel mid-read: stop before the next strip
                 val el = System.currentTimeMillis() - tRead
                 val eta = if (doneArea > 0) ((el.toDouble() / doneArea * (totalArea - doneArea) * ETA_BIAS) / 1000).toInt() else -1
                 onProgress(Progress("Reading text", i, strips.size, eta, live, liveLines, doneArea.toFloat() / totalArea))
