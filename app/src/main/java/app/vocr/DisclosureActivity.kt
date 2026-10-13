@@ -25,7 +25,7 @@ class DisclosureActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            MaterialTheme(colorScheme = darkColorScheme(primary = Violet, background = Ink, surface = Card)) {
+            MaterialTheme(colorScheme = darkColorScheme(primary = Violet, background = Ink, surface = Card), typography = ScrollOnTypography) {
                 Disclosure(
                     onAgree = {
                         getSharedPreferences("vocr", MODE_PRIVATE).edit().putBoolean("a11y_ok", true).apply()
@@ -53,12 +53,12 @@ class DisclosureActivity : ComponentActivity() {
 
 @Composable
 fun Disclosure(onAgree: () -> Unit, onDecline: () -> Unit) {
-    Column(Modifier.fillMaxSize().background(GlassBackdrop).systemBarsPadding().padding(16.dp)) {
+    Column(Modifier.fillMaxSize().scrollOnBackdrop().systemBarsPadding().padding(16.dp)) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-            Text("Auto-scroll needs Accessibility", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            Text("Auto-scroll needs Accessibility", color = Color.White, fontSize = 32.sp, lineHeight = 34.sp, fontWeight = FontWeight.SemiBold, fontFamily = DisplayFont)
             Spacer(Modifier.height(12.dp))
             Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(20.dp)).padding(18.dp)) {
-                Text("What V-OCR does with this permission", color = Lilac, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                Text("What ScrOllOn does with this permission", color = Lilac, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(8.dp))
                 Text(
                     "1. It performs swipe gestures on your screen to scroll the page for you while you record.\n\n" +
@@ -73,22 +73,22 @@ fun Disclosure(onAgree: () -> Unit, onDecline: () -> Unit) {
                 Spacer(Modifier.height(8.dp))
                 Text(
                     "It does not read text, passwords or anything you type, and it does not see other apps' content. " +
-                        "Nothing is sent anywhere: V-OCR has no internet permission and reads text on your phone only.",
+                        "Nothing is sent anywhere: ScrOllOn has no internet permission and reads text on your phone only.",
                     color = Color.White, fontSize = 14.sp, lineHeight = 20.sp
                 )
             }
             Spacer(Modifier.height(12.dp))
             Text(
-                "This is optional. V-OCR works without it; you just scroll by hand while recording. " +
-                    "If you agree, Android's Accessibility settings open next. Turn on \"V-OCR\" there. You can turn it off at any time.\n\n" +
-                    "If Android refuses (\"App was denied access\", or V-OCR is greyed out as \"Controlled by restricted setting\"): tap Close, go to Settings > Apps > V-OCR > three dots at the top right > Allow restricted settings, then turn it on in Accessibility again. The manual has the full steps.",
+                "This is optional. ScrOllOn works without it; you just scroll by hand while recording. " +
+                    "If you agree, Android's Accessibility settings open next. Turn on \"ScrOllOn\" there. You can turn it off at any time.\n\n" +
+                    "If Android refuses (\"App was denied access\", or ScrOllOn is greyed out as \"Controlled by restricted setting\"): tap Close, go to Settings > Apps > ScrOllOn > three dots at the top right > Allow restricted settings, then turn it on in Accessibility again. The manual has the full steps.",
                 color = Muted, fontSize = 13.sp, lineHeight = 19.sp
             )
         }
         Spacer(Modifier.height(12.dp))
         Button(
             onClick = onAgree, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(16.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Violet, contentColor = Color.White)
+            colors = ButtonDefaults.buttonColors(containerColor = Violet, contentColor = OnBronze)
         ) { Text("I agree - open Accessibility settings", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
         Spacer(Modifier.height(8.dp))
         Button(
