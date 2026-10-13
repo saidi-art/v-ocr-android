@@ -34,8 +34,8 @@ object JobQueue {
     /** Called from the worker thread when anything visible changed (progress, state). */
     @Volatile var listener: (() -> Unit)? = null
 
-    private const val CH_STATUS = "vocr_status"
-    private const val CH_DONE = "vocr_done"
+    private const val CH_STATUS = "vocr_status2"
+    private const val CH_DONE = "vocr_done2"
     const val ID_QUEUE = 43
     private val lock = Any()
     private var nextId = 1
@@ -123,10 +123,17 @@ object JobQueue {
         }
     }
 
+    /** Opening the app counts as seeing the results: drop the "Text ready" notifications. */
+    fun clearDoneNotifications(c: Context) {
+        runCatching { nm(c).activeNotifications.filter { it.id >= 100 }.forEach { nm(c).cancel(it.id) } }
+    }
+
     private fun nm(c: Context) = c.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
     private fun channels(c: Context) {
-        nm(c).createNotificationChannel(NotificationChannel(CH_STATUS, "Recorder status", NotificationManager.IMPORTANCE_LOW))
-        nm(c).createNotificationChannel(NotificationChannel(CH_DONE, "Text ready", NotificationManager.IMPORTANCE_HIGH))
+        // no launcher badge: a count on the app icon that you can't clear is just noise (old channels had it on)
+        runCatching { nm(c).deleteNotificationChannel("vocr_status"); nm(c).deleteNotificationChannel("vocr_done") }
+        nm(c).createNotificationChannel(NotificationChannel(CH_STATUS, "Recorder status", NotificationManager.IMPORTANCE_LOW).apply { setShowBadge(false) })
+        nm(c).createNotificationChannel(NotificationChannel(CH_DONE, "Text ready", NotificationManager.IMPORTANCE_HIGH).apply { setShowBadge(false) })
     }
 
     fun statusNote(c: Context): Notification {
