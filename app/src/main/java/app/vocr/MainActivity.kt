@@ -34,11 +34,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-val Ink = Color(0xFF0B0E17)
-val Card = Color(0xFF151A2A)
-val Violet = Color(0xFF7C5CFF)
-val Lilac = Color(0xFFB7A8FF)
-val Muted = Color(0xFF8A93AD)
+val Ink = Color(0xFF0C0D10)
+val Card = Color(0xFF1A1B20)
+val Violet = Color(0xFFD2B08A)
+val Lilac = Color(0xFFE3C7A2)
+val Muted = Color(0xFFA9A6A0)
 
 class MainActivity : ComponentActivity() {
     override fun onResume() { super.onResume(); JobQueue.clearDoneNotifications(this) }
@@ -46,7 +46,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (intent.getBooleanExtra("glassdemo", false)) { setContent { GlassDemo() }; return }
-        setContent { MaterialTheme(colorScheme = darkColorScheme(primary = Violet, background = Ink, surface = Card)) { Home() } }
+        setContent { MaterialTheme(colorScheme = darkColorScheme(primary = Violet, background = Ink, surface = Card), typography = ScrollOnTypography) { Home() } }
     }
 }
 
@@ -125,17 +125,14 @@ fun Home(preview: Picked? = null) {
     val res = result
     if (res != null) { Strips(res, (ctx as? android.app.Activity)?.intent?.getBooleanExtra("read", false) == true) { result = null }; return }
     Column(
-        Modifier.fillMaxSize().background(GlassBackdrop).systemBarsPadding().verticalScroll(rememberScrollState()).padding(24.dp),
+        Modifier.fillMaxSize().scrollOnBackdrop().systemBarsPadding().verticalScroll(rememberScrollState()).padding(24.dp),
         horizontalAlignment = Alignment.Start
     ) {
         Spacer(Modifier.height(16.dp))
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
             Column(Modifier.weight(1f)) {
                 Spacer(Modifier.height(16.dp))
-                Row {
-                    Text("V-", fontSize = 44.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
-                    Text("OCR", fontSize = 44.sp, fontWeight = FontWeight.ExtraBold, color = Violet)
-                }
+                Wordmark(44.sp)
                 Text("If you can scroll it, you can save it.", color = Muted, fontSize = 16.sp)
             }
             AddButton(JobQueue.activeCount()) { addVideos() }
@@ -146,7 +143,7 @@ fun Home(preview: Picked? = null) {
         Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(28.dp)).padding(24.dp)) {
             Text("\u25B6", color = Lilac, fontSize = 32.sp)
             Spacer(Modifier.height(12.dp))
-            Text(picked?.name ?: "Pick screen recordings", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+            Text(picked?.name ?: "Pick screen recordings", color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.SemiBold, fontFamily = DisplayFont)
             Spacer(Modifier.height(4.dp))
             Text(
                 picked?.let { "${it.seconds / 60}m ${it.seconds % 60}s  -  ${it.w}x${it.h}" } ?: "Free, offline and private. Nothing leaves your phone.",
@@ -185,7 +182,7 @@ fun Home(preview: Picked? = null) {
             onClick = { openFolder(ctx) },
             modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(16.dp),
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF232A45), contentColor = Color.White)
-        ) { Text("Open V-OCR folder (all files)", fontSize = 14.sp) }
+        ) { Text("Open ScrOllOn folder (all files)", fontSize = 14.sp) }
         Spacer(Modifier.height(10.dp))
         val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
         Button(
@@ -217,16 +214,17 @@ fun Home(preview: Picked? = null) {
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF232A45), contentColor = Color.White)
                 ) { Text(if (app.vocr.capture.ScrollService.instance != null) "Auto-scroll: enabled (long-press the bubble)" else "Auto-scroll: turn on in Accessibility", fontSize = 14.sp) }
                 Spacer(Modifier.height(14.dp))
+                val view = androidx.compose.ui.platform.LocalView.current
                 var speed by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getInt("scrollspeed", 10).toFloat()) }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Auto-scroll speed", color = Color.White, fontSize = 14.sp, modifier = Modifier.weight(1f))
                     Text(speed.toInt().toString() + if (speed.toInt() == 10) "  (default)" else "", color = Lilac, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                 }
                 Slider(
-                    value = speed, onValueChange = { speed = Math.round(it).toFloat() },
+                    value = speed, onValueChange = { val n = Math.round(it).toFloat(); if (n != speed) Haptics.detent(view); speed = n },
                     onValueChangeFinished = { app.vocr.capture.CaptureService.prefs(ctx).edit().putInt("scrollspeed", speed.toInt()).apply() },
                     valueRange = 0f..10f, steps = 9,
-                    colors = SliderDefaults.colors(thumbColor = Violet, activeTrackColor = Violet)
+                    colors = SliderDefaults.colors(thumbColor = Violet, activeTrackColor = Violet, inactiveTrackColor = Color(0x33FFFFFF), activeTickColor = OnBronze, inactiveTickColor = Color(0x55FFFFFF))
                 )
                 Row { Text("0 slowest", color = Muted, fontSize = 11.sp, modifier = Modifier.weight(1f)); Text("10 = best pace", color = Muted, fontSize = 11.sp) }
                 Spacer(Modifier.height(4.dp))
@@ -240,6 +238,13 @@ fun Home(preview: Picked? = null) {
                     Switch(checked = snd, onCheckedChange = { snd = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("sound", it).apply(); app.vocr.core.Sfx.refresh(ctx) })
                     Spacer(Modifier.width(8.dp))
                     Text("Sound (scroll, scan and end sounds)", color = Muted, fontSize = 13.sp)
+                }
+                Spacer(Modifier.height(6.dp))
+                var hap by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("haptics", true)) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(checked = hap, onCheckedChange = { hap = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("haptics", it).apply() })
+                    Spacer(Modifier.width(8.dp))
+                    Text("Soft haptics while auto-scroll runs", color = Muted, fontSize = 13.sp)
                 }
                 Spacer(Modifier.height(6.dp))
                 var shots by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("shots", false)) }
@@ -283,8 +288,8 @@ fun Strips(res: Result, autoRead: Boolean = false, onBack: () -> Unit) {
     LaunchedEffect(Unit) { if (autoRead && read == null && reading == null) startRead() }
     val rd = read
     if (rd != null) { TextScreen(rd) { read = null }; return }
-    Column(Modifier.fillMaxSize().background(GlassBackdrop).systemBarsPadding().padding(16.dp)) {
-        Text("Kept ${res.strips.size} strips", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+    Column(Modifier.fillMaxSize().scrollOnBackdrop().systemBarsPadding().padding(16.dp)) {
+        Text("Kept ${res.strips.size} strips", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.SemiBold, fontFamily = DisplayFont)
         Text(
             "${res.seconds}s video, ${res.framesTotal} frames read, ${res.dup} skipped (dup/accumulating), ${res.full} full, ${res.cropped} cropped. " +
                 "Took ${res.ms / 1000.0}s  ${res.timing}",
@@ -342,11 +347,11 @@ fun Strips(res: Result, autoRead: Boolean = false, onBack: () -> Unit) {
 @Composable
 fun TextScreen(r: ReadResult, onBack: () -> Unit) {
     val ctx = LocalContext.current
-    Column(Modifier.fillMaxSize().background(GlassBackdrop).systemBarsPadding().padding(16.dp)) {
-        Text("Text from ${r.strips} strips", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+    Column(Modifier.fillMaxSize().scrollOnBackdrop().systemBarsPadding().padding(16.dp)) {
+        Text("Text from ${r.strips} strips", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.SemiBold, fontFamily = DisplayFont)
         Text("${r.rawLines} lines read, ${r.mergedLines} after removing overlap. Took ${r.ms / 1000.0}s  (${r.detail})", color = Muted, fontSize = 13.sp)
         if (r.savedTitle.isNotEmpty())
-            Text(if (r.savedOk) "Saved to Downloads/V-OCR/${r.savedTitle}.txt" else "Could not save the file (use Copy or Share)", color = Color(0xFF9DFFB0), fontSize = 13.sp)
+            Text(if (r.savedOk) "Saved to Downloads/V-OCR/${r.savedTitle}.txt" else "Could not save the file (use Copy or Share)", color = Success, fontSize = 13.sp)
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = onBack, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF232A45), contentColor = Color.White)) { Text("Back") }
@@ -399,7 +404,7 @@ fun QueueList() {
     if (jobs.isEmpty()) return
     Column(Modifier.fillMaxWidth().heightIn(max = 260.dp).glassPanel(RoundedCornerShape(20.dp)).padding(12.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("Queue", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, modifier = Modifier.weight(1f))
+            Label("Queue", modifier = Modifier.weight(1f))
             if (jobs.any { it.state >= 2 }) Text("Clear finished", color = Lilac, fontSize = 13.sp, modifier = Modifier.clickable { JobQueue.clearFinished() })
         }
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
@@ -413,7 +418,7 @@ fun QueueList() {
                         0 -> Text("Waiting", color = Muted, fontSize = 12.sp)
                         1 -> { LinearProgressIndicator(progress = { j.frac }, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), color = Violet, trackColor = Card); Text(j.stage, color = Muted, fontSize = 12.sp) }
                         2 -> {
-                            Text("${j.lines} lines in ${j.secs}s - saved to Downloads/V-OCR", color = Color(0xFF9DFFB0), fontSize = 12.sp)
+                            Text("${j.lines} lines in ${j.secs}s - saved to Downloads/V-OCR", color = Success, fontSize = 12.sp)
                             val u = j.result
                             if (u != null) Row(horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.padding(top = 4.dp)) {
                                 Text("Open", color = Lilac, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.clickable {
