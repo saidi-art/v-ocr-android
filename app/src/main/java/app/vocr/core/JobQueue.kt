@@ -90,7 +90,7 @@ object JobQueue {
     }
 
     private fun runJob(app: Context, job: Job) {
-        job.state = 1; job.stage = "Scanning"; job.ringLabel = "SCAN"; Sfx.scan(app, true); notifyStatus(app); listener?.invoke()
+        job.state = 1; job.stage = "Scanning"; job.ringLabel = "SCAN"; notifyStatus(app); listener?.invoke()
         val wl = (app.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager).newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "vocr:queue").apply { acquire(45 * 60 * 1000L) }
         var lastNote = 0L
         var stripDir: File? = null
