@@ -4,3 +4,4 @@ app/src/main/assets/ocr/
 build/
 local.properties
 shots/
+.kotlin/
