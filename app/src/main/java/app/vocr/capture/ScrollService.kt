@@ -7,7 +7,7 @@ import android.view.Display
 import android.view.accessibility.AccessibilityEvent
 import android.graphics.Bitmap
 
-/** Gesture-only accessibility service: swipes the foreground app up (scrolls down) at a set pace. Reads nothing. */
+/** Gesture-only accessibility service: swipes the foreground app up (scrolls down) at a set pace. Reads no text or window content. For the bottom-of-page check it takes a tiny in-memory grey screenshot after each swipe (see thumb). */
 class ScrollService : AccessibilityService() {
     override fun onAccessibilityEvent(e: AccessibilityEvent?) {}
     override fun onInterrupt() {}
@@ -27,7 +27,7 @@ class ScrollService : AccessibilityService() {
 
     /**
      * Small grey thumbnail of the screen (48x96) for the bottom-of-page check, or null when a screenshot is not available.
-     * Pixels only: nothing is read from the screen and nothing is stored. The right edge (floating widget) and top strip (clock) are blanked.
+     * Pixels only: no text or window content is read; the picture is reduced to 48x96 grey values in memory and never stored or sent. The right edge (floating widget) and top strip (clock) are blanked.
      */
     fun thumb(done: (IntArray?) -> Unit) {
         if (android.os.Build.VERSION.SDK_INT < 30) { done(null); return }
