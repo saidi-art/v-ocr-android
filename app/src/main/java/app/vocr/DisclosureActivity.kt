@@ -53,11 +53,11 @@ class DisclosureActivity : ComponentActivity() {
 
 @Composable
 fun Disclosure(onAgree: () -> Unit, onDecline: () -> Unit) {
-    Column(Modifier.fillMaxSize().background(Ink).systemBarsPadding().padding(16.dp)) {
+    Column(Modifier.fillMaxSize().background(GlassBackdrop).systemBarsPadding().padding(16.dp)) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
             Text("Auto-scroll needs Accessibility", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(12.dp))
-            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Card).padding(18.dp)) {
+            Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(20.dp)).padding(18.dp)) {
                 Text("What V-OCR does with this permission", color = Lilac, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(8.dp))
                 Text(
@@ -68,7 +68,7 @@ fun Disclosure(onAgree: () -> Unit, onDecline: () -> Unit) {
                 )
             }
             Spacer(Modifier.height(12.dp))
-            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Card).padding(18.dp)) {
+            Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(20.dp)).padding(18.dp)) {
                 Text("What it does not do", color = Lilac, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(8.dp))
                 Text(
