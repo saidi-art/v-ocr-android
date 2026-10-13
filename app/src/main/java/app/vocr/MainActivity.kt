@@ -184,6 +184,11 @@ fun Home(preview: Picked? = null) {
             Spacer(Modifier.width(8.dp))
             Text("Settings: show extracted screenshots", color = Muted, fontSize = 12.sp)
         }
+        Button(
+            onClick = { ctx.startActivity(android.content.Intent(ctx, ManualActivity::class.java)) },
+            modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(16.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF232A45), contentColor = Color.White)
+        ) { Text("User manual (how to use)", fontSize = 14.sp) }
         Spacer(Modifier.height(6.dp))
         Text("v" + (runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: "?") + "  -  strips + on-device text", color = Muted, fontSize = 12.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
     }
