@@ -235,6 +235,13 @@ fun Home(preview: Picked? = null) {
                     color = Muted, fontSize = 12.sp, lineHeight = 17.sp
                 )
                 Spacer(Modifier.height(14.dp))
+                var snd by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("sound", true)) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(checked = snd, onCheckedChange = { snd = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("sound", it).apply(); app.vocr.core.Sfx.refresh(ctx) })
+                    Spacer(Modifier.width(8.dp))
+                    Text("Sound (scroll, scan and end sounds)", color = Muted, fontSize = 13.sp)
+                }
+                Spacer(Modifier.height(6.dp))
                 var shots by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("shots", false)) }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Switch(checked = shots, onCheckedChange = { shots = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("shots", it).apply() })
