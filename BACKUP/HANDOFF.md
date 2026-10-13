@@ -75,5 +75,13 @@ Never ask the user for a Google security code; no card details. Never put secret
 - Not backed up (regenerable): OCR models (pip), spike models (lab/build_*.py), extracted frames (ffmpeg).
 - Push mechanism used so far: a throwaway page + cloudflared tunnel; the PAT is filled from the vault via `tools vault fill` and the page calls the GitHub git-data API (blobs -> tree -> commit -> ref). Push to branches other than main to avoid triggering CI.
 
-## 10. Lab results since the wipe
-(pending - first rows are filled as runs finish)
+## 10. Lab results since the wipe (2026-10-14 00:28; NEW machine, timings NOT comparable with section 6; ratios within this list are)
+Environment reproduced: baseline recall 0.905 / 2332 lines; recH 32 recall 0.609 / 2376 lines / 110 excess dups (both identical to pre-wipe runs).
+Same-machine baseline: recognize 231.1 s, detect 39.3 s.
+- recH 42: recall 0.898, rec 186.3 s (-19.4%), 2343 lines. GATE 1 PASSED: of 3,307 baseline lines 3,012 identical, 287 substituted, 8 missing/empty; 97.4% of lost words are in substituted lines (< 10% pivot trigger).
+- recH 32 split: 98.6% of lost words are substituted, 1.4% missing. So the 0.609 loss is NOT "missing lines" (earlier claim to the user was unsupported). CTC over-confidence: 1,137 of 3,069 baseline lines with conf >= 0.95 changed at 32.
+- INT8 dynamic MatMul: recall 0.905, 2339 lines, rec 221.4 s (-4.2%). Static INT8 not started (low gain).
+- EN+FR head (120 classes): recall 0.905, rec 220.0 s (-4.8%). EN-only head (96 classes): recall 0.905, rec 220.8 s (-4.4%). No speed difference between EN-only and EN+FR.
+- French cost (SYNTHETIC proxy: 25 French sentences x 2 fonts, lab/french_proxy.py; not the user's captures): char match full 0.951 / EN+FR 0.951 / EN-only 0.927; accented-char recall full 0.35 / EN+FR 0.35 / EN-only 0.00. EN-only never emits accents. GATE 2 OPEN: recommend keeping EN+FR; needs a real French clip with known text for a real number.
+- Machine note: the sandbox only advances while the agent is running commands (idle time freezes background jobs). Keep runs under supervision with sleep loops.
+Still to do: SAD overlap-dedup calibration curve; batching on S24; Speed test on S24 (wrap build).
