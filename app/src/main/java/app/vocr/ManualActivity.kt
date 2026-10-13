@@ -42,7 +42,7 @@ private val sections: List<Pair<String, String>> = listOf(
         "Setup, once: tap home screen > Settings > \"Auto-scroll\" (or the Auto-scroll switch on the bubble). V-OCR first shows a notice explaining what the permission is used for (swipes, plus tiny grey 48x96 screenshots kept only in memory to spot the bottom of the page). If you agree, Android Settings > Accessibility > Installed apps > V-OCR > turn on. If you just installed an update and it stops working, switch it off and on once.\n" +
         "Use: long-press the bubble and tap the Auto-scroll switch. Violet means armed, grey means off. Then start a recording on the page you want. V-OCR scrolls down for you.\n" +
         "It stops by itself when the page stops moving (3 swipes in a row with no change) and shows \"Reached the bottom - reading now\". A 5-minute cap also stops it as a safety net. You can always tap the bubble to stop sooner.\n" +
-        "Speed: home screen > Settings > Auto-scroll speed, 0 to 10. 10 (default) is the best working pace. Lower numbers scroll slower so you can read along. 0 is a slow crawl, not a stop.\n" +
+        "Speed: home screen > Settings > Auto-scroll speed, 0 to 10. 10 (default) is the best working pace. Lower numbers scroll slower and smoothly, down to a very slow crawl at 1, so you can read along. 0 stops the scrolling completely; the recording keeps running until you stop it. You can change the speed while recording.\n" +
         "Tip: start at the top of the content. Pages that load more as you scroll may keep moving; stop manually if needed.",
     "Turning on auto-scroll (step by step)" to
         "Phones block accessibility for apps installed from a downloaded file (not from a store) until you allow it once. The \"Allow restricted settings\" option only appears after Android has refused once, so do it in this order:\n" +
@@ -93,7 +93,7 @@ private val sections: List<Pair<String, String>> = listOf(
 
 @Composable
 fun Manual(onBack: () -> Unit) {
-    Column(Modifier.fillMaxSize().background(Ink).systemBarsPadding()) {
+    Column(Modifier.fillMaxSize().background(GlassBackdrop).systemBarsPadding()) {
         Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
             Button(onClick = onBack, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF232A45), contentColor = Color.White)) { Text("Back") }
             Spacer(Modifier.width(12.dp))
@@ -101,7 +101,7 @@ fun Manual(onBack: () -> Unit) {
         }
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
             for ((title, body) in sections) {
-                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Card).padding(18.dp)) {
+                Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(20.dp)).padding(18.dp)) {
                     Text(title, color = Lilac, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(8.dp))
                     Text(body, color = Color.White, fontSize = 14.sp, lineHeight = 20.sp)
