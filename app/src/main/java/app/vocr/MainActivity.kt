@@ -151,6 +151,12 @@ fun Home(preview: Picked? = null) {
             ) { Text("Choose videos (adds to the queue)", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
         }
         Spacer(Modifier.height(10.dp))
+        Button(
+            onClick = { openFolder(ctx) },
+            modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(16.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF232A45), contentColor = Color.White)
+        ) { Text("Open V-OCR folder (all files)", fontSize = 14.sp) }
+        Spacer(Modifier.height(10.dp))
         val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
         Button(
             onClick = {
@@ -357,4 +363,17 @@ fun QueueList() {
             }
         }
     }
+}
+
+/** Opens Downloads/V-OCR in the system Files app; falls back to the Downloads view if the folder link is not handled. */
+fun openFolder(ctx: android.content.Context) {
+    val flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+    val dir = android.net.Uri.parse("content://com.android.externalstorage.documents/document/primary%3ADownload%2FV-OCR")
+    val tries = listOf(
+        android.content.Intent(android.content.Intent.ACTION_VIEW).setDataAndType(dir, "vnd.android.document/directory").addFlags(flags),
+        android.content.Intent(android.content.Intent.ACTION_VIEW).setDataAndType(dir, "resource/folder").addFlags(flags),
+        android.content.Intent(android.app.DownloadManager.ACTION_VIEW_DOWNLOADS).addFlags(flags)
+    )
+    for (i in tries) { if (runCatching { ctx.startActivity(i) }.isSuccess) return }
+    android.widget.Toast.makeText(ctx, "Files are in Downloads/V-OCR", android.widget.Toast.LENGTH_LONG).show()
 }
