@@ -84,6 +84,8 @@ object Reader {
         try { return readAllLocked(ctx, strips, fast, onProgress) } finally { Pipeline.gate.unlock() }
     }
 
+    /** Lab data (151 strips): area-weighted ETA ran 5-19% short late in a job; strip count alone ran 16-38% short. */
+    private const val ETA_BIAS = 1.10
     private fun readAllLocked(ctx: Context, strips: List<StripInfo>, fast: Boolean, onProgress: (Progress) -> Unit): ReadResult {
         val t0 = System.currentTimeMillis()
         val eng = load(ctx)
@@ -96,8 +98,8 @@ object Reader {
         try {
             for ((i, s) in strips.withIndex()) {
                 val el = System.currentTimeMillis() - tRead
-                val eta = if (doneArea > 0) ((el.toDouble() / doneArea * (totalArea - doneArea)) / 1000).toInt() else -1
-                onProgress(Progress("Reading text", i, strips.size, eta, live, liveLines))
+                val eta = if (doneArea > 0) ((el.toDouble() / doneArea * (totalArea - doneArea) * ETA_BIAS) / 1000).toInt() else -1
+                onProgress(Progress("Reading text", i, strips.size, eta, live, liveLines, doneArea.toFloat() / totalArea))
                 val bm = BitmapFactory.decodeFile(s.file.path) ?: continue
                 val px = IntArray(bm.width * bm.height); bm.getPixels(px, 0, bm.width, 0, 0, bm.width, bm.height)
                 for (k in px.indices) px[k] = px[k] and 0xFFFFFF
