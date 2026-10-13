@@ -83,8 +83,22 @@ class OcrEngine(detModel: ByteArray, recModel: ByteArray, keys: List<String>, th
 
     private class Box(val x0: Float, val y0: Float, val x1: Float, val y1: Float)
 
+    /** Adaptive detector resolution: normal text is found at maxSide (960), but small text is crushed by that shrink. When the median line is small, look again at full resolution. */
+    var adaptive = true; var smallLineH = 23f; var hiSide = 1600; var hiCount = 0; var lastMedH = 0f
     private fun detect(img: Rgb): List<Box> {
-        val s = min(1f, maxSide.toFloat() / max(img.w, img.h))
+        val b = detectAt(img, maxSide)
+        if (!adaptive || b.size < 3 || max(img.w, img.h) <= maxSide) return b
+        // Box height saturates for small text (padding), so use the line pitch: median vertical distance between successive lines.
+        val cy = b.map { (it.y0 + it.y1) / 2f }.sorted(); val dy = (1 until cy.size).map { cy[it] - cy[it - 1] }.filter { it > 8f }.sorted()
+        if (dy.size < 3) return b
+        lastMedH = dy[dy.size / 2]
+        if (lastMedH >= smallLineH) return b
+        hiCount++
+        return detectAt(img, max(hiSide, maxSide))
+    }
+
+    private fun detectAt(img: Rgb, side: Int): List<Box> {
+        val s = min(1f, side.toFloat() / max(img.w, img.h))
         val nw = max(32, ((img.w * s) / 32f).roundToInt() * 32); val nh = max(32, ((img.h * s) / 32f).roundToInt() * 32)
         val small = img.resize(nw, nh)
         val t0 = System.nanoTime()
