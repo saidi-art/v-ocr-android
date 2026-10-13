@@ -202,18 +202,48 @@ fun Home(preview: Picked? = null) {
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF232A45), contentColor = Color.White)
         ) { Text(if (android.provider.Settings.canDrawOverlays(ctx)) "Floating recorder" else "Floating recorder (allow overlay)", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
         Spacer(Modifier.height(10.dp))
+        var showSettings by remember { mutableStateOf(false) }
         Button(
-            onClick = { DisclosureActivity.openAccessibility(ctx) },
+            onClick = { showSettings = !showSettings },
             modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(16.dp),
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF232A45), contentColor = Color.White)
-        ) { Text(if (app.vocr.capture.ScrollService.instance != null) "Auto-scroll: enabled (long-press the bubble)" else "Auto-scroll: turn on in Accessibility", fontSize = 14.sp) }
-        Spacer(Modifier.height(10.dp))
-        var shots by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("shots", false)) }
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.align(Alignment.CenterHorizontally)) {
-            Switch(checked = shots, onCheckedChange = { shots = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("shots", it).apply() })
-            Spacer(Modifier.width(8.dp))
-            Text("Settings: show extracted screenshots", color = Muted, fontSize = 12.sp)
+        ) { Text(if (showSettings) "Settings  \u25B2" else "Settings  \u25BC", fontSize = 14.sp) }
+        if (showSettings) {
+            Spacer(Modifier.height(10.dp))
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Card).padding(16.dp)) {
+                Button(
+                    onClick = { DisclosureActivity.openAccessibility(ctx) },
+                    modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF232A45), contentColor = Color.White)
+                ) { Text(if (app.vocr.capture.ScrollService.instance != null) "Auto-scroll: enabled (long-press the bubble)" else "Auto-scroll: turn on in Accessibility", fontSize = 14.sp) }
+                Spacer(Modifier.height(14.dp))
+                var speed by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getInt("scrollspeed", 10).toFloat()) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Auto-scroll speed", color = Color.White, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                    Text(speed.toInt().toString() + if (speed.toInt() == 10) "  (default)" else "", color = Lilac, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                }
+                Slider(
+                    value = speed, onValueChange = { speed = Math.round(it).toFloat() },
+                    onValueChangeFinished = { app.vocr.capture.CaptureService.prefs(ctx).edit().putInt("scrollspeed", speed.toInt()).apply() },
+                    valueRange = 0f..10f, steps = 9,
+                    colors = SliderDefaults.colors(thumbColor = Violet, activeTrackColor = Violet)
+                )
+                Row { Text("0 slowest", color = Muted, fontSize = 11.sp, modifier = Modifier.weight(1f)); Text("10 = best pace", color = Muted, fontSize = 11.sp) }
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "10 is the best working pace for the text reader. Lower numbers scroll slower so you can read along while it records. 0 is a slow crawl, never a stop.",
+                    color = Muted, fontSize = 12.sp, lineHeight = 17.sp
+                )
+                Spacer(Modifier.height(14.dp))
+                var shots by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("shots", false)) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(checked = shots, onCheckedChange = { shots = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("shots", it).apply() })
+                    Spacer(Modifier.width(8.dp))
+                    Text("Show extracted screenshots", color = Muted, fontSize = 13.sp)
+                }
+            }
         }
+        Spacer(Modifier.height(10.dp))
         Button(
             onClick = { ctx.startActivity(android.content.Intent(ctx, ManualActivity::class.java)) },
             modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(16.dp),
