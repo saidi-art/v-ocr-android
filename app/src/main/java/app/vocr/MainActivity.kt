@@ -64,17 +64,17 @@ fun GlassDemo() {
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 androidx.compose.ui.viewinterop.AndroidView(factory = { app.vocr.capture.glassChip(it, "\u00D7", android.graphics.Color.parseColor("#E5484D")) })
-                androidx.compose.ui.viewinterop.AndroidView(factory = { app.vocr.capture.glassChip(it, "Slow", android.graphics.Color.parseColor("#232A45")) })
-                androidx.compose.ui.viewinterop.AndroidView(factory = { app.vocr.capture.glassChip(it, "Auto-scroll ON", android.graphics.Color.parseColor("#7C5CFF")) })
+                androidx.compose.ui.viewinterop.AndroidView(factory = { app.vocr.capture.glassChip(it, "Slow", android.graphics.Color.parseColor("#25262B")) })
+                androidx.compose.ui.viewinterop.AndroidView(factory = { app.vocr.capture.glassChip(it, "Auto-scroll ON", android.graphics.Color.parseColor("#D2B08A")) })
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                androidx.compose.ui.viewinterop.AndroidView(factory = { app.vocr.capture.glassChip(it, "Add old recordings", android.graphics.Color.parseColor("#232A45")) })
-                androidx.compose.ui.viewinterop.AndroidView(factory = { app.vocr.capture.glassChip(it, "New recording", android.graphics.Color.parseColor("#7C5CFF")) })
+                androidx.compose.ui.viewinterop.AndroidView(factory = { app.vocr.capture.glassChip(it, "Add old recordings", android.graphics.Color.parseColor("#25262B")) })
+                androidx.compose.ui.viewinterop.AndroidView(factory = { app.vocr.capture.glassChip(it, "New recording", android.graphics.Color.parseColor("#D2B08A")) })
             }
         }
     }
     Column(Modifier.fillMaxSize()) {
-        half(Brush.linearGradient(listOf(Color(0xFF0B0E17), Color(0xFF1C2B52), Color(0xFF3B1F6B))), Modifier.weight(1f).fillMaxWidth())
+        half(Brush.linearGradient(listOf(Color(0xFF0C0D10), Color(0xFF2A2B31), Color(0xFF4A3A2C))), Modifier.weight(1f).fillMaxWidth())
         half(Brush.linearGradient(listOf(Color(0xFFF4F1EA), Color(0xFFD8E4F2), Color(0xFFFFFFFF))), Modifier.weight(1f).fillMaxWidth())
     }
 }
@@ -174,14 +174,14 @@ fun Home(preview: Picked? = null) {
                 enabled = progress == null,
                 modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(16.dp),
                 colors = if (picked == null) ButtonDefaults.buttonColors(containerColor = Violet, contentColor = Color.White)
-                         else ButtonDefaults.buttonColors(containerColor = Color(0xFF232A45), contentColor = Color.White)
-            ) { Text("Choose videos (adds to the queue)", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
+                         else ButtonDefaults.buttonColors(containerColor = Color(0xFF25262B), contentColor = Color.White)
+            ) { Text("Choose videos (adds to the queue)", fontSize = 14.sp, maxLines = 1, fontWeight = FontWeight.SemiBold) }
         }
         Spacer(Modifier.height(10.dp))
         Button(
             onClick = { openFolder(ctx) },
             modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(16.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF232A45), contentColor = Color.White)
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25262B), contentColor = Color.White)
         ) { Text("Open ScrOllOn folder (all files)", fontSize = 14.sp) }
         Spacer(Modifier.height(10.dp))
         val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
@@ -196,14 +196,14 @@ fun Home(preview: Picked? = null) {
                 }
             },
             modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(16.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF232A45), contentColor = Color.White)
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25262B), contentColor = Color.White)
         ) { Text(if (android.provider.Settings.canDrawOverlays(ctx)) "Floating recorder" else "Floating recorder (allow overlay)", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
         Spacer(Modifier.height(10.dp))
         var showSettings by remember { mutableStateOf(false) }
         Button(
             onClick = { showSettings = !showSettings },
             modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(16.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF232A45), contentColor = Color.White)
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25262B), contentColor = Color.White)
         ) { Text(if (showSettings) "Settings  \u25B2" else "Settings  \u25BC", fontSize = 14.sp) }
         if (showSettings) {
             Spacer(Modifier.height(10.dp))
@@ -211,7 +211,7 @@ fun Home(preview: Picked? = null) {
                 Button(
                     onClick = { DisclosureActivity.openAccessibility(ctx) },
                     modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF232A45), contentColor = Color.White)
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25262B), contentColor = Color.White)
                 ) { Text(if (app.vocr.capture.ScrollService.instance != null) "Auto-scroll: enabled (long-press the bubble)" else "Auto-scroll: turn on in Accessibility", fontSize = 14.sp) }
                 Spacer(Modifier.height(14.dp))
                 val view = androidx.compose.ui.platform.LocalView.current
@@ -259,7 +259,7 @@ fun Home(preview: Picked? = null) {
         Button(
             onClick = { ctx.startActivity(android.content.Intent(ctx, ManualActivity::class.java)) },
             modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(16.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF232A45), contentColor = Color.White)
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25262B), contentColor = Color.White)
         ) { Text("User manual (how to use)", fontSize = 14.sp) }
         Spacer(Modifier.height(6.dp))
         Text("v" + (runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: "?") + "  -  strips + on-device text", color = Muted, fontSize = 12.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
@@ -297,7 +297,7 @@ fun Strips(res: Result, autoRead: Boolean = false, onBack: () -> Unit) {
         )
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onBack, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF232A45), contentColor = Color.White)) { Text("Back") }
+            Button(onClick = onBack, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25262B), contentColor = Color.White)) { Text("Back") }
             Button(
                 enabled = reading == null,
                 onClick = { startRead() },
@@ -319,7 +319,7 @@ fun Strips(res: Result, autoRead: Boolean = false, onBack: () -> Unit) {
                     try { Reader.bench(ctx, res.strips) { acc.add(it); bench = acc.toList() } } catch (e: Throwable) { acc.add("failed: " + (e.message ?: e.javaClass.simpleName)); bench = acc.toList() }
                     benching = false
                 }.start()
-            }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF232A45), contentColor = Color.White)) { Text("Speed test") }
+            }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25262B), contentColor = Color.White)) { Text("Speed test") }
             Spacer(Modifier.width(8.dp))
             Text(bench.joinToString("\n"), color = Lilac, fontSize = 12.sp)
         }
@@ -354,7 +354,7 @@ fun TextScreen(r: ReadResult, onBack: () -> Unit) {
             Text(if (r.savedOk) "Saved to Downloads/V-OCR/${r.savedTitle}.txt" else "Could not save the file (use Copy or Share)", color = Success, fontSize = 13.sp)
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onBack, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF232A45), contentColor = Color.White)) { Text("Back") }
+            Button(onClick = onBack, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25262B), contentColor = Color.White)) { Text("Back") }
             Button(onClick = {
                 val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                 cm.setPrimaryClip(android.content.ClipData.newPlainText("V-OCR", r.text))
