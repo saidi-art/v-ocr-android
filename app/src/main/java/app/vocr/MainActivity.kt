@@ -165,7 +165,7 @@ fun Home(preview: Picked? = null) {
                 Button(
                     onClick = { start(p) },
                     modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Violet, contentColor = Color.White)
+                    colors = ButtonDefaults.buttonColors(containerColor = Violet, contentColor = OnBronze)
                 ) { Text("Extract strips (M1 test)", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
                 Spacer(Modifier.height(10.dp))
             }
@@ -173,9 +173,9 @@ fun Home(preview: Picked? = null) {
                 onClick = { addVideos() },
                 enabled = progress == null,
                 modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(16.dp),
-                colors = if (picked == null) ButtonDefaults.buttonColors(containerColor = Violet, contentColor = Color.White)
+                colors = if (picked == null) ButtonDefaults.buttonColors(containerColor = Violet, contentColor = OnBronze)
                          else ButtonDefaults.buttonColors(containerColor = Color(0xFF25262B), contentColor = Color.White)
-            ) { Text("Choose videos (adds to the queue)", fontSize = 14.sp, maxLines = 1, fontWeight = FontWeight.SemiBold) }
+            ) { Text("Choose videos", fontSize = 14.sp, maxLines = 1, fontWeight = FontWeight.SemiBold) }
         }
         Spacer(Modifier.height(10.dp))
         Button(
@@ -301,7 +301,7 @@ fun Strips(res: Result, autoRead: Boolean = false, onBack: () -> Unit) {
             Button(
                 enabled = reading == null,
                 onClick = { startRead() },
-                colors = ButtonDefaults.buttonColors(containerColor = Violet, contentColor = Color.White)
+                colors = ButtonDefaults.buttonColors(containerColor = Violet, contentColor = OnBronze)
             ) { Text("Read text") }
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -358,7 +358,7 @@ fun TextScreen(r: ReadResult, onBack: () -> Unit) {
             Button(onClick = {
                 val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                 cm.setPrimaryClip(android.content.ClipData.newPlainText("V-OCR", r.text))
-            }, colors = ButtonDefaults.buttonColors(containerColor = Violet, contentColor = Color.White)) { Text("Copy") }
+            }, colors = ButtonDefaults.buttonColors(containerColor = Violet, contentColor = OnBronze)) { Text("Copy") }
             Button(onClick = {
                 // Share as an attached .txt (not pasted text), so chat apps receive a file.
                 val name = (r.savedTitle.ifEmpty { "V-OCR" }).replace(Regex("[^A-Za-z0-9 ._-]"), "_") + ".txt"
@@ -371,7 +371,7 @@ fun TextScreen(r: ReadResult, onBack: () -> Unit) {
                     addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 }
                 ctx.startActivity(android.content.Intent.createChooser(i, "Share text file"))
-            }, colors = ButtonDefaults.buttonColors(containerColor = Violet, contentColor = Color.White)) { Text("Share file") }
+            }, colors = ButtonDefaults.buttonColors(containerColor = Violet, contentColor = OnBronze)) { Text("Share file") }
         }
         Spacer(Modifier.height(8.dp))
         androidx.compose.foundation.text.selection.SelectionContainer {
