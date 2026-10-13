@@ -317,21 +317,40 @@ class CaptureService : Service() {
     private val scrollRun = Runnable { scrollStep() }
     private fun startAutoScroll() { app.vocr.core.Sfx.scroll(this, true); lastThumb = null; still = 0; scrolling = true; swipes = 0; scrollT0 = System.currentTimeMillis(); ui.postDelayed(scrollRun, 2500) }
     private fun stopAutoScroll() { app.vocr.core.Sfx.scroll(this, false); scrolling = false; ui.removeCallbacks(scrollRun) }
-    // Speed 0..10 (home > Settings). 10 = today's tested pace (650 ms pause after each swipe) and is the default. Lower levels only
-    // lengthen the pause (+500 ms per step, 5650 ms at 0), so you can read along. The swipe itself, and so the motion per frame
-    // the tracker is tuned to, never changes.
+    // Speed 0..10 (home > Settings). 10 = today's tested pace (a 90 ms swipe, then a 650 ms settle) and is the default.
+    // 9 down to 1: one slow, steady drag per step (no fling), at a constant speed that falls smoothly from 0.60 screen/s at 9
+    // to 0.03 screen/s at 1 (about 33 s per screen). 0 = stopped: no gestures at all, the recording just keeps running.
     private fun speedLevel() = prefs(this).getInt("scrollspeed", 10).coerceIn(0, 10)
-    private fun settleMs(): Long = 650L + (10 - speedLevel()) * 500L
-    // The 5-minute safety cap stretches with the slower pace so a slow crawl still reaches the same depth.
-    private fun capMs(): Long = (prefs(this).getInt("scrollcapsec", 300) * 1000L * maxOf(1.0, (90 + settleMs() + 200) / 940.0)).toLong()
+    /** Screens per second for levels 1..9: geometric, x0.69 per step. */
+    private fun crawlSpeed(l: Int): Double = 0.60 * Math.pow(0.03 / 0.60, (9 - l) / 8.0)
+    // The safety cap stretches with the slower pace so a slow crawl still reaches a similar depth, never more than 30 minutes.
+    private fun capMs(): Long { val l = speedLevel(); val base = prefs(this).getInt("scrollcapsec", 300) * 1000L
+        return if (l >= 10) base else minOf(1_800_000L, maxOf(base, (base * 0.6 / crawlSpeed(l.coerceAtLeast(1))).toLong())) }
+    private var pausedSince = 0L
     private fun scrollStep() {
         val svc = ScrollService.instance
         if (!scrolling || !recording || svc == null) return
+        val lvl = speedLevel()
+        if (lvl == 0) {   // stopped: wait, and do not let the time cap run while paused
+            if (pausedSince == 0L) pausedSince = System.currentTimeMillis()
+            ui.postDelayed(scrollRun, 400); return
+        }
+        if (pausedSince != 0L) { scrollT0 += System.currentTimeMillis() - pausedSince; pausedSince = 0L; still = 0 }
         if (System.currentTimeMillis() - scrollT0 >= capMs()) { stopAutoScroll(); toast("Auto-scroll done"); stopRecording(); return }
         val m = resources.displayMetrics
-        svc.swipe(m.widthPixels, m.heightPixels, 0.80f, 0.20f, 90) { ok ->
-            if (ok) swipes++
-            ui.postDelayed({ checkBottom(svc) }, settleMs())   // let the fling settle, then look at the screen
+        if (lvl >= 10) {
+            svc.swipe(m.widthPixels, m.heightPixels, 0.80f, 0.20f, 90) { ok ->
+                if (ok) swipes++
+                ui.postDelayed({ checkBottom(svc) }, 650L)   // let the fling settle, then look at the screen
+            }
+        } else {
+            val v = crawlSpeed(lvl)
+            val dist = (v * 4.0).coerceIn(0.2, 0.6)           // screens per drag
+            val dur = (dist / v * 1000).toLong()               // constant speed, no fling at the lift
+            svc.swipe(m.widthPixels, m.heightPixels, 0.80f, (0.80 - dist).toFloat(), dur) { ok ->
+                if (ok) swipes++
+                ui.postDelayed({ checkBottom(svc) }, 120L)
+            }
         }
     }
 
