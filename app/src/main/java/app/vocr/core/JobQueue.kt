@@ -76,6 +76,9 @@ object JobQueue {
         listener?.invoke()
     }
 
+    private const val CUE_LEAD_S = 21
+    private const val CUE_MIN_JOB_S = 8
+
     private fun worker(app: Context) {
         while (true) {
             val job = synchronized(lock) { jobs.firstOrNull { it.state == 0 } ?: run { running = false; null } } ?: break
@@ -100,7 +103,16 @@ object JobQueue {
             if (job.cancel) { job.state = 4; job.stage = "Cancelled"; return }
             job.stage = "Reading"; job.frac = 0f; job.ringLabel = "0%"; listener?.invoke()
             val fast = app.getSharedPreferences("vocr", Context.MODE_PRIVATE).getBoolean("fast", false)
+            val readT0 = System.currentTimeMillis()
+            var cueDone = false
             val rd = Reader.readAll(app, res.strips, fast) { pr ->
+                // End cue: the sound is 22 s long, so start it when the job should have ~21 s left (1 s for stitching and saving).
+                // Skipped for jobs whose whole reading takes under 8 s. Started at once when the first estimate is already under 21 s.
+                if (!cueDone && !job.cancel && pr.etaS >= 0 && pr.etaS <= CUE_LEAD_S) {
+                    cueDone = true
+                    val totalS = (System.currentTimeMillis() - readT0) / 1000 + pr.etaS
+                    if (totalS >= CUE_MIN_JOB_S) Sfx.cue(app)
+                }
                 job.frac = pr.done / pr.total.coerceAtLeast(1).toFloat()
                 job.ringLabel = (pr.done * 100 / pr.total.coerceAtLeast(1)).toString() + "%"
                 val eta = if (pr.etaS >= 0) "  ~${pr.etaS / 60}m ${pr.etaS % 60}s left" else ""
@@ -113,13 +125,12 @@ object JobQueue {
             job.title = sv.title; job.result = sv.uri; job.lines = rd.mergedLines; job.secs = (rd.ms / 1000).toInt()
             job.stage = "Done"; job.state = 2; job.frac = 1f
             postDone(app, job, rd.text)
-            Sfx.scan(app, false); Sfx.done(app)
         } catch (e: Throwable) {
             job.state = 3; job.stage = "Failed: " + (e.message ?: e.javaClass.simpleName)
             nm(app).notify(100 + job.id, Notification.Builder(app, CH_DONE).setSmallIcon(android.R.drawable.stat_notify_error)
                 .setContentTitle("V-OCR could not read " + job.label).setContentText(e.message ?: e.javaClass.simpleName).setAutoCancel(true).build())
         } finally {
-            Sfx.scan(app, false)
+            Sfx.scan(app, false); if (job.state != 2) Sfx.stopCue(app)
             job.tmp?.delete(); runCatching { stripDir?.deleteRecursively() }; runCatching { if (wl.isHeld) wl.release() }
             listener?.invoke(); notifyStatus(app)
         }
