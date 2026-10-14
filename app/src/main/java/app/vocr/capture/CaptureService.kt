@@ -279,7 +279,9 @@ class CaptureService : Service() {
                         addView(android.widget.TextView(this@CaptureService).apply { text = "Pace  (10 = normal, 0 = pause)"; setTextColor(Color.parseColor("#A9A6A0")); textSize = 11f })
                         addView(bar, android.widget.LinearLayout.LayoutParams(dp(190), android.widget.LinearLayout.LayoutParams.WRAP_CONTENT))
                     }
-                    overlay(pill, p.x - dp(6), p.y + p.height + dp(126))
+                    pill.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+                    // keep the whole pill on screen: the bubble sits on the right edge, so anchor from the screen's right side when needed
+                    overlay(pill, (p.x - dp(6)).coerceIn(dp(4), (screenW() - pill.measuredWidth - dp(4)).coerceAtLeast(dp(4))), p.y + p.height + dp(126))
                     menu = menu + pill
                     ui.removeCallbacks(hideMenuRun); ui.postDelayed(hideMenuRun, 5000)
                 } else hideMenu()

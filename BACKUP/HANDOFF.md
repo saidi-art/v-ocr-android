@@ -172,3 +172,8 @@ Throughput data point from his screenshots (real S24 runs, build 57, NOT a contr
 - Auto-scroll startX() skips start columns whose (x, 70% height) point falls under the cover.
 - No adaptive detector (option C not built). Test build: version 0.10.6-t1 / versionCode 58. About CONTACT card hidden while CONTACT_EMAIL is the placeholder, so no placeholder ships.
 - Risk to check on the S24: whether the overlay shows in the MediaProjection capture (it should, overlays are composited), and whether a status-bar-height overlay renders above the real status bar.
+
+### 12.11 Build 58 field results (S24, 1:44 PM Oct 14)
+- DEVICE-VERIFIED (user report): Gemini auto-scroll now works with the build-58 start-point fix (x=35%, y=70%). First device verification of the wrap tree.
+- BUG: the Scroll pace slider pill rendered half off-screen on the right (bubble docks at the right edge, pill was anchored at bubble x). Fix: pill x clamped to [4dp, screenW - pillWidth - 4dp]. Compiled only, not device-tested. Rides the next build.
+- Covered recording via the bubble done by the user; mp4 + output pending for the A/B vs the 6,938-line baseline.
