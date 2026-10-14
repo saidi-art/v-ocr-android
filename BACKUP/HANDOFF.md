@@ -164,3 +164,11 @@ Scroll start-point fix (12.2), stuck backoff + rotating columns (12.3/12.4) and 
 Problem: the queue list was in arrival order inside a capped (260 dp) LazyColumn, so a finished job sat above the running one and the job he was watching ("Scanning", with Cancel) was out of view.
 Fix (wrap tree, MainActivity.QueueList; compiles only, NOT run on a device): display-only sort: running job first, waiting jobs next in FIFO order, finished/failed/cancelled newest first; the list scrolls to item 0 when the job count or the active count changes. Run order (FIFO) and JobQueue are untouched.
 Throughput data point from his screenshots (real S24 runs, build 57, NOT a controlled benchmark; "lines" = output lines, time = whole job): 2,104 lines in 191 s (11.0 lines/s); 6,300 lines in 590 s (10.7 lines/s); 13,842 lines in 2,977 s (4.6 lines/s). The slow one is consistent with duplicate-heavy or long-pause content, but content, video length and mode (Fast/Slow) of those jobs are unknown. Lab x86 baseline for comparison: 2,332 lines in about 270 s (rec 231 s + det 39 s) = 8.6 lines/s, different content; not comparable as a speed ratio.
+
+### 12.10 Manual cover (1:06 PM Oct 14) - COMPILED ONLY, NOT DEVICE-TESTED
+- New app/.../capture/Cover.kt. Opaque #0B0B0D TYPE_APPLICATION_OVERLAY. Setting "cover" (default OFF) and "cover_strip" (default ON, status-bar strip, same feature).
+- Bubble long-press menu: "Cover" chip (turns the setting on) opens edit mode: drag to move, corner handle to resize, Done saves. Rect per orientation in prefs (cover_p / cover_l), default = top third.
+- Record start: cover deployed, 300 ms later MediaRecorder.start() so frame 0 has it. NOT_TOUCHABLE|NOT_FOCUSABLE while recording. Removed at stop / on error / on widget close.
+- Auto-scroll startX() skips start columns whose (x, 70% height) point falls under the cover.
+- No adaptive detector (option C not built). Test build: version 0.10.6-t1 / versionCode 58. About CONTACT card hidden while CONTACT_EMAIL is the placeholder, so no placeholder ships.
+- Risk to check on the S24: whether the overlay shows in the MediaProjection capture (it should, overlays are composited), and whether a status-bar-height overlay renders above the real status bar.

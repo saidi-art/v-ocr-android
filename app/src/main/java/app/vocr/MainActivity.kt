@@ -280,6 +280,19 @@ fun Home(preview: Picked? = null) {
                     Spacer(Modifier.width(8.dp))
                     Text("Debug: keep my screen recordings (saved to Downloads/V-OCR, may contain private content)", color = Muted, fontSize = 13.sp)
                 }
+                Spacer(Modifier.height(6.dp))
+                var cov by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("cover", false)) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(checked = cov, onCheckedChange = { cov = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("cover", it).apply() })
+                    Spacer(Modifier.width(8.dp))
+                    Text("Cover: hide a region (e.g. a playing video) in recordings. Set it from the bubble: long-press, Cover", color = Muted, fontSize = 13.sp)
+                }
+                var covStrip by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("cover_strip", true)) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(checked = covStrip, onCheckedChange = { covStrip = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("cover_strip", it).apply() })
+                    Spacer(Modifier.width(8.dp))
+                    Text("Cover also hides the status bar strip (clock, notifications)", color = Muted, fontSize = 13.sp)
+                }
                 Spacer(Modifier.height(14.dp))
                 Button(
                     enabled = !benching,

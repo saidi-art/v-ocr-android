@@ -53,7 +53,7 @@ fun About(onBack: () -> Unit) {
                 Spacer(Modifier.height(6.dp))
                 Text("ScrOllOn reads your screen recordings on this phone. Nothing is uploaded and there is no account. Text files are saved in Downloads/V-OCR on your device. Auto-scroll, if you turn it on, uses Android's accessibility permission only to swipe the screen and to take tiny in-memory screenshots that detect the end of the page.", color = Color.White, fontSize = 14.sp, lineHeight = 20.sp)
             }
-            Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(20.dp)).padding(18.dp)) {
+            if (!CONTACT_EMAIL.startsWith("__")) Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(20.dp)).padding(18.dp)) {
                 Label("CONTACT")
                 Spacer(Modifier.height(6.dp))
                 Text(CONTACT_EMAIL, color = Lilac, fontSize = 15.sp, modifier = Modifier.hapticClickable {

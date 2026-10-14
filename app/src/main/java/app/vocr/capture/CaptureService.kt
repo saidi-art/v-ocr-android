@@ -161,6 +161,7 @@ class CaptureService : Service() {
         if (widget != null) return
         app.vocr.core.JobQueue.listener = { ui.post { refreshQueueUi() } }
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
+        cover = Cover(this, wm!!, ui)
         val tv = Bubble(this)
         val p = WindowManager.LayoutParams(dp(52), dp(52), WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS, PixelFormat.TRANSLUCENT).apply {
@@ -200,6 +201,7 @@ class CaptureService : Service() {
         ui.postDelayed(tuckRun, 3000)
     }
 
+    private var cover: Cover? = null
     private fun hideMenu() { ui.removeCallbacks(hideMenuRun); menu.forEach { v -> runCatching { wm?.removeView(v) } }; menu = emptyList() }
     private val hideMenuRun = Runnable { hideMenu() }
 
@@ -285,7 +287,15 @@ class CaptureService : Service() {
         }
         overlay(auto, p.x - dp(6), p.y + p.height + dp(46))
         overlay(rd, p.x - dp(6), p.y + p.height + dp(86))
-        menu = listOf(close, mode, auto, rd)
+        val cv = chip("Cover", Color.parseColor("#25262B")) {
+            hideMenu()
+            if (recording) toast("Stop recording first") else {
+                if (!prefs(this).getBoolean("cover", false)) prefs(this).edit().putBoolean("cover", true).apply()
+                cover?.edit()
+            }
+        }
+        overlay(cv, p.x - dp(6), p.y + p.height + dp(166))
+        menu = listOf(close, mode, auto, rd, cv)
         ui.postDelayed(hideMenuRun, 4000)
     }
 
@@ -295,7 +305,7 @@ class CaptureService : Service() {
 
     private fun closeWidget() { removeWidget(); stopForeground(STOP_FOREGROUND_REMOVE); stopSelf() }
 
-    private fun removeWidget() { app.vocr.core.JobQueue.listener = null; hideAddChip(); hideMenu(); ui.removeCallbacks(tuckRun); widget?.let { runCatching { wm?.removeView(it) } }; widget = null }
+    private fun removeWidget() { cover?.remove(); app.vocr.core.JobQueue.listener = null; hideAddChip(); hideMenu(); ui.removeCallbacks(tuckRun); widget?.let { runCatching { wm?.removeView(it) } }; widget = null }
 
     private fun setWidgetIdle() {
         widget?.apply { label = "REC"; alpha = 1f; labelSp = 11f; fill = Color.parseColor("#3A3B42"); ring = -1f; invalidate() }
@@ -337,10 +347,21 @@ class CaptureService : Service() {
             r.setOutputFile(f.path)
             r.prepare()
             display = mp.createVirtualDisplay("vocr", w, h, m.densityDpi, DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, r.surface, null, null)
-            r.start()
-            projection = mp; recorder = r; recFile = f; recording = true; app.vocr.Haptics.recStart(this)
-            setWidgetRecording()
-            if (prefs(this).getBoolean("autoscroll", false) && ScrollService.instance != null) startAutoScroll()
+            projection = mp; recorder = r; recFile = f
+            val cv = cover?.takeIf { it.enabled() }
+            if (cv != null) { cv.deploy(); recording = true }   // 'recording' guards the stop callbacks while the cover draws
+            ui.postDelayed({
+                if (cv != null && !recording) return@postDelayed
+                try {
+                    r.start()
+                    recording = true; app.vocr.Haptics.recStart(this)
+                    setWidgetRecording()
+                    if (prefs(this).getBoolean("autoscroll", false) && ScrollService.instance != null) startAutoScroll()
+                } catch (e: Throwable) {
+                    cover?.remove(); releaseRecording(); recording = false; setWidgetIdle(); fgIdle("Tap the floating button to record")
+                    toast("Could not start recording: " + (e.message ?: e.javaClass.simpleName))
+                }
+            }, if (cv != null) 300L else 0L)
         } catch (e: Throwable) {
             releaseRecording(); recording = false; setWidgetIdle(); fgIdle("Tap the floating button to record")
             toast("Could not start recording: " + (e.message ?: e.javaClass.simpleName))
@@ -404,7 +425,13 @@ class CaptureService : Service() {
     private val STUCK_RETRIES = 3; private val STUCK_FIRST_PAUSE_S = 4L; private val STUCK_STEP_S = 2L   // user spec Oct 14
     /** Each retry after a no-change swipe starts in a different column (35%, 20%, 75%, 55% of the width, always at 70% height), so a floating button or
      *  overlay under one start point cannot make a blocked swipe look like "bottom reached". The recording only ends when ALL four columns changed nothing. */
-    private fun startX(): Float = floatArrayOf(ScrollService.X0, 0.20f, 0.75f, 0.55f)[still.coerceIn(0, 3)]
+    private fun startX(): Float {
+        val c = floatArrayOf(ScrollService.X0, 0.20f, 0.75f, 0.55f); val i = still.coerceIn(0, 3)
+        val m = resources.displayMetrics; val y = (0.70f * m.heightPixels).toInt(); val bl = cover?.blocked() ?: emptyList()
+        // first candidate (starting at the rotation's pick) whose start point is not under the cover
+        for (k in 0..3) { val x = c[(i + k) % 4]; if (bl.none { it.contains((x * m.widthPixels).toInt(), y) }) return x }
+        return c[i]
+    }
     private var lastThumb: IntArray? = null; private var still = 0
     private fun checkBottom(svc: ScrollService) {
         if (!scrolling || !active()) return
@@ -451,6 +478,7 @@ class CaptureService : Service() {
         if (!recording) return
         stopAutoScroll()
         recording = false
+        cover?.remove()
         val f = recFile
         val ok = runCatching { recorder?.stop() }.isSuccess
         releaseRecording()
