@@ -451,8 +451,11 @@ fun QueueList() {
             Label("Queue", modifier = Modifier.weight(1f))
             if (jobs.any { it.state >= 2 }) Text("Clear finished", color = Lilac, fontSize = 13.sp, modifier = Modifier.hapticClickable { JobQueue.clearFinished() })
         }
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
-            items(jobs.toList(), key = { it.id }) { j ->
+        // Display order only (run order stays first-in-first-out): the running job first, then waiting jobs, then finished ones newest first.
+        val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+        androidx.compose.runtime.LaunchedEffect(jobs.size, jobs.count { it.state <= 1 }) { listState.scrollToItem(0) }
+        LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
+            items(jobs.toList().sortedWith(compareBy({ if (it.state == 1) 0 else if (it.state == 0) 1 else 2 }, { if (it.state >= 2) -it.id else it.id })), key = { it.id }) { j ->
                 Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(12.dp), Ink).padding(10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(if (j.state == 2 && j.title.isNotEmpty()) j.title else j.label, color = Color.White, fontSize = 14.sp, maxLines = 1, modifier = Modifier.weight(1f))
