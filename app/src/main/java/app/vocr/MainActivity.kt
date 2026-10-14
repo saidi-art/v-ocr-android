@@ -335,8 +335,9 @@ fun Strips(res: Result, autoRead: Boolean = false, onBack: () -> Unit) {
         Thread {
             try {
                 val rr = Reader.readAll(ctx, res.strips, fast) { reading = it }
-                val sv = app.vocr.core.Saver.save(ctx, rr.text)
-                read = rr.copy(savedTitle = sv.title, savedOk = sv.uri != null)
+                val foot = app.vocr.core.RunStats.footer(res, rr)
+                val sv = app.vocr.core.Saver.save(ctx, rr.text.trimEnd() + "\n\n" + foot)
+                read = rr.copy(savedTitle = sv.title, savedOk = sv.uri != null, detail = rr.detail + "\n\n" + foot)
             }
             catch (e: Throwable) { err = (e.message ?: e.javaClass.simpleName) }
             reading = null

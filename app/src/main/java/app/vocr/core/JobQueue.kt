@@ -29,6 +29,7 @@ object JobQueue {
         var lines by mutableIntStateOf(0)
         var secs by mutableIntStateOf(0)
         @Volatile var cancel = false
+        var keepNote: String? = null   // result of the keep-recording copy, once done ("" = toggle off)
     }
 
     val jobs = mutableStateListOf<Job>()
@@ -123,7 +124,10 @@ object JobQueue {
                 if (now - lastNote > 1500) { lastNote = now; notifyStatus(app) }
                 listener?.invoke()
             }
-            val sv = Saver.save(app, rd.text)
+            job.tmp?.let { job.keepNote = Saver.keepRecording(app, it) }   // before the save so the stats footer can report it
+            val keepLine = if (job.keepNote.isNullOrEmpty()) "" else job.keepNote + "\n"
+            val sv = Saver.save(app, rd.text.trimEnd() + "\n\n" + RunStats.footer(res, rd) + keepLine)
+            if (sv.uri == null) throw RuntimeException("could not save the text file to Download/V-OCR (" + sv.error + ")")
             job.title = sv.title; job.result = sv.uri; job.lines = rd.mergedLines; job.secs = (rd.ms / 1000).toInt()
             job.stage = "Done"; job.state = 2; job.frac = 1f; Haptics.saved(app)
             postDone(app, job, rd.text)
@@ -135,7 +139,8 @@ object JobQueue {
                 .setContentTitle("ScrOllOn could not read " + job.label).setContentText(e.message ?: e.javaClass.simpleName).setAutoCancel(true).build())
         } finally {
             Sfx.scan(app, false); if (job.state != 2) Sfx.stopCue(app)
-            runCatching { job.tmp?.let { Saver.keepRecording(app, it) } }
+            if (job.keepNote == null) job.tmp?.let { t -> job.keepNote = runCatching { Saver.keepRecording(app, t) }.getOrElse { "Recording NOT saved: " + (it.message ?: it.javaClass.simpleName) } }
+            job.keepNote?.takeIf { it.isNotEmpty() }?.let { n -> android.os.Handler(android.os.Looper.getMainLooper()).post { android.widget.Toast.makeText(app, n, android.widget.Toast.LENGTH_LONG).show() } }
             job.tmp?.delete(); runCatching { stripDir?.deleteRecursively() }; runCatching { if (wl.isHeld) wl.release() }
             listener?.invoke(); notifyStatus(app)
         }

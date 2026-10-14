@@ -84,14 +84,37 @@ class StripBuilder(
     private var acc = 0
     private var vb = 0
 
+    private var topStreak = 0
+    /** frames skipped by the region gate (video up top, rest of the screen still) */
+    var regionSkips = 0; private set
+    /** frames skipped because the whole screen was still */
+    var wholeSkips = 0; private set
+    private fun topBlockOnly(p: Gray, g: Gray): Boolean {
+        val nb = 24; val bh = g.h / nb; if (bh < 1) return false
+        val topN = Math.ceil(0.45 * nb).toInt(); var topMoved = false
+        for (b in 0 until nb) {
+            var s = 0.0; val o0 = b * bh * g.w; val o1 = (b + 1) * bh * g.w
+            for (i in o0 until o1) s += abs(g.d[i] - p.d[i])
+            val moved = s / (o1 - o0) >= 2.0
+            if (moved) { if (b < topN) topMoved = true else return false }
+        }
+        return topMoved
+    }
+
     fun push(hash: Long, g: Gray): Decision {
         total++
         lastFailed = false
         val p = prev
         val ph = prevHash
         if (p != null && ph != null && Hash.similarity(hash, ph) > simThreshold && meanAbsDiff(g, p) < 2.0f) {
-            dup++; return Decision.Skip   // keep prev as reference; nothing changed
+            dup++; wholeSkips++; return Decision.Skip   // keep prev as reference; nothing changed
         }
+        // Region-gated skip: a video playing in the top block (ad, player) defeats the whole-frame test above and the frame then
+        // looks like a failed scroll match. If ONLY rows in the top 45% changed (and again on the previous frame), treat it as still.
+        if (p != null && topBlockOnly(p, g)) {
+            topStreak++
+            if (topStreak >= 2) { dup++; regionSkips++; return Decision.Skip }
+        } else topStreak = 0
         var out: Decision = Decision.Skip
         if (p == null) {
             full++; out = Decision.Full
