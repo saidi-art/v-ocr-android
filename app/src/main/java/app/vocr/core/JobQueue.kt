@@ -123,7 +123,7 @@ object JobQueue {
                 if (now - lastNote > 1500) { lastNote = now; notifyStatus(app) }
                 listener?.invoke()
             }
-            val sv = Saver.save(app, rd.text)
+            val sv = Saver.save(app, rd.text.trimEnd() + "\n\n" + RunStats.footer(res, rd))
             job.title = sv.title; job.result = sv.uri; job.lines = rd.mergedLines; job.secs = (rd.ms / 1000).toInt()
             job.stage = "Done"; job.state = 2; job.frac = 1f; Haptics.saved(app)
             postDone(app, job, rd.text)

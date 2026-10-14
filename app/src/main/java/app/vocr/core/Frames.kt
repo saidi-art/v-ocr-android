@@ -10,7 +10,25 @@ import kotlin.math.min
 
 data class StripInfo(val file: File, val t: Double, val kind: String)
 data class Progress(val stage: String, val done: Int, val total: Int, val etaS: Int = -1, val live: List<String> = emptyList(), val lines: Int = 0, val frac: Float = -1f)
-data class Result(val strips: List<StripInfo>, val framesTotal: Int, val dup: Int, val full: Int, val cropped: Int, val seconds: Int, val ms: Long, val timing: String = "")
+data class Result(val strips: List<StripInfo>, val framesTotal: Int, val dup: Int, val full: Int, val cropped: Int, val seconds: Int, val ms: Long, val timing: String = "", val wholeSkips: Int = 0, val regionSkips: Int = 0, val fpsInfo: String = "")
+
+/** Per-run stats block (frame side from the Result, reading side from the ReadResult). Appended to the saved text and shown on the result screen. */
+object RunStats {
+    fun footer(res: Result, rd: ReadResult): String {
+        val accum = res.dup - res.wholeSkips - res.regionSkips
+        val ocr = res.strips.size
+        val rs = rd.ms / 1000.0
+        return buildString {
+            append("--- V-OCR run stats ---\n")
+            append("Video: ${res.seconds}s. Frames sampled: ${res.framesTotal}.\n")
+            append("Skipped: ${res.dup} total = ${res.wholeSkips} whole-screen still + ${res.regionSkips} region-gated (video up top) + $accum accumulating while scrolling.\n")
+            append("Kept for OCR: $ocr strips (${res.full} full, ${res.cropped} cropped).\n")
+            append("Frame analysis total: ${res.ms / 1000.0}s. ${res.timing}\n")
+            append("OCR: %.1fs for $ocr strips (%.2f strips/s). Lines read ${rd.rawLines}, after overlap removal ${rd.mergedLines}.\n".format(rs, if (rs > 0) ocr / rs else 0.0))
+            if (res.fpsInfo.isNotEmpty()) append("Sampling: ${res.fpsInfo}\n")
+        }
+    }
+}
 
 object Pipeline {
     const val FRAME_W = 720      // frames are decoded at this width
@@ -76,6 +94,7 @@ object Pipeline {
             }
         }
         val rate = RateCtl(fps)
+        var fpsMax = fps; var fpsSum = 0.0; var fpsHigh = 0; val trace = StringBuilder(); var nextTrace = 0.0
         var analysisMs = 0L; var saveMs = 0L; var grayN = 0L; var hashN = 0L; var matchN = 0L; var progN = 0L
         val ok = Decoder.decode(ctx, uri, fps, cancelled) { t, f ->
             got++
@@ -105,7 +124,10 @@ object Pipeline {
             saveMs += (System.nanoTime() - tb) / 1_000_000
             last = f; lastT = t
             // a changed frame we couldn't match (fast scroll) means we skipped content: sample faster until matching again
-            rate.update(sb)
+            val newFps = rate.update(sb)
+            fpsSum += rate.cur; if (rate.cur > fpsMax) fpsMax = rate.cur; if (rate.cur > fps * 1.5) fpsHigh++
+            if (t >= nextTrace) { if (trace.length < 400) trace.append("%d:%.1f ".format(t.toInt(), rate.cur)); nextTrace = t + maxOf(10.0, seconds / 20.0) }
+            newFps
         }
         if (!ok && got == 0) return null
         val fin = sb.flush(); val lf = last
@@ -119,7 +141,9 @@ object Pipeline {
         val waitMs = System.currentTimeMillis() - tw
         onProgress(Progress("Done", 100, 100))
         val total = System.currentTimeMillis() - t0
-        return Result(strips, sb.total, sb.dup, sb.full, sb.cropped, seconds, total, "analysis ${analysisMs}ms (progress cb ${progN/1_000_000}, gray ${grayN/1_000_000}, hash ${hashN/1_000_000}, match ${matchN/1_000_000}), save queue ${saveMs}ms + final wait ${waitMs}ms, decode+other ${total - analysisMs - saveMs - waitMs}ms")
+        return Result(strips, sb.total, sb.dup, sb.full, sb.cropped, seconds, total, "analysis ${analysisMs}ms (progress cb ${progN/1_000_000}, gray ${grayN/1_000_000}, hash ${hashN/1_000_000}, match ${matchN/1_000_000}), save queue ${saveMs}ms + final wait ${waitMs}ms, decode+other ${total - analysisMs - saveMs - waitMs}ms",
+            sb.wholeSkips, sb.regionSkips,
+            "base %.1f fps, max %.1f, mean %.1f, frames sampled above 1.5x base: %d. Trace (sec:fps): %s".format(fps, fpsMax, if (got > 0) fpsSum / got else fps, fpsHigh, trace.toString().trim()))
     }
 
     private fun runRetriever(ctx: Context, uri: Uri?, onProgress: (Progress) -> Unit, cancelled: () -> Boolean): Result {
