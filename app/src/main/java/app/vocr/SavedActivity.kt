@@ -75,7 +75,7 @@ private fun SavedScreen(onExit: () -> Unit) {
             if (loaded && items.isEmpty()) Text("Nothing saved yet. Finished captures appear here.", color = Muted, modifier = Modifier.padding(20.dp))
             LazyColumn(Modifier.weight(1f).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 items(items) { it ->
-                    Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(18.dp)).clickable {
+                    Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(18.dp)).hapticClickable {
                         Haptics.secondary(view); text = runCatching { ctx.contentResolver.openInputStream(it.uri)?.use { s -> String(s.readBytes(), Charsets.UTF_8) } }.getOrNull() ?: "Could not read this file."; open = it
                     }.padding(16.dp)) {
                         Text(it.name.removeSuffix(".txt"), color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 2)

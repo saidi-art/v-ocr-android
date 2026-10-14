@@ -15,9 +15,14 @@ object Sfx {
     private var scanP: MediaPlayer? = null
     private var doneP: MediaPlayer? = null
 
+    /** Playback levels (0..1 of the media volume). Tuned low on request; flag for S24 tuning. */
+    private const val VOL_SCROLL = 0.30f
+    private const val VOL_DONE = 0.35f
+    private const val VOL_SCAN = 0.25f
+
     private fun make(c: Context, res: Int, loop: Boolean): MediaPlayer? = runCatching {
         MediaPlayer.create(c, res, android.media.AudioAttributes.Builder()
-            .setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build(), 0)?.apply { isLooping = loop }
+            .setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build(), 0)?.apply { isLooping = loop; val v = when (res) { R.raw.sfx_done -> VOL_DONE; R.raw.sfx_scan -> VOL_SCAN; else -> VOL_SCROLL }; setVolume(v, v) }
     }.getOrNull()
 
     @Synchronized private fun update() {
@@ -28,7 +33,7 @@ object Sfx {
         val wantScan = snd && scanOn && !scrollOn && !doneOn
         if (wantScroll) { if (scrollP == null) scrollP = make(c, R.raw.sfx_scroll, true); runCatching { scrollP?.let { if (!it.isPlaying) it.start() } } }
         else scrollP?.let { runCatching { it.release() }; scrollP = null }
-        if (wantScan) { if (scanP == null) scanP = make(c, R.raw.sfx_scan, true)?.also { it.setVolume(0.5f, 0.5f) }; runCatching { scanP?.let { if (!it.isPlaying) it.start() } } }
+        if (wantScan) { if (scanP == null) scanP = make(c, R.raw.sfx_scan, true); runCatching { scanP?.let { if (!it.isPlaying) it.start() } } }
         else scanP?.let { runCatching { it.release() }; scanP = null }
     }
 

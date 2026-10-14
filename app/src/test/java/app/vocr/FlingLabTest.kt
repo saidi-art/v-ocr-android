@@ -24,12 +24,12 @@ class FlingLabTest {
             return
         }
         val dir = File("src/main/assets/ocr")
-        val eng = OcrEngine(File(dir, "det.onnx").readBytes(), File(dir, "rec.onnx").readBytes(), File(dir, "keys.txt").readText().split("\n"))
+        val eng = OcrEngine(File(dir, "det.onnx").readBytes(), File(System.getenv("FLREC") ?: File(dir, "rec.onnx").path).readBytes(), File(System.getenv("FLKEYS") ?: File(dir, "keys.txt").path).readText().split("\n"))
         System.getenv("FLRECH")?.let { eng.recH = it.toInt() }; System.getenv("FLDET")?.let { eng.maxSide = it.toInt() }
         val per = ArrayList<List<Line>>()
         fun handle(s: Rgb) {
             val tt = System.nanoTime(); val d0 = eng.detMs; val ls0 = eng.recognize(s); val tms = (System.nanoTime() - tt) / 1_000_000; println("TIME strip ${per.size} h=${s.h} area=${s.w * s.h} ms=$tms det=${eng.detMs - d0} lines=${ls0.size}"); val ls = ls0.filter { it.conf >= 0.55f && it.text.count { c -> c.isLetterOrDigit() } >= 1 }.map { Line(it.text, (it.y0 + it.y1) / 2f / s.h) }
-            println("LAB strip ${per.size} ${s.w}x${s.h}: ${ls.size} lines"); per.add(ls)
+            println("LAB strip ${per.size} ${s.w}x${s.h}: ${ls.size} lines"); if (System.getenv("FLDUMP") != null) ls0.forEachIndexed { k, l -> println("DUMP ${per.size} $k ${l.y0} ${"%.3f".format(l.conf)} ${l.text}") }; per.add(ls)
         }
         val noocr = System.getenv("FLNOOCR") != null; var nstrips = 0
         val sb = StripBuilder(overlapPx = 18); val rate = RateCtl(3.0)
