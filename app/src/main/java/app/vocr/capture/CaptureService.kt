@@ -415,7 +415,7 @@ class CaptureService : Service() {
             val dist = (v * 4.0).coerceIn(0.2, 0.6)           // screens per drag
             val dur = (dist / v * 1000).toLong()               // constant speed, no fling at the lift
             for (k in 1..(dur / 1500L).toInt()) ui.postDelayed({ if (scrolling && active() && speedLevel() > 0) app.vocr.Haptics.autoPulse(this) }, k * 1500L)   // gentle pulse every ~1.5 s during a slow drag
-            svc.swipe(m.widthPixels, m.heightPixels, 0.70f, (0.70 - dist).toFloat(), dur, startX()) { ok ->
+            svc.swipe(m.widthPixels, m.heightPixels, SLOW_Y0, (SLOW_Y0 - dist).toFloat(), dur, startX(SLOW_Y0)) { ok ->
                 if (ok) swipes++
                 ui.postDelayed({ checkBottom(svc) }, 120L)
             }
@@ -427,9 +427,10 @@ class CaptureService : Service() {
     private val STUCK_RETRIES = 3; private val STUCK_FIRST_PAUSE_S = 4L; private val STUCK_STEP_S = 2L   // user spec Oct 14
     /** Each retry after a no-change swipe starts in a different column (35%, 20%, 75%, 55% of the width, always at 70% height), so a floating button or
      *  overlay under one start point cannot make a blocked swipe look like "bottom reached". The recording only ends when ALL four columns changed nothing. */
-    private fun startX(): Float {
+    private val SLOW_Y0 = 0.55f   // slow drags start higher: a keyboard that pops up covers roughly the bottom 40%, so keys are never under the finger
+    private fun startX(y0: Float = 0.70f): Float {
         val c = floatArrayOf(ScrollService.X0, 0.20f, 0.75f, 0.55f); val i = still.coerceIn(0, 3)
-        val m = resources.displayMetrics; val y = (0.70f * m.heightPixels).toInt(); val bl = cover?.blocked() ?: emptyList()
+        val m = resources.displayMetrics; val y = (y0 * m.heightPixels).toInt(); val bl = cover?.blocked() ?: emptyList()
         // first candidate (starting at the rotation's pick) whose start point is not under the cover
         for (k in 0..3) { val x = c[(i + k) % 4]; if (bl.none { it.contains((x * m.widthPixels).toInt(), y) }) return x }
         return c[i]

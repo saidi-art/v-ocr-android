@@ -177,3 +177,9 @@ Throughput data point from his screenshots (real S24 runs, build 57, NOT a contr
 - DEVICE-VERIFIED (user report): Gemini auto-scroll now works with the build-58 start-point fix (x=35%, y=70%). First device verification of the wrap tree.
 - BUG: the Scroll pace slider pill rendered half off-screen on the right (bubble docks at the right edge, pill was anchored at bubble x). Fix: pill x clamped to [4dp, screenW - pillWidth - 4dp]. Compiled only, not device-tested. Rides the next build.
 - Covered recording via the bubble done by the user; mp4 + output pending for the A/B vs the 6,938-line baseline.
+
+### 12.12 Keyboard wake at slow Scroll (user report 1:58 PM) - compiled only
+- Report: at lowest "Scroll on" speed the keyboard wakes and the scroll "hovers above it, triggering characters but rarely typing".
+- Change: slow levels (1-9) now start the drag at y=55% (was 70%) so a raised keyboard (about bottom 40%) is not under the finger. Start-column picker uses the same y for the cover-rect check.
+- NOT done, needs a user decision: detecting the keyboard window (needs canRetrieveWindowContent=true + flagRetrieveInteractiveWindows, which contradicts the disclosure text "reads no window content"). Not enabled.
+- Correction: the speed-aware stuck-check is NOT needed. Slow drags are dist=clamp(4v, 0.2, 0.6) screens each (0.2 screen over about 6.7 s at the lowest level), so the thumbnail changes a lot per step. The mid-page "false stuck" hypothesis in my 1:56 note was wrong.
