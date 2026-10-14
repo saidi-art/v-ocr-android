@@ -94,9 +94,13 @@ object Pipeline {
             }
         }
         val rate = RateCtl(fps)
+        // End-of-page rule: no matched scroll for endStopSec seconds of video (after real scrolling happened) = the page ended.
+        // Frames after that are only the same last screen (tooltips, blinking UI) and would be OCR'd as duplicates.
+        val endStopSec = app.vocr.capture.CaptureService.prefs(ctx).getInt("endstopsec", 30)
+        var seenMatches = 0; var tProgress = 0.0; var stripsAtProgress = 0; var stoppedAt = -1.0
         var fpsMax = fps; var fpsSum = 0.0; var fpsHigh = 0; val trace = StringBuilder(); var nextTrace = 0.0
         var analysisMs = 0L; var saveMs = 0L; var grayN = 0L; var hashN = 0L; var matchN = 0L; var progN = 0L
-        val ok = Decoder.decode(ctx, uri, fps, cancelled) { t, f ->
+        val ok = Decoder.decode(ctx, uri, fps, { cancelled() || stoppedAt >= 0 }) { t, f ->
             got++
             val ta = System.nanoTime()
             onProgress(Progress("Reading frames", (t / seconds * 100).toInt().coerceAtMost(100), 100))
@@ -127,9 +131,16 @@ object Pipeline {
             val newFps = rate.update(sb)
             fpsSum += rate.cur; if (rate.cur > fpsMax) fpsMax = rate.cur; if (rate.cur > fps * 1.5) fpsHigh++
             if (t >= nextTrace) { if (trace.length < 400) trace.append("%d:%.1f ".format(t.toInt(), rate.cur)); nextTrace = t + maxOf(10.0, seconds / 20.0) }
+            if (sb.scrollMatches != seenMatches) { seenMatches = sb.scrollMatches; tProgress = t; stripsAtProgress = strips.size }
+            if (endStopSec > 0 && seenMatches >= 5 && t - tProgress > endStopSec && stoppedAt < 0) stoppedAt = t
             newFps
         }
         if (!ok && got == 0) return null
+        // drop the strips made during the stalled tail, but keep the first one (the final screen state)
+        val droppedFiles = ArrayList<File>()
+        if (stoppedAt >= 0 && strips.size > stripsAtProgress + 1) {
+            while (strips.size > stripsAtProgress + 1) droppedFiles.add(strips.removeAt(strips.size - 1).file)
+        }
         val fin = sb.flush(); val lf = last
         if (fin is Decision.Crop && lf != null) {
             val sc = fh.toFloat() / dh
@@ -139,11 +150,13 @@ object Pipeline {
         val tw = System.currentTimeMillis()
         pool.shutdown(); pool.awaitTermination(120, java.util.concurrent.TimeUnit.SECONDS)
         val waitMs = System.currentTimeMillis() - tw
+        for (df in droppedFiles) df.delete()
         onProgress(Progress("Done", 100, 100))
         val total = System.currentTimeMillis() - t0
         return Result(strips, sb.total, sb.dup, sb.full, sb.cropped, seconds, total, "analysis ${analysisMs}ms (progress cb ${progN/1_000_000}, gray ${grayN/1_000_000}, hash ${hashN/1_000_000}, match ${matchN/1_000_000}), save queue ${saveMs}ms + final wait ${waitMs}ms, decode+other ${total - analysisMs - saveMs - waitMs}ms",
             sb.wholeSkips, sb.regionSkips,
-            "base %.1f fps, max %.1f, mean %.1f, frames sampled above 1.5x base: %d. Trace (sec:fps): %s".format(fps, fpsMax, if (got > 0) fpsSum / got else fps, fpsHigh, trace.toString().trim()))
+            "base %.1f fps, max %.1f, mean %.1f, frames sampled above 1.5x base: %d. Trace (sec:fps): %s".format(fps, fpsMax, if (got > 0) fpsSum / got else fps, fpsHigh, trace.toString().trim()) +
+            (if (stoppedAt >= 0) " End of page: no scroll matched for ${endStopSec}s, stopped reading at %.0fs of %ds, dropped ${droppedFiles.size} tail strips.".format(stoppedAt, seconds) else ""))
     }
 
     private fun runRetriever(ctx: Context, uri: Uri?, onProgress: (Progress) -> Unit, cancelled: () -> Boolean): Result {

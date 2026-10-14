@@ -164,7 +164,7 @@ class CaptureService : Service() {
         cover = Cover(this, wm!!, ui)
         val tv = Bubble(this)
         val p = WindowManager.LayoutParams(dp(52), dp(52), WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS, PixelFormat.TRANSLUCENT).apply {
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or WindowManager.LayoutParams.FLAG_SECURE, PixelFormat.TRANSLUCENT).apply {
             gravity = Gravity.TOP or Gravity.START; x = screenW() - dp(32); y = dp(220)
         }
         var sx = 0f; var sy = 0f; var ox = 0; var oy = 0; var moved = false; var longDone = false; var wasTucked = false
@@ -209,7 +209,7 @@ class CaptureService : Service() {
 
     private fun overlay(v: View, x: Int, y: Int) {
         val q = WindowManager.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS, PixelFormat.TRANSLUCENT).apply { gravity = Gravity.TOP or Gravity.START; this.x = x; this.y = y }
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or WindowManager.LayoutParams.FLAG_SECURE, PixelFormat.TRANSLUCENT).apply { gravity = Gravity.TOP or Gravity.START; this.x = x; this.y = y }
         wm?.addView(v, q)
     }
 
@@ -345,7 +345,8 @@ class CaptureService : Service() {
             r.setVideoSource(MediaRecorder.VideoSource.SURFACE)
             r.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
             r.setVideoEncoder(MediaRecorder.VideoEncoder.H264)
-            r.setVideoSize(w, h); r.setVideoFrameRate(60); r.setVideoEncodingBitRate(10_000_000)
+            r.setVideoSize(w, h); val light = prefs(this).getBoolean("lightcapture", false)
+            r.setVideoFrameRate(if (light) 30 else 60); r.setVideoEncodingBitRate(if (light) 5_000_000 else 10_000_000)
             r.setOutputFile(f.path)
             r.prepare()
             display = mp.createVirtualDisplay("vocr", w, h, m.densityDpi, DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, r.surface, null, null)
@@ -508,7 +509,7 @@ class CaptureService : Service() {
         val c = AddChip(this)
         c.setOnClickListener { it.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP); showAddMenu() }
         val q = WindowManager.LayoutParams(dp(40), dp(40), WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS, PixelFormat.TRANSLUCENT).apply { gravity = Gravity.TOP or Gravity.START; x = lp?.x ?: 0; y = (lp?.y ?: dp(60)) - dp(46) }
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or WindowManager.LayoutParams.FLAG_SECURE, PixelFormat.TRANSLUCENT).apply { gravity = Gravity.TOP or Gravity.START; x = lp?.x ?: 0; y = (lp?.y ?: dp(60)) - dp(46) }
         runCatching { wm?.addView(c, q); addChip = c; ui.postDelayed(chipPoll, 300) }
     }
 

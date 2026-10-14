@@ -49,11 +49,16 @@ object Hash {
 /** Adaptive sampling rate: speeds up when scrolling outruns the sampling (no match, or a jump near the match limit), eases back when calm. */
 class RateCtl(private val base: Double, private val maxFps: Double = 60.0) {
     var cur = base; private set
+    private var failStreak = 0
     fun update(sb: StripBuilder): Double {
         cur = when {
-            sb.lastFailed -> minOf(maxFps, maxOf(12.0, cur * 1.7))
-            sb.lastSpan > 0 && sb.lastDy > 0.30 * sb.lastSpan -> minOf(maxFps, cur * 1.25)   // matched, but close to the limit
-            else -> maxOf(base, cur * 0.93)
+            sb.lastFailed -> {
+                failStreak++
+                // Failing at an already-high rate means more frames will not help (sparse page, scrollbar, flick): probe again from the base rate.
+                if (cur >= 12.0 && failStreak >= 4) { failStreak = 0; base } else minOf(maxFps, maxOf(12.0, cur * 1.7))
+            }
+            sb.lastSpan > 0 && sb.lastDy > 0.30 * sb.lastSpan -> { failStreak = 0; minOf(maxFps, cur * 1.25) }   // matched, but close to the limit
+            else -> { failStreak = 0; maxOf(base, cur * 0.93) }
         }
         return cur
     }
@@ -73,6 +78,11 @@ class StripBuilder(
     /** last matched scroll distance (rows of the analysis frame) and the scrollable span it was matched in */
     var lastDy = 0; private set
     var lastSpan = 0; private set
+    /** number of frames where a real scroll offset was matched (dy>0); the end-of-page rule watches this */
+    var scrollMatches = 0; private set
+    /** matches found only after restricting to the lower part of the screen (video above a scrolling sheet) */
+    var bandMatches = 0; private set
+    private var subTop = 0
 
     private val hdrHist = IntArray(64); private val ftrHist = IntArray(64)   // buckets of 4 analysis rows
     /** Fixed header/footer rows (analysis frame) once seen consistently, else -1. Used to trim whole frames to the scrolling band. */
@@ -122,14 +132,24 @@ class StripBuilder(
             val hv = headerRows(p, g); val fv = footerRows(p, g)
             if (hv in 8..255) hdrHist[(hv / 4).coerceAtMost(63)]++
             if (fv in 8..255) ftrHist[(fv / 4).coerceAtMost(63)]++
-            val dy = detectScroll(p, g)
+            var dy = detectScroll(p, g); var sp: Gray = p; var sg = g; var bt = 0
+            if (dy == 0) {
+                // A playing video (or any moving block) above a scrolling sheet poisons the whole-frame match. Retry on the lower part only.
+                for (frac in BAND_TRIES) {
+                    val t = (frac * g.h).toInt(); val a = subRows(p, t); val b = subRows(g, t)
+                    val d = detectScroll(a, b)
+                    if (d > 0) { dy = d; sp = a; sg = b; bt = t; break }
+                }
+            }
             if (dy == 0) {
                 full++; acc = 0; out = Decision.Full; lastFailed = true
             } else {
-                acc += dy; lastDy = dy; lastSpan = g.h - headerRows(p, g) - footerRows(p, g)
-                vb = g.h - footerRows(p, g)
-                if (acc >= minStripFrac * g.h) {
-                    out = Decision.Crop(maxOf(0, vb - acc - overlapPx), vb)
+                if (bt != subTop) { acc = 0; subTop = bt }
+                scrollMatches++; if (bt > 0) bandMatches++
+                acc += dy; lastDy = dy; lastSpan = sg.h - headerRows(sp, sg) - footerRows(sp, sg)
+                vb = g.h - footerRows(sp, sg)
+                if (acc >= minStripFrac * sg.h) {
+                    out = Decision.Crop(maxOf(subTop, vb - acc - overlapPx), vb)
                     cropped++; acc = 0
                 } else dup++
             }
@@ -153,6 +173,8 @@ class StripBuilder(
         }
 
         private const val BANDS = 3
+        private val BAND_TRIES = doubleArrayOf(0.35, 0.45, 0.55)
+        private fun subRows(g: Gray, top: Int): Gray = Gray(g.w, g.h - top, g.d.copyOfRange(top * g.w, g.h * g.w))
 
         /** Row-edge energy per vertical band (a floating overlay corrupts at most one band). */
         private fun rowEnergy(g: Gray): Array<FloatArray> = Array(BANDS) { b ->

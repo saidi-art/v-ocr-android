@@ -260,6 +260,13 @@ fun Home(preview: Picked? = null) {
                     Text("Sound (auto-scroll and end cue)", color = Muted, fontSize = 13.sp)
                 }
                 Spacer(Modifier.height(6.dp))
+                var light by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("lightcapture", false)) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(checked = light, onCheckedChange = { light = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("lightcapture", it).apply() })
+                    Spacer(Modifier.width(8.dp))
+                    Text("Lighter capture (30 fps, 5 Mbps) - test", color = Muted, fontSize = 13.sp)
+                }
+                Spacer(Modifier.height(6.dp))
                 var hap by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("haptics", true)) }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Switch(checked = hap, onCheckedChange = { hap = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("haptics", it).apply() })
