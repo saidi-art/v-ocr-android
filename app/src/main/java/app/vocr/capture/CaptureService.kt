@@ -382,7 +382,7 @@ class CaptureService : Service() {
         if (System.currentTimeMillis() - scrollT0 >= capMs()) { endScroll("Auto-scroll done"); return }
         val m = resources.displayMetrics
         if (lvl >= 10) {
-            svc.swipe(m.widthPixels, m.heightPixels, 0.70f, 0.10f, 90) { ok ->
+            svc.swipe(m.widthPixels, m.heightPixels, 0.70f, 0.10f, 90, startX()) { ok ->
                 if (ok) swipes++
                 app.vocr.Haptics.autoPulse(this)
                 ui.postDelayed({ checkBottom(svc) }, 650L)   // let the fling settle, then look at the screen
@@ -392,7 +392,7 @@ class CaptureService : Service() {
             val dist = (v * 4.0).coerceIn(0.2, 0.6)           // screens per drag
             val dur = (dist / v * 1000).toLong()               // constant speed, no fling at the lift
             for (k in 1..(dur / 1500L).toInt()) ui.postDelayed({ if (scrolling && active() && speedLevel() > 0) app.vocr.Haptics.autoPulse(this) }, k * 1500L)   // gentle pulse every ~1.5 s during a slow drag
-            svc.swipe(m.widthPixels, m.heightPixels, 0.70f, (0.70 - dist).toFloat(), dur) { ok ->
+            svc.swipe(m.widthPixels, m.heightPixels, 0.70f, (0.70 - dist).toFloat(), dur, startX()) { ok ->
                 if (ok) swipes++
                 ui.postDelayed({ checkBottom(svc) }, 120L)
             }
@@ -402,6 +402,9 @@ class CaptureService : Service() {
     // Bottom of page: after each swipe compare a small grey thumbnail with the previous one. 3 swipes in a row that
     // change nothing = the page has ended, so stop and read. The time cap above stays as the safety net.
     private val STUCK_RETRIES = 3; private val STUCK_FIRST_PAUSE_S = 4L; private val STUCK_STEP_S = 2L   // user spec Oct 14
+    /** Each retry after a no-change swipe starts in a different column (35%, 20%, 75%, 55% of the width, always at 70% height), so a floating button or
+     *  overlay under one start point cannot make a blocked swipe look like "bottom reached". The recording only ends when ALL four columns changed nothing. */
+    private fun startX(): Float = floatArrayOf(ScrollService.X0, 0.20f, 0.75f, 0.55f)[still.coerceIn(0, 3)]
     private var lastThumb: IntArray? = null; private var still = 0
     private fun checkBottom(svc: ScrollService) {
         if (!scrolling || !active()) return

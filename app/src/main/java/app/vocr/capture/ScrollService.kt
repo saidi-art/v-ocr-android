@@ -15,8 +15,8 @@ class ScrollService : AccessibilityService() {
     override fun onDestroy() { if (instance === this) instance = null; super.onDestroy() }
 
     /** One swipe from y0 to y1 (fractions of the screen height) at the horizontal centre, lasting durMs. */
-    fun swipe(w: Int, h: Int, y0: Float, y1: Float, durMs: Long, done: (Boolean) -> Unit) {
-        val p = Path().apply { moveTo(w * X0, h * y0); lineTo(w * X0, h * y1) }
+    fun swipe(w: Int, h: Int, y0: Float, y1: Float, durMs: Long, xFrac: Float = X0, done: (Boolean) -> Unit) {
+        val p = Path().apply { moveTo(w * xFrac, h * y0); lineTo(w * xFrac, h * y1) }
         val g = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(p, 0, durMs)).build()
         val ok = dispatchGesture(g, object : GestureResultCallback() {
             override fun onCompleted(d: GestureDescription?) { done(true) }
