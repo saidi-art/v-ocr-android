@@ -401,6 +401,7 @@ class CaptureService : Service() {
 
     // Bottom of page: after each swipe compare a small grey thumbnail with the previous one. 3 swipes in a row that
     // change nothing = the page has ended, so stop and read. The time cap above stays as the safety net.
+    private val STUCK_RETRIES = 3; private val STUCK_FIRST_PAUSE_S = 4L; private val STUCK_STEP_S = 2L   // user spec Oct 14
     private var lastThumb: IntArray? = null; private var still = 0
     private fun checkBottom(svc: ScrollService) {
         if (!scrolling || !active()) return
@@ -412,7 +413,14 @@ class CaptureService : Service() {
                     var d = 0L; for (i in t.indices) d += Math.abs(t[i] - prev[i])
                     val mad = d.toDouble() / t.size
                     still = if (mad < 1.2) still + 1 else 0
-                    if (still >= 3) { endScroll(if (readMode) "Reached the bottom" else "Reached the bottom - reading now"); return@post }
+                    // No change after a swipe: the page may just be slow to load. Let go, wait 4 s, try again; each wait is 2 s longer
+                    // (4, 6, 8 s). If the third retry still changes nothing, it is the bottom: end the recording.
+                    if (still > STUCK_RETRIES) { endScroll(if (readMode) "Reached the bottom" else "Reached the bottom - reading now"); return@post }
+                    if (still > 0) {
+                        val pause = (STUCK_FIRST_PAUSE_S + STUCK_STEP_S * (still - 1)) * 1000L
+                        scrollT0 += pause   // waiting for the page does not count against the time cap
+                        ui.postDelayed(scrollRun, pause); return@post
+                    }
                 }
                 if (t != null) lastThumb = t
                 ui.postDelayed(scrollRun, 50)
