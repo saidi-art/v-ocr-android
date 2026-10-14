@@ -193,3 +193,10 @@ Throughput data point from his screenshots (real S24 runs, build 57, NOT a contr
 - Saver.save returns the error text; JobQueue now FAILS the job ("Failed: could not save the text file to Download/V-OCR (reason)") instead of showing Done with no file.
 - Saver.keepRecording returns "Recording saved to Download/V-OCR/<name> (N MB)" or "Recording NOT saved: <reason>" (not a widget recording, file gone, or the exception). It now runs before the txt save on the success path (so the stats footer carries the line) and in finally otherwise (cancel/fail). A long toast shows the result whenever the toggle is ON. Toggle OFF stays silent.
 - Cause of user's missing mp4 still unknown (see 2:25 PM checklist).
+
+### 12.15 Stitching hang fix (2:59-3:02 PM) - compiled, timed in lab, NOT device-tested
+- User's covered take: job stuck at 2553/2553 (Stitching). Cause: Chrome.strip (Reader.kt) was O(strips^2 x lines^2) with a Levenshtein per same-height pair.
+- Lab timing of the OLD code on synthetic strips shaped like his take (14 lines each, x86 JVM): 250 strips 11.8 s, 500 strips 46.9 s (x4 per doubling), so 2,553 strips extrapolates to about 1,230 s (20 min) on x86 and likely 40-80 min on the S24 (2-4x guess).
+- NEW code: hash index on normalized text + height bucket (+-1 bucket), distinct strips counted per key. Same synthetic input: 55 ms at 250, 43 ms at 500, 34 ms at 1,000, 95 ms at 2,553 strips (35,742 lines).
+- Behavior difference: furniture matching now needs the same normalized text (was similarity >= 0.8). An OCR-variant of the same header line is counted separately; if it falls under 30% of strips it will be kept instead of removed. Check on real output.
+- Tests: FlingLabTest, OcrTest and TitleTest reference Chrome (signature unchanged, compiles); not run. A temporary timing test was used and removed.

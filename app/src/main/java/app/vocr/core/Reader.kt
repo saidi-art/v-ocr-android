@@ -11,14 +11,25 @@ object Chrome {
     fun strip(strips: List<List<Line>>): List<List<Line>> {
         if (strips.size < 3) return strips
         val need = maxOf(3, (strips.size * 0.3).toInt())
-        fun same(a: Line, b: Line) = Math.abs(a.yFrac - b.yFrac) < 0.012f && Stitch.sim(a.text, b.text) >= 0.8
+        // Linear-time index (was quadratic: every line against every line of every strip, minutes at 2,500 strips).
+        // A line counts in a strip when that strip has a line with the same normalized text within about one height bucket (0.012 of the screen).
+        val bw = 0.012f
+        val idx = HashMap<String, HashSet<Int>>()
+        fun key(t: String, b: Int) = t + "@" + b
+        for ((si, lines) in strips.withIndex()) for (l in lines) {
+            val nk = Stitch.normKey(l.text); if (nk.isEmpty()) continue
+            idx.getOrPut(key(nk, (l.yFrac / bw).toInt())) { HashSet() }.add(si)
+        }
         val seenOnce = HashSet<String>()
-        return strips.mapIndexed { si, lines ->
+        return strips.mapIndexed { _, lines ->
             lines.filter { l ->
-                val n = strips.indices.count { o -> strips[o].any { m -> same(l, m) } }
+                val nk = Stitch.normKey(l.text)
+                val b = (l.yFrac / bw).toInt()
+                val sets = listOf(b - 1, b, b + 1).mapNotNull { idx[key(nk, it)] }
+                val n = if (sets.sumOf { it.size } < need) 0 else if (sets.size == 1) sets[0].size else HashSet<Int>().also { u -> sets.forEach { u.addAll(it) } }.size
                 if (n < need) return@filter true
-                val key = Stitch.normKey(l.text) + "@" + (l.yFrac * 80).toInt()
-                seenOnce.add(key)    // keep the first occurrence only
+                val k2 = nk + "@" + (l.yFrac * 80).toInt()
+                seenOnce.add(k2)    // keep the first occurrence only
             }
         }
     }
