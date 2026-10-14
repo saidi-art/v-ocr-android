@@ -382,7 +382,7 @@ class CaptureService : Service() {
         if (System.currentTimeMillis() - scrollT0 >= capMs()) { endScroll("Auto-scroll done"); return }
         val m = resources.displayMetrics
         if (lvl >= 10) {
-            svc.swipe(m.widthPixels, m.heightPixels, 0.80f, 0.20f, 90) { ok ->
+            svc.swipe(m.widthPixels, m.heightPixels, 0.70f, 0.10f, 90) { ok ->
                 if (ok) swipes++
                 app.vocr.Haptics.autoPulse(this)
                 ui.postDelayed({ checkBottom(svc) }, 650L)   // let the fling settle, then look at the screen
@@ -392,7 +392,7 @@ class CaptureService : Service() {
             val dist = (v * 4.0).coerceIn(0.2, 0.6)           // screens per drag
             val dur = (dist / v * 1000).toLong()               // constant speed, no fling at the lift
             for (k in 1..(dur / 1500L).toInt()) ui.postDelayed({ if (scrolling && active() && speedLevel() > 0) app.vocr.Haptics.autoPulse(this) }, k * 1500L)   // gentle pulse every ~1.5 s during a slow drag
-            svc.swipe(m.widthPixels, m.heightPixels, 0.80f, (0.80 - dist).toFloat(), dur) { ok ->
+            svc.swipe(m.widthPixels, m.heightPixels, 0.70f, (0.70 - dist).toFloat(), dur) { ok ->
                 if (ok) swipes++
                 ui.postDelayed({ checkBottom(svc) }, 120L)
             }

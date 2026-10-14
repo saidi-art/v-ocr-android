@@ -16,7 +16,7 @@ class ScrollService : AccessibilityService() {
 
     /** One swipe from y0 to y1 (fractions of the screen height) at the horizontal centre, lasting durMs. */
     fun swipe(w: Int, h: Int, y0: Float, y1: Float, durMs: Long, done: (Boolean) -> Unit) {
-        val p = Path().apply { moveTo(w * 0.5f, h * y0); lineTo(w * 0.5f, h * y1) }
+        val p = Path().apply { moveTo(w * X0, h * y0); lineTo(w * X0, h * y1) }
         val g = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(p, 0, durMs)).build()
         val ok = dispatchGesture(g, object : GestureResultCallback() {
             override fun onCompleted(d: GestureDescription?) { done(true) }
@@ -54,5 +54,7 @@ class ScrollService : AccessibilityService() {
         if (!ok) done(null)
     }
 
-    companion object { @Volatile var instance: ScrollService? = null }
+    companion object { @Volatile var instance: ScrollService? = null
+        /** Swipe column: 35% from the left, clear of centred overlays such as Gemini's jump-to-bottom arrow (at 43-57% width, 79-86% height). */
+        const val X0 = 0.35f }
 }
