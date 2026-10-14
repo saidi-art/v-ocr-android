@@ -39,16 +39,19 @@ val GlassBackdrop: Brush = Brush.verticalGradient(listOf(Ground, Ground))
  */
 fun Modifier.glassPanel(shape: Shape = RoundedCornerShape(24.dp), tint: Color = Card, strong: Boolean = false): Modifier {
     val blurOk = Build.VERSION.SDK_INT >= 31
-    val base = if (blurOk) (if (tint == Ink) Color.Black.copy(alpha = 0.28f) else Color.White.copy(alpha = if (strong) 0.09f else 0.05f))
+    val paper = Pal.paper
+    val hi = Color.White; val lo = if (paper) Color(0xFF191919) else Color.Black
+    val base = if (paper) (if (blurOk) Color.White.copy(alpha = if (tint == Ink) 0.60f else 0.80f) else Color(0xEBF9F6F0))
+               else if (blurOk) (if (tint == Ink) Color.Black.copy(alpha = 0.28f) else Color.White.copy(alpha = if (strong) 0.09f else 0.05f))
                else Color(0xE0141519)
     return this.clip(shape)
         .background(base, shape)
         .drawWithContent {
-            drawRect(Brush.verticalGradient(listOf(Color.White.copy(alpha = if (blurOk) 0.07f else 0.04f), Color.Transparent), 0f, size.height * 0.45f), size = Size(size.width, size.height * 0.45f))
+            drawRect(Brush.verticalGradient(listOf(hi.copy(alpha = if (paper) 0.60f else if (blurOk) 0.07f else 0.04f), Color.Transparent), 0f, size.height * 0.45f), size = Size(size.width, size.height * 0.45f))
             drawContent()
         }
-        .border(1.dp, Brush.linearGradient(listOf(Color.White.copy(alpha = 0.40f), Color.White.copy(alpha = 0.06f), Color.White.copy(alpha = 0.22f)), Offset.Zero, Offset(900f, 900f)), shape)
-        .border(1.dp, Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.35f))), shape)
+        .border(1.dp, Brush.linearGradient(if (paper) listOf(lo.copy(alpha = 0.16f), lo.copy(alpha = 0.08f), lo.copy(alpha = 0.12f)) else listOf(Color.White.copy(alpha = 0.40f), Color.White.copy(alpha = 0.06f), Color.White.copy(alpha = 0.22f)), Offset.Zero, Offset(900f, 900f)), shape)
+        .border(1.dp, Brush.verticalGradient(listOf(Color.Transparent, lo.copy(alpha = if (paper) 0.10f else 0.35f))), shape)
 }
 
 /** Bronze primary / dark glass secondary button with the sheet's press spring and haptics. */
@@ -57,7 +60,7 @@ fun Button(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    colors: ButtonColors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25262B), contentColor = Color.White),
+    colors: ButtonColors = ButtonDefaults.buttonColors(containerColor = Btn2, contentColor = TextMain),
     content: @Composable RowScope.() -> Unit
 ) {
     val src = remember { MutableInteractionSource() }
@@ -68,13 +71,13 @@ fun Button(
     val sc by animateFloatAsState(if (pressed) 0.97f else 1f, if (pressed) spring(0.80f, 800f) else spring(0.55f, 400f), label = "press")
     val surface: Modifier = if (primary && enabled)
         Modifier.clip(shape).background(Brush.verticalGradient(listOf(BronzeHi, Violet, BronzeLo)), shape)
-            .border(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.55f), Color.Black.copy(alpha = 0.25f))), shape)
+            .border(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = if (Pal.paper) 0.20f else 0.55f), Color.Black.copy(alpha = 0.25f))), shape)
     else Modifier.glassPanel(shape, Ink, strong = true)
     androidx.compose.material3.Button(
         onClick = { if (primary) Haptics.primary(view) else Haptics.secondary(view); onClick() },
         modifier = modifier.scale(sc).then(surface),
         enabled = enabled, shape = shape, interactionSource = src,
-        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = if (primary) OnBronze else Color.White, disabledContainerColor = Color.Transparent, disabledContentColor = Color.White.copy(alpha = 0.4f)),
+        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = if (primary) OnBronze else TextMain, disabledContainerColor = Color.Transparent, disabledContentColor = TextMain.copy(alpha = 0.4f)),
         content = content
     )
 }
@@ -86,7 +89,7 @@ fun Switch(checked: Boolean, onCheckedChange: ((Boolean) -> Unit)?, modifier: Mo
     androidx.compose.material3.Switch(
         checked = checked, enabled = enabled, modifier = modifier,
         onCheckedChange = onCheckedChange?.let { f -> { v: Boolean -> Haptics.toggle(view, v); f(v) } },
-        colors = SwitchDefaults.colors(checkedTrackColor = Violet, checkedThumbColor = OnBronze, checkedBorderColor = BronzeHi, uncheckedTrackColor = Color(0x33FFFFFF), uncheckedThumbColor = Color(0xFFA9A6A0), uncheckedBorderColor = Color(0x33FFFFFF))
+        colors = SwitchDefaults.colors(checkedTrackColor = Violet, checkedThumbColor = OnBronze, checkedBorderColor = BronzeHi, uncheckedTrackColor = TrackOff, uncheckedThumbColor = Muted, uncheckedBorderColor = TrackOff)
     )
 }
 

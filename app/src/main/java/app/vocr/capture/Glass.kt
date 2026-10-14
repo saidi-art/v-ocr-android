@@ -66,8 +66,8 @@ internal class Bubble(ctx: Context) : View(ctx) {
         if (ring >= 0f) {
             pr.clearShadowLayer()
             pr.color = Color.parseColor("#33FFFFFF"); c.drawOval(ringRect, pr)
-            pr.setShadowLayer(4f * d, 0f, 0f, Color.parseColor("#AAE3C7A2"))
-            pr.color = Color.parseColor("#E3C7A2"); c.drawArc(ringRect, -90f, 360f * ring.coerceIn(0f, 1f), false, pr)
+            pr.setShadowLayer(4f * d, 0f, 0f, if (app.vocr.Pal.paper) Color.parseColor("#AAF9F6F0") else Color.parseColor("#AAE3C7A2"))
+            pr.color = if (app.vocr.Pal.paper) Color.parseColor("#F9F6F0") else Color.parseColor("#E3C7A2"); c.drawArc(ringRect, -90f, 360f * ring.coerceIn(0f, 1f), false, pr)
             pr.clearShadowLayer()
         }
         // 6. label
@@ -103,3 +103,11 @@ internal class AddChip(ctx: Context) : View(ctx) {
         if (count > 1) { c.drawCircle(w - 8 * d, 8 * d, 8 * d, pb); pt.textSize = 10f * d; c.drawText(count.toString(), w - 8 * d, 8 * d - (pt.descent() + pt.ascent()) / 2, pt) }
     }
 }
+
+// Overlay palette (Graphite or Paper). Read when a menu is built, so a theme change shows the next time it opens.
+internal fun accentHex() = if (app.vocr.Pal.paper) "#191919" else "#D2B08A"
+internal fun accentC() = Color.parseColor(accentHex())
+internal fun chipHex() = if (app.vocr.Pal.paper) "#E9E3D6" else "#25262B"
+internal fun chipC() = Color.parseColor(chipHex())
+internal fun onAccentC() = Color.parseColor(if (app.vocr.Pal.paper) "#F9F6F0" else "#17120C")
+internal fun mutedC() = Color.parseColor(if (app.vocr.Pal.paper) "#6E6D6A" else "#A9A6A0")

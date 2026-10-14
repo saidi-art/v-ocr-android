@@ -210,7 +210,7 @@ class CaptureService : Service() {
         hidePace()
         val bar = android.widget.SeekBar(this).apply {
             max = 10; progress = speedLevel()
-            val bronze = android.content.res.ColorStateList.valueOf(Color.parseColor("#D2B08A"))
+            val bronze = android.content.res.ColorStateList.valueOf(accentC())
             progressTintList = bronze; thumbTintList = bronze
             progressBackgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#55FFFFFF"))
             setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
@@ -224,8 +224,8 @@ class CaptureService : Service() {
         val pill = android.widget.LinearLayout(this).apply {
             orientation = android.widget.LinearLayout.VERTICAL
             setPadding(dp(14), dp(8), dp(14), dp(6))
-            background = GradientDrawable().apply { setColor(Color.parseColor("#E625262B")); cornerRadius = dp(18).toFloat() }
-            addView(android.widget.TextView(this@CaptureService).apply { text = "Pace  (10 = normal, 0 = pause)"; setTextColor(Color.parseColor("#A9A6A0")); textSize = 11f })
+            background = GradientDrawable().apply { setColor(if (app.vocr.Pal.paper) Color.parseColor("#EBF9F6F0") else Color.parseColor("#E625262B")); cornerRadius = dp(18).toFloat() }
+            addView(android.widget.TextView(this@CaptureService).apply { text = "Pace  (10 = normal, 0 = pause)"; setTextColor(mutedC()); textSize = 11f })
             addView(bar, android.widget.LinearLayout.LayoutParams(dp(190), android.widget.LinearLayout.LayoutParams.WRAP_CONTENT))
         }
         pill.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
@@ -251,17 +251,17 @@ class CaptureService : Service() {
             hideMenu(); if (recording) toast("Stop recording first") else { if (readMode) stopReadMode(); closeWidget() }
         }
         fun modeText() = if (prefs(this).getBoolean("fast", false)) "Fast" else "Slow"
-        val mode = chip(modeText(), Color.parseColor("#25262B")) {}
+        val mode = chip(modeText(), chipC()) {}
         mode.setOnClickListener { it.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP)
             val f = !prefs(this).getBoolean("fast", false); prefs(this).edit().putBoolean("fast", f).apply()
             mode.text = modeText(); ui.removeCallbacks(hideMenuRun); ui.postDelayed(hideMenuRun, 4000)
         }
         fun autoText() = if (prefs(this).getBoolean("autoscroll", false)) "Auto-scroll ON" else "Auto-scroll off"
         fun autoOn() = prefs(this).getBoolean("autoscroll", false) && ScrollService.instance != null
-        val auto = chip(autoText(), Color.parseColor("#25262B")) {}
+        val auto = chip(autoText(), chipC()) {}
         fun styleAuto() {   // violet = armed, slate + dim text = off, so the state reads at a glance
-            (auto.background as GradientDrawable).setColor(Color.parseColor(if (autoOn()) "#D2B08A" else "#25262B"))
-            auto.setTextColor(if (autoOn()) Color.parseColor("#17120C") else Color.parseColor("#A9A6A0"))
+            (auto.background as GradientDrawable).setColor(Color.parseColor(if (autoOn()) accentHex() else chipHex()))
+            auto.setTextColor(if (autoOn()) onAccentC() else mutedC())
         }
         styleAuto()
         auto.setOnClickListener { it.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP)
@@ -278,10 +278,10 @@ class CaptureService : Service() {
         overlay(close, p.x - dp(14), p.y - dp(30))
         overlay(mode, p.x - dp(6), p.y + p.height + dp(6))
         fun rdText() = if (readMode) "Scroll: ON" else "Scroll: off"
-        val rd = chip(rdText(), Color.parseColor("#25262B")) {}
+        val rd = chip(rdText(), chipC()) {}
         fun styleRd() {
-            (rd.background as GradientDrawable).setColor(Color.parseColor(if (readMode) "#D2B08A" else "#25262B"))
-            rd.setTextColor(if (readMode) Color.parseColor("#17120C") else Color.parseColor("#A9A6A0"))
+            (rd.background as GradientDrawable).setColor(Color.parseColor(if (readMode) accentHex() else chipHex()))
+            rd.setTextColor(if (readMode) onAccentC() else mutedC())
         }
         styleRd()
         rd.setOnClickListener { it.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP)
@@ -297,7 +297,7 @@ class CaptureService : Service() {
         showPace(p)
         // Cover is parked (Cover.AVAILABLE = false): no menu entry for now.
         val cv: TextView? = if (Cover.AVAILABLE) {
-        val c = chip("Cover", Color.parseColor("#25262B")) {
+        val c = chip("Cover", chipC()) {
             hideMenu()
             if (recording) toast("Stop recording first") else {
                 if (!prefs(this).getBoolean("cover", false)) prefs(this).edit().putBoolean("cover", true).apply()
@@ -527,10 +527,10 @@ class CaptureService : Service() {
         val q = lp ?: return
         hideMenu()
         val x = (q.x - dp(176)).coerceAtLeast(dp(4)); val y = (q.y - dp(46)).coerceAtLeast(dp(4))
-        val old = chip("Add old recordings", Color.parseColor("#25262B")) {
+        val old = chip("Add old recordings", chipC()) {
             hideMenu(); startActivity(Intent(this, AddActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         }
-        val neu = chip(if (recording) "Recording now" else "New recording" + (if (prefs(this).getBoolean("autoscroll", false) && ScrollService.instance != null) " (auto-scroll)" else ""), Color.parseColor("#D2B08A")) {
+        val neu = chip(if (recording) "Recording now" else "New recording" + (if (prefs(this).getBoolean("autoscroll", false) && ScrollService.instance != null) " (auto-scroll)" else ""), accentC()) {
             hideMenu()
             if (recording) toast("Already recording - tap the bubble to stop")
             else startActivity(Intent(this, ConsentActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))

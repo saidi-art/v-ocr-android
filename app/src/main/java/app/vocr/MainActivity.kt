@@ -34,11 +34,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-val Ink = Color(0xFF0C0D10)
-val Card = Color(0xFF1A1B20)
-val Violet = Color(0xFFD2B08A)
-val Lilac = Color(0xFFE3C7A2)
-val Muted = Color(0xFFA9A6A0)
+val Ink: Color get() = Ground
+val Card: Color get() = if (Pal.paper) Color(0xFFFDFBF7) else Color(0xFF1A1B20)
+val Violet: Color get() = if (Pal.paper) Color(0xFF191919) else Color(0xFFD2B08A)
+val Lilac: Color get() = if (Pal.paper) Color(0xFF191919) else Color(0xFFE3C7A2)
+val Muted: Color get() = if (Pal.paper) Color(0x9E191919) else Color(0xFFA9A6A0)
 
 class MainActivity : ComponentActivity() {
     override fun onResume() { super.onResume(); JobQueue.clearDoneNotifications(this) }
@@ -46,7 +46,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (intent.getBooleanExtra("glassdemo", false)) { setContent { GlassDemo() }; return }
-        setContent { MaterialTheme(colorScheme = darkColorScheme(primary = Violet, background = Ink, surface = Card), typography = ScrollOnTypography) { Home() } }
+        setContent { ScrollOnTheme() { Home() } }
     }
 }
 
@@ -163,7 +163,7 @@ fun Home(preview: Picked? = null) {
         Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(28.dp)).padding(24.dp)) {
             Text("\u25B6", color = Lilac, fontSize = 32.sp)
             Spacer(Modifier.height(12.dp))
-            Text(picked?.name ?: "Pick screen recordings", color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.SemiBold, fontFamily = DisplayFont)
+            Text(picked?.name ?: "Pick screen recordings", color = TextMain, fontSize = 26.sp, fontWeight = FontWeight.SemiBold, fontFamily = DisplayFont)
             Spacer(Modifier.height(4.dp))
             Text(
                 picked?.let { "${it.seconds / 60}m ${it.seconds % 60}s  -  ${it.w}x${it.h}" } ?: "OCR runs on your phone. Share only when you choose.",
@@ -178,7 +178,7 @@ fun Home(preview: Picked? = null) {
             Text("${pr.stage}  ${pr.done}/${pr.total}$eta  ${pr.lines} lines", color = Muted, fontSize = 13.sp)
             if (pr.live.isNotEmpty()) Text(pr.live.joinToString("\n"), color = Lilac, fontSize = 12.sp, maxLines = 6, modifier = Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(8.dp)).padding(8.dp))
             }
-            error?.let { Spacer(Modifier.height(8.dp)); Text(it, color = Color(0xFFFF7A7A), fontSize = 13.sp) }
+            error?.let { Spacer(Modifier.height(8.dp)); Text(it, color = Err, fontSize = 13.sp) }
             Spacer(Modifier.height(20.dp))
             val p = picked
             if (p != null && progress == null) {
@@ -194,14 +194,14 @@ fun Home(preview: Picked? = null) {
                 enabled = progress == null,
                 modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(16.dp),
                 colors = if (picked == null) ButtonDefaults.buttonColors(containerColor = Violet, contentColor = OnBronze)
-                         else ButtonDefaults.buttonColors(containerColor = Color(0xFF25262B), contentColor = Color.White)
+                         else ButtonDefaults.buttonColors(containerColor = Btn2, contentColor = TextMain)
             ) { Text("Choose videos", fontSize = 14.sp, maxLines = 1, fontWeight = FontWeight.SemiBold) }
         }
         Spacer(Modifier.height(10.dp))
         Button(
             onClick = { ctx.startActivity(android.content.Intent(ctx, SavedActivity::class.java)) },
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = RoundedCornerShape(16.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25262B), contentColor = Color.White)
+            colors = ButtonDefaults.buttonColors(containerColor = Btn2, contentColor = TextMain)
         ) { Text("Saved files", fontSize = 14.sp) }
         Spacer(Modifier.height(10.dp))
         val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
@@ -216,14 +216,14 @@ fun Home(preview: Picked? = null) {
                 }
             },
             modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(16.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25262B), contentColor = Color.White)
+            colors = ButtonDefaults.buttonColors(containerColor = Btn2, contentColor = TextMain)
         ) { Text(if (android.provider.Settings.canDrawOverlays(ctx)) "Floating recorder" else "Floating recorder (allow overlay)", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
         Spacer(Modifier.height(10.dp))
         var showSettings by remember { mutableStateOf(false) }
         Button(
             onClick = { showSettings = !showSettings },
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = RoundedCornerShape(16.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25262B), contentColor = Color.White)
+            colors = ButtonDefaults.buttonColors(containerColor = Btn2, contentColor = TextMain)
         ) { Text(if (showSettings) "Settings  \u25B2" else "Settings  \u25BC", fontSize = 14.sp) }
         if (showSettings) {
             Spacer(Modifier.height(10.dp))
@@ -231,20 +231,20 @@ fun Home(preview: Picked? = null) {
                 Button(
                     onClick = { showSettings = false; DisclosureActivity.openAccessibility(ctx) },
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25262B), contentColor = Color.White)
+                    colors = ButtonDefaults.buttonColors(containerColor = Btn2, contentColor = TextMain)
                 ) { Text(if (app.vocr.capture.ScrollService.instance != null) "Auto-scroll: enabled" else if (app.vocr.capture.ScrollService.enabledInSettings(ctx)) "Auto-scroll: ON but stopped - switch it off and on" else "Auto-scroll: turn on in Accessibility", fontSize = 14.sp) }
                 Spacer(Modifier.height(14.dp))
                 val view = androidx.compose.ui.platform.LocalView.current
                 var speed by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getInt("scrollspeed", 10).toFloat()) }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Auto-scroll speed", color = Color.White, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                    Text("Auto-scroll speed", color = TextMain, fontSize = 14.sp, modifier = Modifier.weight(1f))
                     Text(speed.toInt().toString() + if (speed.toInt() == 10) "  (default)" else "", color = Lilac, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                 }
                 Slider(
                     value = speed, onValueChange = { val n = Math.round(it).toFloat(); if (n != speed) Haptics.detent(view); speed = n },
                     onValueChangeFinished = { app.vocr.capture.CaptureService.prefs(ctx).edit().putInt("scrollspeed", speed.toInt()).apply() },
                     valueRange = 0f..10f, steps = 9,
-                    colors = SliderDefaults.colors(thumbColor = Violet, activeTrackColor = Violet, inactiveTrackColor = Color(0x33FFFFFF), activeTickColor = OnBronze, inactiveTickColor = Color(0x55FFFFFF))
+                    colors = SliderDefaults.colors(thumbColor = Violet, activeTrackColor = Violet, inactiveTrackColor = TrackOff, activeTickColor = OnBronze, inactiveTickColor = TickOff)
                 )
                 Row { Text("0 slowest", color = Muted, fontSize = 11.sp, modifier = Modifier.weight(1f)); Text("10 = best pace", color = Muted, fontSize = 11.sp) }
                 Spacer(Modifier.height(4.dp))
@@ -272,6 +272,12 @@ fun Home(preview: Picked? = null) {
                     Switch(checked = hap, onCheckedChange = { hap = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("haptics", it).apply() })
                     Spacer(Modifier.width(8.dp))
                     Text("Soft haptics while auto-scroll runs", color = Muted, fontSize = 13.sp)
+                }
+                Spacer(Modifier.height(6.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(checked = Pal.paper, onCheckedChange = { Pal.set(ctx, it) })
+                    Spacer(Modifier.width(8.dp))
+                    Text("Paper theme (ink on cream). Off = Graphite", color = Muted, fontSize = 13.sp)
                 }
                 Spacer(Modifier.height(6.dp))
                 var shots by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("shots", false)) }
@@ -307,7 +313,7 @@ fun Home(preview: Picked? = null) {
                     enabled = !benching,
                     onClick = { bench = emptyList(); benchPick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)) },
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25262B), contentColor = Color.White)
+                    colors = ButtonDefaults.buttonColors(containerColor = Btn2, contentColor = TextMain)
                 ) { Text(if (benching) "Speed test running..." else "Speed test (pick one clip)", fontSize = 14.sp) }
                 if (bench.isNotEmpty()) {
                     Spacer(Modifier.height(8.dp))
@@ -319,13 +325,13 @@ fun Home(preview: Picked? = null) {
         Button(
             onClick = { ctx.startActivity(android.content.Intent(ctx, ManualActivity::class.java)) },
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = RoundedCornerShape(16.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25262B), contentColor = Color.White)
+            colors = ButtonDefaults.buttonColors(containerColor = Btn2, contentColor = TextMain)
         ) { Text("User manual (how to use)", fontSize = 14.sp) }
         Spacer(Modifier.height(10.dp))
         Button(
             onClick = { ctx.startActivity(android.content.Intent(ctx, AboutActivity::class.java)) },
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = RoundedCornerShape(16.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25262B), contentColor = Color.White)
+            colors = ButtonDefaults.buttonColors(containerColor = Btn2, contentColor = TextMain)
         ) { Text("About and contact", fontSize = 14.sp) }
         Spacer(Modifier.height(6.dp))
         Text("v" + (runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: "?") + "  -  strips + on-device text", color = Muted, fontSize = 12.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
@@ -356,7 +362,7 @@ fun Strips(res: Result, autoRead: Boolean = false, onBack: () -> Unit) {
     val rd = read
     if (rd != null) { TextScreen(rd) { read = null }; return }
     Column(Modifier.fillMaxSize().scrollOnBackdrop().systemBarsPadding().padding(16.dp)) {
-        Text("Kept ${res.strips.size} strips", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.SemiBold, fontFamily = DisplayFont)
+        Text("Kept ${res.strips.size} strips", color = TextMain, fontSize = 28.sp, fontWeight = FontWeight.SemiBold, fontFamily = DisplayFont)
         Text(
             "${res.seconds}s video, ${res.framesTotal} frames read, ${res.dup} skipped (dup/accumulating), ${res.full} full, ${res.cropped} cropped. " +
                 "Took ${res.ms / 1000.0}s  ${res.timing}",
@@ -364,7 +370,7 @@ fun Strips(res: Result, autoRead: Boolean = false, onBack: () -> Unit) {
         )
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onBack, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25262B), contentColor = Color.White)) { Text("Back") }
+            Button(onClick = onBack, colors = ButtonDefaults.buttonColors(containerColor = Btn2, contentColor = TextMain)) { Text("Back") }
             Button(
                 enabled = reading == null,
                 onClick = { startRead() },
@@ -386,7 +392,7 @@ fun Strips(res: Result, autoRead: Boolean = false, onBack: () -> Unit) {
                     try { Reader.bench(ctx, res.strips) { acc.add(it); bench = acc.toList() } } catch (e: Throwable) { acc.add("failed: " + (e.message ?: e.javaClass.simpleName)); bench = acc.toList() }
                     benching = false
                 }.start()
-            }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25262B), contentColor = Color.White)) { Text("Speed test") }
+            }, colors = ButtonDefaults.buttonColors(containerColor = Btn2, contentColor = TextMain)) { Text("Speed test") }
             Spacer(Modifier.width(8.dp))
             Text(bench.joinToString("\n"), color = Lilac, fontSize = 12.sp)
         }
@@ -395,7 +401,7 @@ fun Strips(res: Result, autoRead: Boolean = false, onBack: () -> Unit) {
             LinearProgressIndicator(progress = { pr.done / pr.total.coerceAtLeast(1).toFloat() }, modifier = Modifier.fillMaxWidth(), color = Violet, trackColor = Card)
             Text("${pr.stage}  ${pr.done}/${pr.total}", color = Muted, fontSize = 13.sp)
         }
-        err?.let { Text(it, color = Color(0xFFFF7A7A), fontSize = 13.sp) }
+        err?.let { Text(it, color = Err, fontSize = 13.sp) }
         Spacer(Modifier.height(8.dp))
         val showShots = app.vocr.capture.CaptureService.prefs(ctx).getBoolean("shots", false)
         if (!showShots) Text("Screenshots hidden (turn on \"show extracted screenshots\" on the home screen).", color = Muted, fontSize = 12.sp)
@@ -415,13 +421,13 @@ fun Strips(res: Result, autoRead: Boolean = false, onBack: () -> Unit) {
 fun TextScreen(r: ReadResult, onBack: () -> Unit) {
     val ctx = LocalContext.current
     Column(Modifier.fillMaxSize().scrollOnBackdrop().systemBarsPadding().padding(16.dp)) {
-        Text("Text from ${r.strips} strips", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.SemiBold, fontFamily = DisplayFont)
+        Text("Text from ${r.strips} strips", color = TextMain, fontSize = 28.sp, fontWeight = FontWeight.SemiBold, fontFamily = DisplayFont)
         Text("${r.rawLines} lines read, ${r.mergedLines} after removing overlap. Took ${r.ms / 1000.0}s  (${r.detail})", color = Muted, fontSize = 13.sp)
         if (r.savedTitle.isNotEmpty())
             Text(if (r.savedOk) "Saved to Downloads/V-OCR/${r.savedTitle}.txt" else "Could not save the file (use Copy or Share)", color = Success, fontSize = 13.sp)
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onBack, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25262B), contentColor = Color.White)) { Text("Back") }
+            Button(onClick = onBack, colors = ButtonDefaults.buttonColors(containerColor = Btn2, contentColor = TextMain)) { Text("Back") }
             Button(onClick = {
                 val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                 cm.setPrimaryClip(android.content.ClipData.newPlainText("V-OCR", r.text))
@@ -442,7 +448,7 @@ fun TextScreen(r: ReadResult, onBack: () -> Unit) {
         }
         Spacer(Modifier.height(8.dp))
         androidx.compose.foundation.text.selection.SelectionContainer {
-            Text(r.text, color = Color.White, fontSize = 14.sp, modifier = Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).glassPanel(RoundedCornerShape(12.dp)).padding(12.dp))
+            Text(r.text, color = TextMain, fontSize = 14.sp, modifier = Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).glassPanel(RoundedCornerShape(12.dp)).padding(12.dp))
         }
     }
 }
@@ -453,13 +459,13 @@ fun AddButton(count: Int, onClick: () -> Unit) {
     Box(Modifier.size(52.dp).glassPanel(androidx.compose.foundation.shape.CircleShape).hapticClickable(onClick), contentAlignment = Alignment.Center) {
         androidx.compose.foundation.Canvas(Modifier.size(34.dp)) {
             val c = center; val r = size.minDimension / 2
-            drawCircle(Color.White, r - 1.5f, c, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3f))
+            drawCircle(TextMain, r - 1.5f, c, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3f))
             val a = r * 0.45f
-            drawLine(Color.White, androidx.compose.ui.geometry.Offset(c.x - a, c.y), androidx.compose.ui.geometry.Offset(c.x + a, c.y), strokeWidth = 4f, cap = androidx.compose.ui.graphics.StrokeCap.Round)
-            drawLine(Color.White, androidx.compose.ui.geometry.Offset(c.x, c.y - a), androidx.compose.ui.geometry.Offset(c.x, c.y + a), strokeWidth = 4f, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+            drawLine(TextMain, androidx.compose.ui.geometry.Offset(c.x - a, c.y), androidx.compose.ui.geometry.Offset(c.x + a, c.y), strokeWidth = 4f, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+            drawLine(TextMain, androidx.compose.ui.geometry.Offset(c.x, c.y - a), androidx.compose.ui.geometry.Offset(c.x, c.y + a), strokeWidth = 4f, cap = androidx.compose.ui.graphics.StrokeCap.Round)
         }
         if (count > 0) Box(Modifier.align(Alignment.TopEnd).size(20.dp).clip(androidx.compose.foundation.shape.CircleShape).background(Violet), contentAlignment = Alignment.Center) {
-            Text(count.toString(), color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            Text(count.toString(), color = OnBronze, fontSize = 11.sp, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -481,8 +487,8 @@ fun QueueList() {
             items(jobs.toList().sortedWith(compareBy({ if (it.state == 1) 0 else if (it.state == 0) 1 else 2 }, { if (it.state >= 2) -it.id else it.id })), key = { it.id }) { j ->
                 Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(12.dp), Ink).padding(10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(if (j.state == 2 && j.title.isNotEmpty()) j.title else j.label, color = Color.White, fontSize = 14.sp, maxLines = 1, modifier = Modifier.weight(1f))
-                        if (j.state <= 1) Text("Cancel", color = Color(0xFFFF7A7A), fontSize = 13.sp, modifier = Modifier.hapticClickable { JobQueue.cancel(j) }.padding(horizontal = 10.dp, vertical = 8.dp))
+                        Text(if (j.state == 2 && j.title.isNotEmpty()) j.title else j.label, color = TextMain, fontSize = 14.sp, maxLines = 1, modifier = Modifier.weight(1f))
+                        if (j.state <= 1) Text("Cancel", color = Err, fontSize = 13.sp, modifier = Modifier.hapticClickable { JobQueue.cancel(j) }.padding(horizontal = 10.dp, vertical = 8.dp))
                     }
                     when (j.state) {
                         0 -> Text("Waiting", color = Muted, fontSize = 12.sp)
@@ -504,7 +510,7 @@ fun QueueList() {
                                 })
                             }
                         }
-                        else -> Text(j.stage, color = if (j.state == 3) Color(0xFFFF7A7A) else Muted, fontSize = 12.sp)
+                        else -> Text(j.stage, color = if (j.state == 3) Err else Muted, fontSize = 12.sp)
                     }
                 }
             }

@@ -25,7 +25,7 @@ class DisclosureActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            MaterialTheme(colorScheme = darkColorScheme(primary = Violet, background = Ink, surface = Card), typography = ScrollOnTypography) {
+            ScrollOnTheme() {
                 Disclosure(
                     onAgree = {
                         getSharedPreferences("vocr", MODE_PRIVATE).edit().putBoolean("a11y_ok", true).apply()
@@ -57,7 +57,7 @@ class DisclosureActivity : ComponentActivity() {
 fun Disclosure(onAgree: () -> Unit, onDecline: () -> Unit) {
     Column(Modifier.fillMaxSize().scrollOnBackdrop().systemBarsPadding().padding(16.dp)) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-            Text("Auto-scroll needs Accessibility", color = Color.White, fontSize = 32.sp, lineHeight = 34.sp, fontWeight = FontWeight.SemiBold, fontFamily = DisplayFont)
+            Text("Auto-scroll needs Accessibility", color = TextMain, fontSize = 32.sp, lineHeight = 34.sp, fontWeight = FontWeight.SemiBold, fontFamily = DisplayFont)
             Spacer(Modifier.height(12.dp))
             Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(20.dp)).padding(18.dp)) {
                 Text("What ScrOllOn does with this permission", color = Lilac, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
@@ -66,7 +66,7 @@ fun Disclosure(onAgree: () -> Unit, onDecline: () -> Unit) {
                     "1. It performs swipe gestures on your screen to scroll the page for you while you record.\n\n" +
                         "2. After each swipe it takes a tiny, low-resolution grey screenshot of your screen (48 x 96 pixels, no colour) and compares it with the previous one, to find out when the page stops moving and you have reached the bottom. " +
                         "These pictures are held in memory for a moment and then discarded. They are never saved.",
-                    color = Color.White, fontSize = 14.sp, lineHeight = 20.sp
+                    color = TextMain, fontSize = 14.sp, lineHeight = 20.sp
                 )
             }
             Spacer(Modifier.height(12.dp))
@@ -76,7 +76,7 @@ fun Disclosure(onAgree: () -> Unit, onDecline: () -> Unit) {
                 Text(
                     "It does not read text, passwords or anything you type, and it does not see other apps' content. " +
                         "Nothing is sent anywhere: ScrOllOn has no internet permission and reads text on your phone only.",
-                    color = Color.White, fontSize = 14.sp, lineHeight = 20.sp
+                    color = TextMain, fontSize = 14.sp, lineHeight = 20.sp
                 )
             }
             Spacer(Modifier.height(12.dp))
@@ -95,7 +95,7 @@ fun Disclosure(onAgree: () -> Unit, onDecline: () -> Unit) {
         Spacer(Modifier.height(8.dp))
         Button(
             onClick = onDecline, modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(16.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25262B), contentColor = Color.White)
+            colors = ButtonDefaults.buttonColors(containerColor = Btn2, contentColor = TextMain)
         ) { Text("No thanks", fontSize = 14.sp) }
     }
 }

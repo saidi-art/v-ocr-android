@@ -11,6 +11,7 @@ class VocrApp : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        Pal.load(this)
         val prev = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { t, e ->
             note("CRASH on thread ${t.name}", e)

@@ -20,7 +20,7 @@ import androidx.compose.ui.unit.sp
 class ManualActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { MaterialTheme(colorScheme = darkColorScheme(primary = Violet, background = Ink, surface = Card), typography = ScrollOnTypography) { Manual { finish() } } }
+        setContent { ScrollOnTheme() { Manual { finish() } } }
     }
 }
 
@@ -99,16 +99,16 @@ private val sections: List<Pair<String, String>> = listOf(
 fun Manual(onBack: () -> Unit) {
     Column(Modifier.fillMaxSize().scrollOnBackdrop().systemBarsPadding()) {
         Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-            Button(onClick = onBack, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25262B), contentColor = Color.White)) { Text("Back") }
+            Button(onClick = onBack, colors = ButtonDefaults.buttonColors(containerColor = Btn2, contentColor = TextMain)) { Text("Back") }
             Spacer(Modifier.width(12.dp))
-            Text("User manual", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.SemiBold, fontFamily = DisplayFont)
+            Text("User manual", color = TextMain, fontSize = 28.sp, fontWeight = FontWeight.SemiBold, fontFamily = DisplayFont)
         }
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
             for ((title, body) in sections) {
                 Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(20.dp)).padding(18.dp)) {
                     Text(title, color = Lilac, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(8.dp))
-                    Text(body, color = Color.White, fontSize = 14.sp, lineHeight = 20.sp)
+                    Text(body, color = TextMain, fontSize = 14.sp, lineHeight = 20.sp)
                 }
                 Spacer(Modifier.height(12.dp))
             }

@@ -29,7 +29,7 @@ import androidx.compose.ui.unit.sp
 class SavedActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { MaterialTheme(colorScheme = darkColorScheme(primary = Violet, background = Ink, surface = Card), typography = ScrollOnTypography) { SavedScreen { finish() } } }
+        setContent { ScrollOnTheme() { SavedScreen { finish() } } }
     }
 }
 
@@ -63,12 +63,12 @@ private fun SavedScreen(onExit: () -> Unit) {
     }
     BackHandler(enabled = open != null) { open = null }
     val fmt = remember { java.text.SimpleDateFormat("d MMM, HH:mm", java.util.Locale.getDefault()) }
-    val sec = Color(0xFF25262B)
+    val sec = Btn2
     Column(Modifier.fillMaxSize().scrollOnBackdrop().systemBarsPadding()) {
         Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Button(onClick = { if (open != null) open = null else onExit() }, colors = ButtonDefaults.buttonColors(containerColor = sec, contentColor = Color.White)) { Text("Back") }
+            Button(onClick = { if (open != null) open = null else onExit() }, colors = ButtonDefaults.buttonColors(containerColor = sec, contentColor = TextMain)) { Text("Back") }
             Spacer(Modifier.width(12.dp))
-            Text(if (open == null) "Saved" else open!!.name, color = Color.White, fontSize = if (open == null) 28.sp else 18.sp, fontWeight = FontWeight.SemiBold, fontFamily = DisplayFont, maxLines = 2, modifier = Modifier.weight(1f))
+            Text(if (open == null) "Saved" else open!!.name, color = TextMain, fontSize = if (open == null) 28.sp else 18.sp, fontWeight = FontWeight.SemiBold, fontFamily = DisplayFont, maxLines = 2, modifier = Modifier.weight(1f))
         }
         val cur = open
         if (cur == null) {
@@ -78,25 +78,25 @@ private fun SavedScreen(onExit: () -> Unit) {
                     Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(18.dp)).hapticClickable {
                         Haptics.secondary(view); text = runCatching { ctx.contentResolver.openInputStream(it.uri)?.use { s -> String(s.readBytes(), Charsets.UTF_8) } }.getOrNull() ?: "Could not read this file."; open = it
                     }.padding(16.dp)) {
-                        Text(it.name.removeSuffix(".txt"), color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 2)
+                        Text(it.name.removeSuffix(".txt"), color = TextMain, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 2)
                         Spacer(Modifier.height(4.dp))
                         Text(fmt.format(java.util.Date(it.date)) + "  -  " + (if (it.size >= 1024) "${it.size / 1024} kB" else "${it.size} B"), color = Muted, fontSize = 12.sp)
                     }
                 }
             }
             Button(onClick = { openFolder(ctx) }, modifier = Modifier.fillMaxWidth().padding(16.dp).height(48.dp), shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = sec, contentColor = Color.White)) { Text("Show in Files app", fontSize = 14.sp) }
+                colors = ButtonDefaults.buttonColors(containerColor = sec, contentColor = TextMain)) { Text("Show in Files app", fontSize = 14.sp) }
         } else {
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
                 Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(20.dp)).padding(18.dp)) {
-                    SelectionContainer { Text(text, color = Color.White, fontSize = 14.sp, lineHeight = 20.sp) }
+                    SelectionContainer { Text(text, color = TextMain, fontSize = 14.sp, lineHeight = 20.sp) }
                 }
             }
             Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Button(onClick = {
                     (ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager).setPrimaryClip(android.content.ClipData.newPlainText("ScrOllOn", text))
                     android.widget.Toast.makeText(ctx, "Copied", android.widget.Toast.LENGTH_SHORT).show()
-                }, colors = ButtonDefaults.buttonColors(containerColor = sec, contentColor = Color.White), modifier = Modifier.weight(1f)) { Text("Copy") }
+                }, colors = ButtonDefaults.buttonColors(containerColor = sec, contentColor = TextMain), modifier = Modifier.weight(1f)) { Text("Copy") }
                 Button(onClick = {
                     val i = android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain").putExtra(android.content.Intent.EXTRA_STREAM, cur.uri).addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     ctx.startActivity(android.content.Intent.createChooser(i, "Share file"))

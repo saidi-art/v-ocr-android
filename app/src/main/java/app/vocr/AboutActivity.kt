@@ -23,7 +23,7 @@ import androidx.compose.ui.unit.sp
 class AboutActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { MaterialTheme(colorScheme = darkColorScheme(primary = Violet, background = Ink, surface = Card), typography = ScrollOnTypography) { About { finish() } } }
+        setContent { ScrollOnTheme() { About { finish() } } }
     }
 }
 
@@ -35,9 +35,9 @@ fun About(onBack: () -> Unit) {
     val ver = remember { runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: "" }
     Column(Modifier.fillMaxSize().scrollOnBackdrop().systemBarsPadding()) {
         Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Button(onClick = onBack, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25262B), contentColor = Color.White)) { Text("Back") }
+            Button(onClick = onBack, colors = ButtonDefaults.buttonColors(containerColor = Btn2, contentColor = TextMain)) { Text("Back") }
             Spacer(Modifier.width(12.dp))
-            Text("About", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.SemiBold, fontFamily = DisplayFont)
+            Text("About", color = TextMain, fontSize = 28.sp, fontWeight = FontWeight.SemiBold, fontFamily = DisplayFont)
         }
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(20.dp)).padding(18.dp)) {
@@ -46,12 +46,12 @@ fun About(onBack: () -> Unit) {
                 Text("If you can scroll it, you can save it.", color = Muted, fontSize = 14.sp)
                 Spacer(Modifier.height(10.dp))
                 Label("VERSION")
-                Text(ver, color = Color.White, fontSize = 15.sp)
+                Text(ver, color = TextMain, fontSize = 15.sp)
             }
             Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(20.dp)).padding(18.dp)) {
                 Label("PRIVACY")
                 Spacer(Modifier.height(6.dp))
-                Text("ScrOllOn reads your screen recordings on this phone. Nothing is uploaded and there is no account. Text files are saved in Downloads/V-OCR on your device. Auto-scroll, if you turn it on, uses Android's accessibility permission only to swipe the screen and to take tiny in-memory screenshots that detect the end of the page.", color = Color.White, fontSize = 14.sp, lineHeight = 20.sp)
+                Text("ScrOllOn reads your screen recordings on this phone. Nothing is uploaded and there is no account. Text files are saved in Downloads/V-OCR on your device. Auto-scroll, if you turn it on, uses Android's accessibility permission only to swipe the screen and to take tiny in-memory screenshots that detect the end of the page.", color = TextMain, fontSize = 14.sp, lineHeight = 20.sp)
             }
             if (!CONTACT_EMAIL.startsWith("__")) Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(20.dp)).padding(18.dp)) {
                 Label("CONTACT")
