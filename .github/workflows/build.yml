@@ -14,6 +14,11 @@ jobs:
         with: { distribution: temurin, java-version: 17 }
       - uses: gradle/actions/setup-gradle@v4
         with: { gradle-version: "8.13" }
+      - name: Persist the signing key between runs (same signer = updates install over the top)
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: vocr-debug-keystore-v1
       - name: Fetch OCR models
         run: |
           pip install --break-system-packages rapidocr-onnxruntime==1.4.4
