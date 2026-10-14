@@ -107,3 +107,15 @@ SAD(sum of 256 abs diffs) | flagged | correct dup | WRONG (real line deleted) | 
  5000 |  684 |  609 |   75 | 0.890 | 0.642 | 0.0398
 ```
 Reading: below SAD 1800 there are no wrong skips on this clip (precision 1.000) but only 18.6% of true duplicates are caught (about 6% of lines). Above 2500, precision falls to 0.89-0.93 and 19-75 real lines would be deleted per 2,831 checked. Zero false positives are not reachable at useful recall; the curve is the deliverable and the threshold is the user's risk choice. One clip, adjacent-strip comparison only, no position constraint, x86 lab - not an S24 result. The 29% overlap is a ceiling; at SAD 1800 the reclaim is far lower (and the loose-match baseline was -7.1% recognize time).
+
+## 12. PRODUCT CORE: "Scrolling OCR" engine (decision 2026-10-14, user)
+Decision: the engine is the product; the engine build is now the PRIORITY TRACK. The wrap build stays HELD (contact email, nits). The engine is NOT named yet: user said "Once it's built the name comes naturally." Do no naming work.
+Trigger: a real build-57 capture (YouTube comments scroll, user-supplied text file, 7,252 lines). MEASURED on the text: 821 exact-unique, 586 normalized, about 332-430 fuzzy-distinct (ratio > 0.8) => about 94-95% duplication vs 29% on the lab clip; per-frame screens concatenated (header "Comments" x109 in first 979 lines, blocks of 8-9 lines); lines 720-3600 add about 40 new lines. User added: the YouTube video was playing in frame (recorded too), very little text, long processing. Recording itself not seen (asked whether it survives).
+Pipeline, in this order (order matters; a playing video never looks stationary):
+ 1. Video-region masking (non-rigid temporal change vs rigid scroll; option A row-band variance after scroll-offset compensation, option B detect player rectangle once and crop).
+ 2. Stationary-frame skip (frame-diff only the unmasked region; the only fix that saves recognition time).
+ 3. OCR (PP-OCRv4, Fast recH 42 / Slow recH 48).
+ 4. Fuzzy text dedup at stitch level (normalized key + edit similarity about 0.8), complementing pixel SAD (section 11: no safe single threshold).
+Impact on the capture: fuzzy dedup 7,252 -> about 430 lines (MEASURED on text). Time savings of 2 and 3: PROJECTION, NEEDS RECORDING; lab-speed conversions (about 0.1 s/line) are not S24 numbers.
+Verification plan: recording replayed in the lab (frames skipped, area removed, time saved, recall); prototype on the lab clip for no-regression (it has no video, cannot validate masking); labeled test build; S24 Speed test. Risk: stationary skip may drop content on slow scroll/pauses; calibrate with a precision/recall curve.
+Team doc: BACKUP/vocr-engineering-proposal-rev3.md (same content, forwardable).
