@@ -166,7 +166,7 @@ fun Home(preview: Picked? = null) {
             Text(picked?.name ?: "Pick screen recordings", color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.SemiBold, fontFamily = DisplayFont)
             Spacer(Modifier.height(4.dp))
             Text(
-                picked?.let { "${it.seconds / 60}m ${it.seconds % 60}s  -  ${it.w}x${it.h}" } ?: "Free, offline and private. Nothing leaves your phone.",
+                picked?.let { "${it.seconds / 60}m ${it.seconds % 60}s  -  ${it.w}x${it.h}" } ?: "OCR runs on your phone. Share only when you choose.",
                 color = Muted, fontSize = 14.sp
             )
             val pr = progress
