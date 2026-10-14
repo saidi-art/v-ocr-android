@@ -25,4 +25,19 @@ object Saver {
         }.getOrNull()
         return Saved(title, uri)
     }
+
+    /** Debug option (default OFF): copies a widget recording (rec-*.mp4) to Downloads/V-OCR before it is deleted. */
+    fun keepRecording(ctx: Context, f: java.io.File) {
+        if (!f.name.startsWith("rec-") || !f.exists()) return
+        if (!ctx.getSharedPreferences("vocr", Context.MODE_PRIVATE).getBoolean("keeprec", false)) return
+        val stamp = java.text.SimpleDateFormat("yyyy-MM-dd HH-mm-ss", java.util.Locale.US).format(java.util.Date())
+        val cv = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, "V-OCR recording $stamp.mp4")
+            put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
+            put(MediaStore.MediaColumns.RELATIVE_PATH, "Download/V-OCR")
+        }
+        ctx.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, cv)?.let { u ->
+            ctx.contentResolver.openOutputStream(u)?.use { o -> f.inputStream().use { it.copyTo(o) } }
+        }
+    }
 }

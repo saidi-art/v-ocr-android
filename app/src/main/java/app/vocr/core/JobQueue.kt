@@ -135,6 +135,7 @@ object JobQueue {
                 .setContentTitle("ScrOllOn could not read " + job.label).setContentText(e.message ?: e.javaClass.simpleName).setAutoCancel(true).build())
         } finally {
             Sfx.scan(app, false); if (job.state != 2) Sfx.stopCue(app)
+            runCatching { job.tmp?.let { Saver.keepRecording(app, it) } }
             job.tmp?.delete(); runCatching { stripDir?.deleteRecursively() }; runCatching { if (wl.isHeld) wl.release() }
             listener?.invoke(); notifyStatus(app)
         }

@@ -273,6 +273,13 @@ fun Home(preview: Picked? = null) {
                     Spacer(Modifier.width(8.dp))
                     Text("Show extracted screenshots", color = Muted, fontSize = 13.sp)
                 }
+                Spacer(Modifier.height(6.dp))
+                var keepRec by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("keeprec", false)) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(checked = keepRec, onCheckedChange = { keepRec = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("keeprec", it).apply() })
+                    Spacer(Modifier.width(8.dp))
+                    Text("Debug: keep my screen recordings (saved to Downloads/V-OCR, may contain private content)", color = Muted, fontSize = 13.sp)
+                }
                 Spacer(Modifier.height(14.dp))
                 Button(
                     enabled = !benching,
