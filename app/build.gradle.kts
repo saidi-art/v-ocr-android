@@ -11,10 +11,18 @@ android {
         minSdk = 29
         targetSdk = 36
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
-        versionCode = 60
-        versionName = "0.10.6-t3"
+        versionCode = 61
+        versionName = "0.10.6-t4"
     }
-    buildTypes { release { isMinifyEnabled = false; isDebuggable = false; signingConfig = signingConfigs.getByName("debug") } }
+    val ksPath = System.getenv("VOCR_KS_PATH")
+    signingConfigs {
+        if (ksPath != null) create("vocrRelease") {
+            storeFile = file(ksPath); storePassword = System.getenv("VOCR_KS_PASSWORD")
+            keyAlias = "vocr"; keyPassword = System.getenv("VOCR_KS_PASSWORD")
+        }
+    }
+    buildTypes { release { isMinifyEnabled = false; isDebuggable = false
+        signingConfig = if (ksPath != null) signingConfigs.getByName("vocrRelease") else signingConfigs.getByName("debug") } }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true }

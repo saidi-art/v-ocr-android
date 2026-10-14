@@ -14,11 +14,17 @@ jobs:
         with: { distribution: temurin, java-version: 17 }
       - uses: gradle/actions/setup-gradle@v4
         with: { gradle-version: "8.13" }
-      - name: Persist the signing key between runs (same signer = updates install over the top)
-        uses: actions/cache@v4
-        with:
-          path: ~/.android/debug.keystore
-          key: vocr-debug-keystore-v1
+      - name: Restore the stable release signing key
+        env:
+          KS_B64: ${{ secrets.VOCR_KEYSTORE_B64 }}
+          KS_PW: ${{ secrets.VOCR_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -n "$KS_B64" ]; then
+            echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/vocr-release.p12"
+            echo "VOCR_KS_PATH=$RUNNER_TEMP/vocr-release.p12" >> "$GITHUB_ENV"
+            echo "VOCR_KS_PASSWORD=$KS_PW" >> "$GITHUB_ENV"
+            echo "stable key restored"
+          else echo "NO STABLE KEY - falling back to debug signer"; fi
       - name: Fetch OCR models
         run: |
           pip install --break-system-packages rapidocr-onnxruntime==1.4.4
