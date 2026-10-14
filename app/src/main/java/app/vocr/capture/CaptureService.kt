@@ -197,7 +197,7 @@ class CaptureService : Service() {
             true
         }
         widget = tv; lp = p
-        wm?.addView(tv, p)
+        runCatching { wm?.addView(tv, p) }
         ui.postDelayed(tuckRun, 3000)
     }
 
@@ -210,7 +210,7 @@ class CaptureService : Service() {
     private fun overlay(v: View, x: Int, y: Int) {
         val q = WindowManager.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or WindowManager.LayoutParams.FLAG_SECURE, PixelFormat.TRANSLUCENT).apply { gravity = Gravity.TOP or Gravity.START; this.x = x; this.y = y }
-        wm?.addView(v, q)
+        runCatching { wm?.addView(v, q) }
     }
 
     /** Long press: a close X at the top-left corner of the bubble and a Fast/Slow switch below it. */
@@ -236,7 +236,8 @@ class CaptureService : Service() {
         styleAuto()
         auto.setOnClickListener { it.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP)
             if (ScrollService.instance == null) {
-                toast("Auto-scroll needs Accessibility. Read the notice first.")
+                if (ScrollService.enabledInSettings(this)) toast("Accessibility shows ON but Android has stopped the service. Switch ScrOllOn off and on again.")
+                else toast("Auto-scroll needs Accessibility. Read the notice first.")
                 hideMenu()
                 app.vocr.DisclosureActivity.openAccessibility(this)
             } else {
@@ -381,7 +382,7 @@ class CaptureService : Service() {
     // Pace: a 0.6-screen swipe in 90 ms (about 0.11 screen per frame at 60 fps, a third of the 0.30 span limit the tracker is
     // tuned to), then 650 ms for the fling to settle. The recording stops after scrollcapsec seconds (default 300) and the text is read.
     private var scrolling = false; private var swipes = 0; private var scrollT0 = 0L
-    private val scrollRun = Runnable { scrollStep() }
+    private val scrollRun = Runnable { try { scrollStep() } catch (e: Exception) { android.util.Log.e("vocr", "scrollStep failed", e); stopAutoScroll() } }   // a failed step must stop auto-scroll, never kill the app
     private fun startAutoScroll() { app.vocr.Haptics.autoStart(this); app.vocr.core.Sfx.scroll(this, true); lastThumb = null; still = 0; scrolling = true; swipes = 0; scrollT0 = System.currentTimeMillis(); ui.postDelayed(scrollRun, 2500) }
     private fun stopAutoScroll() { if (scrolling) app.vocr.Haptics.autoEnd(this); app.vocr.core.Sfx.scroll(this, false); scrolling = false; ui.removeCallbacks(scrollRun) }
     // Speed 0..10 (home > Settings). 10 = today's tested pace (a 90 ms swipe, then a 650 ms settle) and is the default.
@@ -413,7 +414,7 @@ class CaptureService : Service() {
             }
         } else {
             val v = crawlSpeed(lvl)
-            val dist = (v * 4.0).coerceIn(0.2, 0.6)           // screens per drag
+            val dist = (v * 4.0).coerceIn(0.2, (SLOW_Y0 - 0.06f).toDouble())   // screens per drag; the drag starts at SLOW_Y0 and must end above y=0.06 (a negative end point crashes the gesture builder)
             val dur = (dist / v * 1000).toLong()               // constant speed, no fling at the lift
             for (k in 1..(dur / 1500L).toInt()) ui.postDelayed({ if (scrolling && active() && speedLevel() > 0) app.vocr.Haptics.autoPulse(this) }, k * 1500L)   // gentle pulse every ~1.5 s during a slow drag
             svc.swipe(m.widthPixels, m.heightPixels, SLOW_Y0, (SLOW_Y0 - dist).toFloat(), dur, startX(SLOW_Y0)) { ok ->

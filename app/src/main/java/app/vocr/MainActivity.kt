@@ -232,7 +232,7 @@ fun Home(preview: Picked? = null) {
                     onClick = { showSettings = false; DisclosureActivity.openAccessibility(ctx) },
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25262B), contentColor = Color.White)
-                ) { Text(if (app.vocr.capture.ScrollService.instance != null) "Auto-scroll: enabled" else "Auto-scroll: turn on in Accessibility", fontSize = 14.sp) }
+                ) { Text(if (app.vocr.capture.ScrollService.instance != null) "Auto-scroll: enabled" else if (app.vocr.capture.ScrollService.enabledInSettings(ctx)) "Auto-scroll: ON but stopped - switch it off and on" else "Auto-scroll: turn on in Accessibility", fontSize = 14.sp) }
                 Spacer(Modifier.height(14.dp))
                 val view = androidx.compose.ui.platform.LocalView.current
                 var speed by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getInt("scrollspeed", 10).toFloat()) }

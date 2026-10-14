@@ -16,12 +16,17 @@ class ScrollService : AccessibilityService() {
 
     /** One swipe from y0 to y1 (fractions of the screen height) at the horizontal centre, lasting durMs. */
     fun swipe(w: Int, h: Int, y0: Float, y1: Float, durMs: Long, xFrac: Float = X0, done: (Boolean) -> Unit) {
-        val p = Path().apply { moveTo(w * xFrac, h * y0); lineTo(w * xFrac, h * y1) }
-        val g = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(p, 0, durMs)).build()
-        val ok = dispatchGesture(g, object : GestureResultCallback() {
-            override fun onCompleted(d: GestureDescription?) { done(true) }
-            override fun onCancelled(d: GestureDescription?) { done(false) }
-        }, null)
+        // Never hand the gesture builder a point off the screen or a zero/overlong duration: it throws and would take the whole service down.
+        val g = try {
+            val p = Path().apply { moveTo((w * xFrac).coerceIn(1f, w - 1f), (h * y0).coerceIn(1f, h - 1f)); lineTo((w * xFrac).coerceIn(1f, w - 1f), (h * y1).coerceIn(1f, h - 1f)) }
+            GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(p, 0, durMs.coerceIn(1L, GestureDescription.getMaxGestureDuration()))).build()
+        } catch (e: Exception) { done(false); return }
+        val ok = try {
+            dispatchGesture(g, object : GestureResultCallback() {
+                override fun onCompleted(d: GestureDescription?) { done(true) }
+                override fun onCancelled(d: GestureDescription?) { done(false) }
+            }, null)
+        } catch (e: Exception) { false }
         if (!ok) done(false)
     }
 
@@ -54,7 +59,14 @@ class ScrollService : AccessibilityService() {
         if (!ok) done(null)
     }
 
-    companion object { @Volatile var instance: ScrollService? = null
+    companion object {
+        /** True when Android's enabled-services list contains this service, even if the system has not (re)connected it yet. */
+        fun enabledInSettings(ctx: android.content.Context): Boolean {
+            val me = android.content.ComponentName(ctx, ScrollService::class.java)
+            val list = android.provider.Settings.Secure.getString(ctx.contentResolver, android.provider.Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: return false
+            return list.split(':').any { android.content.ComponentName.unflattenFromString(it) == me }
+        }
+        @Volatile var instance: ScrollService? = null
         /** Swipe column: 35% from the left, clear of centred overlays such as Gemini's jump-to-bottom arrow (at 43-57% width, 79-86% height). */
         const val X0 = 0.35f }
 }
