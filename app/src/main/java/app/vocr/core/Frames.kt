@@ -20,12 +20,14 @@ object RunStats {
         val rs = rd.ms / 1000.0
         return buildString {
             append("--- V-OCR run stats ---\n")
+            append("App: ScrOllOn ${app.vocr.VocrApp.version()}\n")
             append("Video: ${res.seconds}s. Frames sampled: ${res.framesTotal}.\n")
             append("Skipped: ${res.dup} total = ${res.wholeSkips} whole-screen still + ${res.regionSkips} region-gated (video up top) + $accum accumulating while scrolling.\n")
             append("Kept for OCR: $ocr strips (${res.full} full, ${res.cropped} cropped).\n")
             append("Frame analysis total: ${res.ms / 1000.0}s. ${res.timing}\n")
             append("OCR: %.1fs for $ocr strips (%.2f strips/s). Lines read ${rd.rawLines}, after overlap removal ${rd.mergedLines}.\n".format(rs, if (rs > 0) ocr / rs else 0.0))
             if (res.fpsInfo.isNotEmpty()) append("Sampling: ${res.fpsInfo}\n")
+            app.vocr.VocrApp.lastError()?.let { append("Last app error on this device (for diagnosis):\n$it\n") }
         }
     }
 }

@@ -28,7 +28,7 @@ class Cover(private val ctx: Context, private val wm: WindowManager, private val
     private fun key() = if (landscape()) "cover_l" else "cover_p"
     private fun p() = CaptureService.prefs(ctx)
 
-    fun enabled() = p().getBoolean("cover", false)
+    fun enabled() = AVAILABLE && p().getBoolean("cover", false)
     fun stripOn() = p().getBoolean("cover_strip", true)
 
     private fun statusBarH(): Int {
@@ -127,5 +127,5 @@ class Cover(private val ctx: Context, private val wm: WindowManager, private val
         runCatching { wm.addView(done, dq); doneChip = done }
     }
 
-    companion object { val COLOR = Color.parseColor("#0B0B0D") }
+    companion object { /** Parked: the Cover feature is hidden from the UI and never draws while false. */ const val AVAILABLE = false; val COLOR = Color.parseColor("#0B0B0D") }
 }

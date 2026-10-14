@@ -202,7 +202,37 @@ class CaptureService : Service() {
     }
 
     private var cover: Cover? = null
-    private fun hideMenu() { ui.removeCallbacks(hideMenuRun); menu.forEach { v -> runCatching { wm?.removeView(v) } }; menu = emptyList() }
+    private var pace: View? = null
+    private fun hidePace() { pace?.let { v -> runCatching { wm?.removeView(v) } }; pace = null }
+    /** The chips go after a few seconds; the pace bar stays while Scroll is ON so the speed can be changed mid-scroll. */
+    private fun hideMenu() { ui.removeCallbacks(hideMenuRun); menu.forEach { v -> runCatching { wm?.removeView(v) } }; menu = emptyList(); if (!readMode) hidePace() }
+    private fun showPace(p: WindowManager.LayoutParams) {
+        hidePace()
+        val bar = android.widget.SeekBar(this).apply {
+            max = 10; progress = speedLevel()
+            val bronze = android.content.res.ColorStateList.valueOf(Color.parseColor("#D2B08A"))
+            progressTintList = bronze; thumbTintList = bronze
+            progressBackgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#55FFFFFF"))
+            setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(sb: android.widget.SeekBar?, v: Int, fromUser: Boolean) {
+                    if (fromUser) { prefs(this@CaptureService).edit().putInt("scrollspeed", v).apply(); ui.removeCallbacks(hideMenuRun); if (!readMode) ui.postDelayed(hideMenuRun, 4000) }
+                }
+                override fun onStartTrackingTouch(sb: android.widget.SeekBar?) { ui.removeCallbacks(hideMenuRun) }
+                override fun onStopTrackingTouch(sb: android.widget.SeekBar?) { sb?.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP); if (!readMode) ui.postDelayed(hideMenuRun, 4000) }
+            })
+        }
+        val pill = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(dp(14), dp(8), dp(14), dp(6))
+            background = GradientDrawable().apply { setColor(Color.parseColor("#E625262B")); cornerRadius = dp(18).toFloat() }
+            addView(android.widget.TextView(this@CaptureService).apply { text = "Pace  (10 = normal, 0 = pause)"; setTextColor(Color.parseColor("#A9A6A0")); textSize = 11f })
+            addView(bar, android.widget.LinearLayout.LayoutParams(dp(190), android.widget.LinearLayout.LayoutParams.WRAP_CONTENT))
+        }
+        pill.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+        // keep the whole pill on screen: the bubble sits on the right edge, so anchor from the screen's right side when needed
+        overlay(pill, (p.x - dp(6)).coerceIn(dp(4), (screenW() - pill.measuredWidth - dp(4)).coerceAtLeast(dp(4))), p.y + p.height + dp(126))
+        pace = pill
+    }
     private val hideMenuRun = Runnable { hideMenu() }
 
     private fun chip(text: String, bg: Int, onClick: () -> Unit): TextView = glassChip(this, text, bg).apply { setOnClickListener { it.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP); onClick() } }
@@ -258,47 +288,25 @@ class CaptureService : Service() {
             if (readMode) { stopReadMode(); hideMenu() }
             else {
                 startReadMode()
-                if (readMode) {   // pace slider pops up under the chip, same bronze as the Settings slider; bubble tap stops
-                    rd.text = rdText(); styleRd()
-                    val bar = android.widget.SeekBar(this).apply {
-                        max = 10; progress = speedLevel()
-                        val bronze = android.content.res.ColorStateList.valueOf(Color.parseColor("#D2B08A"))
-                        progressTintList = bronze; thumbTintList = bronze
-                        progressBackgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#55FFFFFF"))
-                        setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
-                            override fun onProgressChanged(sb: android.widget.SeekBar?, v: Int, fromUser: Boolean) {
-                                if (fromUser) { prefs(this@CaptureService).edit().putInt("scrollspeed", v).apply(); ui.removeCallbacks(hideMenuRun); ui.postDelayed(hideMenuRun, 4000) }
-                            }
-                            override fun onStartTrackingTouch(sb: android.widget.SeekBar?) { ui.removeCallbacks(hideMenuRun) }
-                            override fun onStopTrackingTouch(sb: android.widget.SeekBar?) { it.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP); ui.postDelayed(hideMenuRun, 4000) }
-                        })
-                    }
-                    val pill = android.widget.LinearLayout(this).apply {
-                        orientation = android.widget.LinearLayout.VERTICAL
-                        setPadding(dp(14), dp(8), dp(14), dp(6))
-                        background = GradientDrawable().apply { setColor(Color.parseColor("#E625262B")); cornerRadius = dp(18).toFloat() }
-                        addView(android.widget.TextView(this@CaptureService).apply { text = "Pace  (10 = normal, 0 = pause)"; setTextColor(Color.parseColor("#A9A6A0")); textSize = 11f })
-                        addView(bar, android.widget.LinearLayout.LayoutParams(dp(190), android.widget.LinearLayout.LayoutParams.WRAP_CONTENT))
-                    }
-                    pill.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
-                    // keep the whole pill on screen: the bubble sits on the right edge, so anchor from the screen's right side when needed
-                    overlay(pill, (p.x - dp(6)).coerceIn(dp(4), (screenW() - pill.measuredWidth - dp(4)).coerceAtLeast(dp(4))), p.y + p.height + dp(126))
-                    menu = menu + pill
-                    ui.removeCallbacks(hideMenuRun); ui.postDelayed(hideMenuRun, 5000)
-                } else hideMenu()
+                if (readMode) { rd.text = rdText(); styleRd(); ui.removeCallbacks(hideMenuRun); ui.postDelayed(hideMenuRun, 5000) }   // the pace bar below stays visible while Scroll is ON
+                else hideMenu()
             }
         }
         overlay(auto, p.x - dp(6), p.y + p.height + dp(46))
         overlay(rd, p.x - dp(6), p.y + p.height + dp(86))
-        val cv = chip("Cover", Color.parseColor("#25262B")) {
+        showPace(p)
+        // Cover is parked (Cover.AVAILABLE = false): no menu entry for now.
+        val cv: TextView? = if (Cover.AVAILABLE) {
+        val c = chip("Cover", Color.parseColor("#25262B")) {
             hideMenu()
             if (recording) toast("Stop recording first") else {
                 if (!prefs(this).getBoolean("cover", false)) prefs(this).edit().putBoolean("cover", true).apply()
                 cover?.edit()
             }
         }
-        overlay(cv, p.x - dp(6), p.y + p.height + dp(166))
-        menu = listOf(close, mode, auto, rd, cv)
+        overlay(c, p.x - dp(6), p.y + p.height + dp(166)); c
+        } else null
+        menu = listOfNotNull(close, mode, auto, rd, cv)
         ui.postDelayed(hideMenuRun, 4000)
     }
 
@@ -308,7 +316,7 @@ class CaptureService : Service() {
 
     private fun closeWidget() { removeWidget(); stopForeground(STOP_FOREGROUND_REMOVE); stopSelf() }
 
-    private fun removeWidget() { cover?.remove(); app.vocr.core.JobQueue.listener = null; hideAddChip(); hideMenu(); ui.removeCallbacks(tuckRun); widget?.let { runCatching { wm?.removeView(it) } }; widget = null }
+    private fun removeWidget() { hidePace(); cover?.remove(); app.vocr.core.JobQueue.listener = null; hideAddChip(); hideMenu(); ui.removeCallbacks(tuckRun); widget?.let { runCatching { wm?.removeView(it) } }; widget = null }
 
     private fun setWidgetIdle() {
         widget?.apply { label = "REC"; alpha = 1f; labelSp = 11f; fill = Color.parseColor("#3A3B42"); ring = -1f; invalidate() }
@@ -382,7 +390,7 @@ class CaptureService : Service() {
     // Pace: a 0.6-screen swipe in 90 ms (about 0.11 screen per frame at 60 fps, a third of the 0.30 span limit the tracker is
     // tuned to), then 650 ms for the fling to settle. The recording stops after scrollcapsec seconds (default 300) and the text is read.
     private var scrolling = false; private var swipes = 0; private var scrollT0 = 0L
-    private val scrollRun = Runnable { try { scrollStep() } catch (e: Exception) { android.util.Log.e("vocr", "scrollStep failed", e); stopAutoScroll() } }   // a failed step must stop auto-scroll, never kill the app
+    private val scrollRun = Runnable { try { scrollStep() } catch (e: Exception) { android.util.Log.e("vocr", "scrollStep failed", e); app.vocr.VocrApp.note("scrollStep failed", e); stopAutoScroll() } }   // a failed step must stop auto-scroll, never kill the app
     private fun startAutoScroll() { app.vocr.Haptics.autoStart(this); app.vocr.core.Sfx.scroll(this, true); lastThumb = null; still = 0; scrolling = true; swipes = 0; scrollT0 = System.currentTimeMillis(); ui.postDelayed(scrollRun, 2500) }
     private fun stopAutoScroll() { if (scrolling) app.vocr.Haptics.autoEnd(this); app.vocr.core.Sfx.scroll(this, false); scrolling = false; ui.removeCallbacks(scrollRun) }
     // Speed 0..10 (home > Settings). 10 = today's tested pace (a 90 ms swipe, then a 650 ms settle) and is the default.
@@ -477,7 +485,7 @@ class CaptureService : Service() {
         tuck(false)
         startAutoScroll()
     }
-    private fun stopReadMode() { if (!readMode) return; readMode = false; stopAutoScroll(); setWidgetIdle(); ui.post { refreshQueueUi() } }
+    private fun stopReadMode() { if (!readMode) return; readMode = false; hidePace(); stopAutoScroll(); setWidgetIdle(); ui.post { refreshQueueUi() } }
 
     private fun stopRecording() {
         if (!recording) return

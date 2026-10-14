@@ -288,6 +288,7 @@ fun Home(preview: Picked? = null) {
                     Text("Debug: keep my screen recordings (saved to Downloads/V-OCR, may contain private content)", color = Muted, fontSize = 13.sp)
                 }
                 Spacer(Modifier.height(6.dp))
+                if (app.vocr.capture.Cover.AVAILABLE) {   // Cover is parked for further development
                 var cov by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("cover", false)) }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Switch(checked = cov, onCheckedChange = { cov = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("cover", it).apply() })
@@ -299,6 +300,7 @@ fun Home(preview: Picked? = null) {
                     Switch(checked = covStrip, onCheckedChange = { covStrip = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("cover_strip", it).apply() })
                     Spacer(Modifier.width(8.dp))
                     Text("Cover also hides the status bar strip (clock, notifications)", color = Muted, fontSize = 13.sp)
+                }
                 }
                 Spacer(Modifier.height(14.dp))
                 Button(

@@ -20,13 +20,13 @@ class ScrollService : AccessibilityService() {
         val g = try {
             val p = Path().apply { moveTo((w * xFrac).coerceIn(1f, w - 1f), (h * y0).coerceIn(1f, h - 1f)); lineTo((w * xFrac).coerceIn(1f, w - 1f), (h * y1).coerceIn(1f, h - 1f)) }
             GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(p, 0, durMs.coerceIn(1L, GestureDescription.getMaxGestureDuration()))).build()
-        } catch (e: Exception) { done(false); return }
+        } catch (e: Exception) { app.vocr.VocrApp.note("swipe build failed", e); done(false); return }
         val ok = try {
             dispatchGesture(g, object : GestureResultCallback() {
                 override fun onCompleted(d: GestureDescription?) { done(true) }
                 override fun onCancelled(d: GestureDescription?) { done(false) }
             }, null)
-        } catch (e: Exception) { false }
+        } catch (e: Exception) { app.vocr.VocrApp.note("dispatchGesture failed", e); false }
         if (!ok) done(false)
     }
 
