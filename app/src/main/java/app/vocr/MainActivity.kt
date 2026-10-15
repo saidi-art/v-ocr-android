@@ -36,9 +36,9 @@ import androidx.compose.ui.unit.sp
 
 val Ink: Color get() = Ground
 val Card: Color get() = if (Pal.paper) Color(0xFFFDFBF7) else Color(0xFF1A1B20)
-val Violet: Color get() = if (Pal.paper) Color(0xFF191919) else Color(0xFFD2B08A)
-val Lilac: Color get() = if (Pal.paper) Color(0xFF191919) else Color(0xFFE3C7A2)
-val Muted: Color get() = if (Pal.paper) Color(0x9E191919) else Color(0xFFA9A6A0)
+val Violet: Color get() = if (Pal.paper) Color(0xFF0C0C0C) else Color(0xFFD2B08A)
+val Lilac: Color get() = if (Pal.paper) Color(0xFF0C0C0C) else Color(0xFFE3C7A2)
+val Muted: Color get() = if (Pal.paper) Color(0xD60C0C0C) else Color(0xFFA9A6A0)
 
 class MainActivity : ComponentActivity() {
     override fun onResume() { super.onResume(); JobQueue.clearDoneNotifications(this) }
@@ -105,26 +105,6 @@ fun Home(preview: Picked? = null) {
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(20)) { uris ->
         if (uris.isNotEmpty()) JobQueue.addUris(ctx, uris)
     }
-    var bench by remember { mutableStateOf<List<String>>(emptyList()) }
-    var benching by remember { mutableStateOf(false) }
-    val benchPick = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        if (uri != null) {
-            if (JobQueue.activeCount() > 0) { bench = listOf("The queue is busy. Wait until it is empty, then run the test again.") }
-            else {
-                benching = true; bench = listOf("Extracting strips from your clip...")
-                Thread {
-                    val acc = ArrayList<String>()
-                    try {
-                        val r = Pipeline.run(ctx, uri, { })
-                        acc.add("clip: ${r.strips.size} strips"); bench = acc.toList()
-                        Reader.bench(ctx, r.strips) { acc.add(it); bench = acc.toList() }
-                        acc.add("done"); bench = acc.toList()
-                    } catch (e: Throwable) { acc.add("failed: " + (e.message ?: e.javaClass.simpleName)); bench = acc.toList() }
-                    benching = false
-                }.start()
-            }
-        }
-    }
     val addVideos = { launcher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)) }
     fun start(p: Picked) {
         progress = Progress("Starting", 0, 1); result = null; error = null
@@ -135,12 +115,6 @@ fun Home(preview: Picked? = null) {
             } catch (e: Throwable) { error = e.message ?: e.javaClass.simpleName }
             progress = null
         }.start()
-    }
-    LaunchedEffect(Unit) {
-        if ((ctx as? android.app.Activity)?.intent?.getBooleanExtra("queue", false) == true && JobQueue.jobs.isEmpty()) { JobQueue.addDemo(ctx); JobQueue.addDemo(ctx) }
-        if ((ctx as? android.app.Activity)?.intent?.getBooleanExtra("demo", false) == true && progress == null && result == null) {
-            val p = Picked(null, "demo.mp4 (built-in test video)", 9, 540, 960); picked = p; start(p)
-        }
     }
     val res = result
     if (res != null) { Strips(res, (ctx as? android.app.Activity)?.intent?.getBooleanExtra("read", false) == true) { result = null }; return }
@@ -186,7 +160,7 @@ fun Home(preview: Picked? = null) {
                     onClick = { start(p) },
                     modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Violet, contentColor = OnBronze)
-                ) { Text("Extract strips (M1 test)", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
+                ) { Text("Read this recording", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
                 Spacer(Modifier.height(10.dp))
             }
             Button(
@@ -280,20 +254,6 @@ fun Home(preview: Picked? = null) {
                     Text("Paper theme (ink on cream). Off = Graphite", color = Muted, fontSize = 13.sp)
                 }
                 Spacer(Modifier.height(6.dp))
-                var shots by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("shots", false)) }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Switch(checked = shots, onCheckedChange = { shots = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("shots", it).apply() })
-                    Spacer(Modifier.width(8.dp))
-                    Text("Show extracted screenshots", color = Muted, fontSize = 13.sp)
-                }
-                Spacer(Modifier.height(6.dp))
-                var keepRec by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("keeprec", false)) }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Switch(checked = keepRec, onCheckedChange = { keepRec = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("keeprec", it).apply() })
-                    Spacer(Modifier.width(8.dp))
-                    Text("Debug: keep my screen recordings (saved to Downloads/V-OCR, may contain private content)", color = Muted, fontSize = 13.sp)
-                }
-                Spacer(Modifier.height(6.dp))
                 if (app.vocr.capture.Cover.AVAILABLE) {   // Cover is parked for further development
                 var cov by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("cover", false)) }
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -309,16 +269,6 @@ fun Home(preview: Picked? = null) {
                 }
                 }
                 Spacer(Modifier.height(14.dp))
-                Button(
-                    enabled = !benching,
-                    onClick = { bench = emptyList(); benchPick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)) },
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Btn2, contentColor = TextMain)
-                ) { Text(if (benching) "Speed test running..." else "Speed test (pick one clip)", fontSize = 14.sp) }
-                if (bench.isNotEmpty()) {
-                    Spacer(Modifier.height(8.dp))
-                    bench.forEach { Text(it, color = Muted, fontSize = 12.sp) }
-                }
             }
         }
         Spacer(Modifier.height(10.dp))
@@ -334,7 +284,7 @@ fun Home(preview: Picked? = null) {
             colors = ButtonDefaults.buttonColors(containerColor = Btn2, contentColor = TextMain)
         ) { Text("About and contact", fontSize = 14.sp) }
         Spacer(Modifier.height(6.dp))
-        Text("v" + (runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: "?") + "  -  strips + on-device text", color = Muted, fontSize = 12.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
+        Text("v" + (runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: "?") + "", color = Muted, fontSize = 12.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
     }
 }
 
@@ -382,20 +332,6 @@ fun Strips(res: Result, autoRead: Boolean = false, onBack: () -> Unit) {
             Spacer(Modifier.width(8.dp))
             Text("Fast mode (about 25% quicker, a little less accurate)", color = Muted, fontSize = 12.sp)
         }
-        var bench by remember { mutableStateOf<List<String>>(emptyList()) }
-        var benching by remember { mutableStateOf(false) }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Button(enabled = reading == null && !benching, onClick = {
-                benching = true; bench = listOf("Running...")
-                Thread {
-                    val acc = ArrayList<String>()
-                    try { Reader.bench(ctx, res.strips) { acc.add(it); bench = acc.toList() } } catch (e: Throwable) { acc.add("failed: " + (e.message ?: e.javaClass.simpleName)); bench = acc.toList() }
-                    benching = false
-                }.start()
-            }, colors = ButtonDefaults.buttonColors(containerColor = Btn2, contentColor = TextMain)) { Text("Speed test") }
-            Spacer(Modifier.width(8.dp))
-            Text(bench.joinToString("\n"), color = Lilac, fontSize = 12.sp)
-        }
         reading?.let { pr ->
             Spacer(Modifier.height(6.dp))
             LinearProgressIndicator(progress = { pr.done / pr.total.coerceAtLeast(1).toFloat() }, modifier = Modifier.fillMaxWidth(), color = Violet, trackColor = Card)
@@ -403,17 +339,6 @@ fun Strips(res: Result, autoRead: Boolean = false, onBack: () -> Unit) {
         }
         err?.let { Text(it, color = Err, fontSize = 13.sp) }
         Spacer(Modifier.height(8.dp))
-        val showShots = app.vocr.capture.CaptureService.prefs(ctx).getBoolean("shots", false)
-        if (!showShots) Text("Screenshots hidden (turn on \"show extracted screenshots\" on the home screen).", color = Muted, fontSize = 12.sp)
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            items(if (showShots) res.strips else emptyList()) { s ->
-                val bm = remember(s.file) { BitmapFactory.decodeFile(s.file.path, BitmapFactory.Options().apply { inSampleSize = 2 }) }
-                Column(Modifier.glassPanel(RoundedCornerShape(12.dp)).padding(8.dp)) {
-                    Text("${s.kind}  t=${"%.1f".format(s.t)}s  ${bm.width * 2}x${bm.height * 2}", color = Lilac, fontSize = 12.sp)
-                    Image(bm.asImageBitmap(), null, Modifier.fillMaxWidth(), contentScale = ContentScale.FillWidth)
-                }
-            }
-        }
     }
 }
 

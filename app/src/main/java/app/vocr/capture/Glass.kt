@@ -105,9 +105,9 @@ internal class AddChip(ctx: Context) : View(ctx) {
 }
 
 // Overlay palette (Graphite or Paper). Read when a menu is built, so a theme change shows the next time it opens.
-internal fun accentHex() = if (app.vocr.Pal.paper) "#191919" else "#D2B08A"
+internal fun accentHex() = if (app.vocr.Pal.paper) "#0C0C0C" else "#D2B08A"
 internal fun accentC() = Color.parseColor(accentHex())
 internal fun chipHex() = if (app.vocr.Pal.paper) "#E9E3D6" else "#25262B"
 internal fun chipC() = Color.parseColor(chipHex())
 internal fun onAccentC() = Color.parseColor(if (app.vocr.Pal.paper) "#F9F6F0" else "#17120C")
-internal fun mutedC() = Color.parseColor(if (app.vocr.Pal.paper) "#6E6D6A" else "#A9A6A0")
+internal fun mutedC() = Color.parseColor(if (app.vocr.Pal.paper) "#3A3A38" else "#A9A6A0")

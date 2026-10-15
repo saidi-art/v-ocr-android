@@ -33,20 +33,20 @@ object Pal {
 private fun pick(g: Long, p: Long) = if (Pal.paper) Color(p) else Color(g)
 val Ground: Color get() = pick(0xFF0C0D10, 0xFFF9F6F0)
 val GroundGlow: Color get() = pick(0xFF33343A, 0xFFFDFBF7)
-val TextBody: Color get() = pick(0xFFD9D6D0, 0xD1191919)
-val BronzeHi: Color get() = pick(0xFFE3C7A2, 0xFF4A4A4A)
-val BronzeLo: Color get() = pick(0xFFB08558, 0xFF111111)
-val BronzeDeep: Color get() = pick(0xFF9A7650, 0xFF191919)
+val TextBody: Color get() = pick(0xFFD9D6D0, 0xF00C0C0C)
+val BronzeHi: Color get() = pick(0xFFE3C7A2, 0xFF2E2E2E)
+val BronzeLo: Color get() = pick(0xFFB08558, 0xFF070707)
+val BronzeDeep: Color get() = pick(0xFF9A7650, 0xFF0C0C0C)
 val OnBronze: Color get() = pick(0xFF17120C, 0xFFF9F6F0)
 val Success: Color get() = pick(0xFF86D0A0, 0xFF3F7556)
 /** Main text (white on Graphite, ink on Paper). */
-val TextMain: Color get() = pick(0xFFFFFFFF, 0xFF191919)
+val TextMain: Color get() = pick(0xFFFFFFFF, 0xFF0C0C0C)
 /** Secondary button fill. */
-val Btn2: Color get() = pick(0xFF25262B, 0xFFE9E3D6)
+val Btn2: Color get() = pick(0xFF3A3B42, 0xFFE9E3D6)
 val Err: Color get() = pick(0xFFFF7A7A, 0xFFB3261E)
-val TrackOff: Color get() = pick(0x33FFFFFF, 0x1F191919)
-val TickOff: Color get() = pick(0x55FFFFFF, 0x40191919)
-val WordO: Color get() = pick(0xFFE3C7A2, 0xFF191919)
+val TrackOff: Color get() = pick(0x33FFFFFF, 0x240C0C0C)
+val TickOff: Color get() = pick(0x55FFFFFF, 0x590C0C0C)
+val WordO: Color get() = pick(0xFFE3C7A2, 0xFF0C0C0C)
 
 /** Material scheme for the active palette. */
 @Composable
@@ -108,7 +108,7 @@ fun Modifier.scrollOnBackdrop(): Modifier = this.drawBehind {
     drawRect(Brush.radialGradient(listOf(GroundGlow, Color.Transparent), Offset(w * 0.3f, 0f), w * 1.1f))
     fun sphere(cx: Float, cy: Float, r: Float, a: Float) {
         if (Pal.paper) {
-            drawCircle(Brush.radialGradient(listOf(Color(0xFF7A7A7A).copy(alpha = a * 0.5f), Color(0xFF2D2D2D).copy(alpha = a * 0.4f), Color(0xFF191919).copy(alpha = a * 0.3f), Color.Transparent), Offset(cx - r * 0.36f, cy - r * 0.48f), r * 1.25f), r * 1.2f, Offset(cx, cy))
+            drawCircle(Brush.radialGradient(listOf(Color(0xFF7A7A7A).copy(alpha = a * 0.5f), Color(0xFF2D2D2D).copy(alpha = a * 0.4f), Color(0xFF0C0C0C).copy(alpha = a * 0.3f), Color.Transparent), Offset(cx - r * 0.36f, cy - r * 0.48f), r * 1.25f), r * 1.2f, Offset(cx, cy))
             return
         }
         drawCircle(Brush.radialGradient(listOf(Color(0xFF8A8C93).copy(alpha = a), Color(0xFF3A3B41).copy(alpha = a * 0.8f), Color(0xFF16171B).copy(alpha = a * 0.5f), Color.Transparent), Offset(cx - r * 0.3f, cy - r * 0.35f), r * 1.15f), r * 1.15f, Offset(cx, cy))

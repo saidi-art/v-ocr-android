@@ -11,8 +11,8 @@ android {
         minSdk = 29
         targetSdk = 36
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
-        versionCode = 66
-        versionName = "0.10.6-t9"
+        versionCode = 67
+        versionName = "0.10.6-t10"
     }
     val ksPath = System.getenv("VOCR_KS_PATH")
     signingConfigs {

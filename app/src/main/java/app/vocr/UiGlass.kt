@@ -21,6 +21,8 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -40,7 +42,7 @@ val GlassBackdrop: Brush = Brush.verticalGradient(listOf(Ground, Ground))
 fun Modifier.glassPanel(shape: Shape = RoundedCornerShape(24.dp), tint: Color = Card, strong: Boolean = false): Modifier {
     val blurOk = Build.VERSION.SDK_INT >= 31
     val paper = Pal.paper
-    val hi = Color.White; val lo = if (paper) Color(0xFF191919) else Color.Black
+    val hi = Color.White; val lo = if (paper) Color(0xFF0C0C0C) else Color.Black
     val base = if (paper) (if (blurOk) Color.White.copy(alpha = if (tint == Ink) 0.60f else 0.80f) else Color(0xEBF9F6F0))
                else if (blurOk) (if (tint == Ink) Color.Black.copy(alpha = 0.28f) else Color.White.copy(alpha = if (strong) 0.09f else 0.05f))
                else Color(0xE0141519)
@@ -69,12 +71,10 @@ fun Button(
     val primary = colors.containerColor == Violet
     val shape = RoundedCornerShape(27.dp)
     val sc by animateFloatAsState(if (pressed) 0.97f else 1f, if (pressed) spring(0.80f, 800f) else spring(0.55f, 400f), label = "press")
-    val surface: Modifier = if (primary && enabled)
-        Modifier.clip(shape).background(Brush.verticalGradient(listOf(BronzeHi, Violet, BronzeLo)), shape)
-            .border(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = if (Pal.paper) 0.20f else 0.55f), Color.Black.copy(alpha = 0.25f))), shape)
-    else Modifier.glassPanel(shape, Ink, strong = true)
+    androidx.compose.runtime.LaunchedEffect(pressed) { if (pressed && enabled) Haptics.secondary(view) }   // same tick as the floating bubble, on touch-down
+    val surface: Modifier = Modifier.bubbleBody(shape, if (primary) Violet else Btn2, pressed, enabled)
     androidx.compose.material3.Button(
-        onClick = { if (primary) Haptics.primary(view) else Haptics.secondary(view); onClick() },
+        onClick = { if (primary) Haptics.primary(view); onClick() },
         modifier = modifier.scale(sc).then(surface),
         enabled = enabled, shape = shape, interactionSource = src,
         colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = if (primary) OnBronze else TextMain, disabledContainerColor = Color.Transparent, disabledContentColor = TextMain.copy(alpha = 0.4f)),
@@ -97,4 +97,24 @@ fun Switch(checked: Boolean, onCheckedChange: ((Boolean) -> Unit)?, modifier: Mo
 fun Modifier.hapticClickable(onClick: () -> Unit): Modifier = composed {
     val view = androidx.compose.ui.platform.LocalView.current
     this.clickable { Haptics.secondary(view); onClick() }
+}
+
+/** Bubble look for buttons: lit gradient body, bright rim, specular band, drop shadow that shrinks on press (Graphite and Paper). */
+fun Modifier.bubbleBody(shape: Shape, base: Color, pressed: Boolean, enabled: Boolean = true): Modifier {
+    val paper = Pal.paper
+    val up = androidx.compose.ui.graphics.lerp(base, Color.White, if (pressed) 0.08f else if (paper) 0.22f else 0.30f)
+    val dn = androidx.compose.ui.graphics.lerp(base, Color.Black, if (pressed) (if (paper) 0.22f else 0.38f) else if (paper) 0.12f else 0.28f)
+    val a = if (enabled) 1f else 0.45f
+    val shadow = if (paper) Color(0xFF0C0C0C) else Color.Black
+    return this
+        .shadow(if (pressed) 2.dp else 7.dp, shape, clip = false, ambientColor = shadow, spotColor = shadow)
+        .clip(shape)
+        .background(Brush.verticalGradient(listOf(up.copy(alpha = a), dn.copy(alpha = a))), shape)
+        .drawWithContent {
+            drawContent()
+        }
+        .drawBehind {
+            drawRect(Brush.verticalGradient(listOf(Color.White.copy(alpha = if (pressed) 0.12f else if (paper) 0.55f else 0.32f), Color.Transparent), 0f, size.height * 0.5f), size = Size(size.width, size.height * 0.5f))
+        }
+        .border(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = if (paper) 0.9f else 0.55f), (if (paper) Color(0xFF0C0C0C).copy(alpha = 0.22f) else Color.Black.copy(alpha = 0.30f)))), shape)
 }

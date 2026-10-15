@@ -66,6 +66,23 @@ class CaptureService : Service() {
     private var recFile: File? = null
     private var recording = false
     private var readMode = false   // hands-free reading: auto-scroll without recording or queue jobs
+
+    // FLAG_SECURE keeps our overlays out of recordings, but a secure window also blocks the user's own screenshots. So the bubble and menus
+    // are secure only while a recording starts or runs, or auto-scroll runs. When idle, screenshots work.
+    private var starting = false
+    private fun wantSecure() = starting || recording || scrolling || readMode
+    private fun secureFlag() = if (wantSecure()) WindowManager.LayoutParams.FLAG_SECURE else 0
+    private fun syncSecure() {
+        val apply = Runnable {
+            val p = lp ?: return@Runnable; val w = widget ?: return@Runnable
+            val want = wantSecure(); val has = (p.flags and WindowManager.LayoutParams.FLAG_SECURE) != 0
+            if (want != has) {
+                p.flags = if (want) p.flags or WindowManager.LayoutParams.FLAG_SECURE else p.flags and WindowManager.LayoutParams.FLAG_SECURE.inv()
+                runCatching { wm?.updateViewLayout(w, p) }
+            }
+        }
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) apply.run() else ui.post(apply)
+    }
     private fun active() = recording || readMode
     private val busy: Boolean get() = app.vocr.core.JobQueue.activeCount() > 0
     private var addChip: AddChip? = null
@@ -164,7 +181,7 @@ class CaptureService : Service() {
         cover = Cover(this, wm!!, ui)
         val tv = Bubble(this)
         val p = WindowManager.LayoutParams(dp(52), dp(52), WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or WindowManager.LayoutParams.FLAG_SECURE, PixelFormat.TRANSLUCENT).apply {
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or secureFlag(), PixelFormat.TRANSLUCENT).apply {
             gravity = Gravity.TOP or Gravity.START; x = screenW() - dp(32); y = dp(220)
         }
         var sx = 0f; var sy = 0f; var ox = 0; var oy = 0; var moved = false; var longDone = false; var wasTucked = false
@@ -239,7 +256,7 @@ class CaptureService : Service() {
 
     private fun overlay(v: View, x: Int, y: Int) {
         val q = WindowManager.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or WindowManager.LayoutParams.FLAG_SECURE, PixelFormat.TRANSLUCENT).apply { gravity = Gravity.TOP or Gravity.START; this.x = x; this.y = y }
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or secureFlag(), PixelFormat.TRANSLUCENT).apply { gravity = Gravity.TOP or Gravity.START; this.x = x; this.y = y }
         runCatching { wm?.addView(v, q) }
     }
 
@@ -338,6 +355,7 @@ class CaptureService : Service() {
 
     // ---- recording ------------------------------------------------------------------------------------------------
     private fun beginRecording(intent: Intent) {
+        starting = true; syncSecure()   // secure before the projection exists, so the first frames never show the bubble
         fgRecording()   // must be a media-projection foreground service before the projection is created
         try {
             val code = intent.getIntExtra(EXTRA_CODE, 0)
@@ -366,16 +384,16 @@ class CaptureService : Service() {
                 if (cv != null && !recording) return@postDelayed
                 try {
                     r.start()
-                    recording = true; app.vocr.Haptics.recStart(this)
+                    recording = true; starting = false; app.vocr.Haptics.recStart(this)
                     setWidgetRecording()
                     if (prefs(this).getBoolean("autoscroll", false) && ScrollService.instance != null) startAutoScroll()
                 } catch (e: Throwable) {
-                    cover?.remove(); releaseRecording(); recording = false; setWidgetIdle(); fgIdle("Tap the floating button to record")
+                    cover?.remove(); releaseRecording(); recording = false; starting = false; syncSecure(); setWidgetIdle(); fgIdle("Tap the floating button to record")
                     toast("Could not start recording: " + (e.message ?: e.javaClass.simpleName))
                 }
             }, if (cv != null) 300L else 0L)
         } catch (e: Throwable) {
-            releaseRecording(); recording = false; setWidgetIdle(); fgIdle("Tap the floating button to record")
+            releaseRecording(); recording = false; starting = false; syncSecure(); setWidgetIdle(); fgIdle("Tap the floating button to record")
             toast("Could not start recording: " + (e.message ?: e.javaClass.simpleName))
         }
     }
@@ -391,8 +409,8 @@ class CaptureService : Service() {
     // tuned to), then 650 ms for the fling to settle. The recording stops after scrollcapsec seconds (default 300) and the text is read.
     private var scrolling = false; private var swipes = 0; private var scrollT0 = 0L
     private val scrollRun = Runnable { try { scrollStep() } catch (e: Exception) { android.util.Log.e("vocr", "scrollStep failed", e); app.vocr.VocrApp.note("scrollStep failed", e); stopAutoScroll() } }   // a failed step must stop auto-scroll, never kill the app
-    private fun startAutoScroll() { app.vocr.Haptics.autoStart(this); app.vocr.core.Sfx.scroll(this, true); lastThumb = null; still = 0; scrolling = true; swipes = 0; scrollT0 = System.currentTimeMillis(); ui.postDelayed(scrollRun, 2500) }
-    private fun stopAutoScroll() { if (scrolling) app.vocr.Haptics.autoEnd(this); app.vocr.core.Sfx.scroll(this, false); scrolling = false; ui.removeCallbacks(scrollRun) }
+    private fun startAutoScroll() { app.vocr.Haptics.autoStart(this); app.vocr.core.Sfx.scroll(this, true); lastThumb = null; still = 0; scrolling = true; syncSecure(); swipes = 0; scrollT0 = System.currentTimeMillis(); ui.postDelayed(scrollRun, 2500) }
+    private fun stopAutoScroll() { if (scrolling) app.vocr.Haptics.autoEnd(this); app.vocr.core.Sfx.scroll(this, false); scrolling = false; syncSecure(); ui.removeCallbacks(scrollRun) }
     // Speed 0..10 (home > Settings). 10 = today's tested pace (a 90 ms swipe, then a 650 ms settle) and is the default.
     // 9 down to 1: one slow, steady drag per step (no fling), at a constant speed that falls smoothly from 0.60 screen/s at 9
     // to 0.03 screen/s at 1 (about 33 s per screen). 0 = stopped: no gestures at all, the recording just keeps running.
@@ -479,7 +497,7 @@ class CaptureService : Service() {
         if (recording) { toast("Stop recording first"); return }
         if (readMode) { toast("Already scrolling - tap the bubble to stop"); return }
         if (ScrollService.instance == null) { toast("Turn on Auto-scroll in ScrOllOn Settings first"); return }
-        readMode = true; pausedSince = 0L
+        readMode = true; syncSecure(); pausedSince = 0L
         widget?.apply { label = "STOP"; alpha = 0.7f; labelSp = 9f; fill = Color.parseColor("#3A3B42"); ring = -1f; invalidate() }
         lp?.let { it.width = dp(40); it.height = dp(40); widget?.let { w -> runCatching { wm?.updateViewLayout(w, it) } } }
         tuck(false)
@@ -490,7 +508,7 @@ class CaptureService : Service() {
     private fun stopRecording() {
         if (!recording) return
         stopAutoScroll()
-        recording = false
+        recording = false; starting = false; syncSecure()
         cover?.remove()
         val f = recFile
         val ok = runCatching { recorder?.stop() }.isSuccess
@@ -518,7 +536,7 @@ class CaptureService : Service() {
         val c = AddChip(this)
         c.setOnClickListener { it.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP); showAddMenu() }
         val q = WindowManager.LayoutParams(dp(40), dp(40), WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or WindowManager.LayoutParams.FLAG_SECURE, PixelFormat.TRANSLUCENT).apply { gravity = Gravity.TOP or Gravity.START; x = lp?.x ?: 0; y = (lp?.y ?: dp(60)) - dp(46) }
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or secureFlag(), PixelFormat.TRANSLUCENT).apply { gravity = Gravity.TOP or Gravity.START; x = lp?.x ?: 0; y = (lp?.y ?: dp(60)) - dp(46) }
         runCatching { wm?.addView(c, q); addChip = c; ui.postDelayed(chipPoll, 300) }
     }
 
