@@ -125,7 +125,7 @@ class CaptureService : Service() {
 
     private fun statusNote(text: String, withStop: Boolean = false, progress: Pair<Int, Int>? = null): Notification {
         channels()
-        val b = Notification.Builder(this, CH_STATUS).setSmallIcon(android.R.drawable.ic_menu_camera).setContentTitle("ScrOllOn").setContentText(text).setOngoing(true)
+        val b = Notification.Builder(this, CH_STATUS).setSmallIcon(android.R.drawable.ic_menu_camera).setContentTitle("ScrollRSI").setContentText(text).setOngoing(true)
         if (progress != null) b.setProgress(progress.second, progress.first, false)
         if (withStop) b.addAction(act(ACTION_STOP, "Stop and read"))
         else b.addAction(act(ACTION_CLOSE, "Close recorder"))
@@ -252,6 +252,12 @@ class CaptureService : Service() {
             background = GradientDrawable().apply { setColor(if (app.vocr.Pal.paper) Color.parseColor("#EBF9F6F0") else Color.parseColor("#E625262B")); cornerRadius = dp(18).toFloat() }
             addView(android.widget.TextView(this@CaptureService).apply { text = "Pace  (10 = normal, 0 = pause)"; setTextColor(mutedC()); textSize = 11f })
             addView(bar, android.widget.LinearLayout.LayoutParams(dp(190), android.widget.LinearLayout.LayoutParams.WRAP_CONTENT))
+            if (canPause()) {   // a take can be paused from the menu
+                val pb = chip(pauseLabel(), chipC()) { togglePause(); ui.removeCallbacks(hideMenuRun); ui.postDelayed(hideMenuRun, 4000) }
+                pb.contentDescription = if (paused) "Resume. Continues scrolling and recording" else "Pause. Stops scrolling and recording"
+                pauseBtns = pauseBtns + pb
+                addView(pb, android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8); gravity = Gravity.CENTER_HORIZONTAL })
+            }
         }
         pill.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
         // keep the whole pill on screen: the bubble sits on the right edge, so anchor from the screen's right side when needed
@@ -309,6 +315,10 @@ class CaptureService : Service() {
             background = GradientDrawable().apply { setColor(if (app.vocr.Pal.paper) Color.parseColor("#EBF9F6F0") else Color.parseColor("#E625262B")); cornerRadius = dp(18).toFloat() }
             addView(android.widget.TextView(this@CaptureService).apply { text = "Pace  (10 = normal, 0 = pause)  \u2630"; setTextColor(mutedC()); textSize = 11f })
             addView(bar, android.widget.LinearLayout.LayoutParams(dp(190), android.widget.LinearLayout.LayoutParams.WRAP_CONTENT))
+            val pb = chip(pauseLabel(), chipC()) { togglePause(); ui.removeCallbacks(foldRun); ui.postDelayed(foldRun, 3000) }
+            pb.contentDescription = "Pause. Stops scrolling"
+            pauseBtns = pauseBtns + pb
+            addView(pb, android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8); gravity = Gravity.CENTER_HORIZONTAL })
         }
         pill.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
         fbarRight = if (pr.contains("fbar_right")) pr.getBoolean("fbar_right", true) else sideRight
@@ -384,7 +394,7 @@ class CaptureService : Service() {
         styleAuto()
         auto.setOnClickListener { it.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP)
             if (ScrollService.instance == null) {
-                if (ScrollService.enabledInSettings(this)) toast("Accessibility shows ON but Android has stopped the service. Switch ScrOllOn off and on again.")
+                if (ScrollService.enabledInSettings(this)) toast("Accessibility shows ON but Android has stopped the service. Switch ScrollRSI off and on again.")
                 else toast("Auto-scroll needs Accessibility. Read the notice first.")
                 hideMenu()
                 app.vocr.DisclosureActivity.openAccessibility(this)
@@ -484,7 +494,7 @@ class CaptureService : Service() {
                 if (cv != null && !recording) return@postDelayed
                 try {
                     r.start()
-                    recording = true; starting = false; app.vocr.Haptics.recStart(this)
+                    recording = true; starting = false; paused = false; pauseCount = 0; pauseMs = 0L; app.vocr.Haptics.recStart(this)
                     setWidgetRecording()
                     if (prefs(this).getBoolean("autoscroll", false) && ScrollService.instance != null) startAutoScroll()
                 } catch (e: Throwable) {
@@ -521,12 +531,43 @@ class CaptureService : Service() {
     private fun capMs(): Long { val l = speedLevel(); val base = prefs(this).getInt("scrollcapsec", 300) * 1000L
         return if (l >= 10) base else minOf(1_800_000L, maxOf(base, (base * 0.6 / crawlSpeed(l.coerceAtLeast(1))).toLong())) }
     private var pausedSince = 0L
+    // Pause button (speed bar): freezes the swipes, the bottom check and the time cap; during a take it also pauses the recording itself.
+    private var paused = false; private var pauseT0 = 0L; private var pauseCount = 0; private var pauseMs = 0L
+    private var pauseBtns: List<TextView> = emptyList()
+    private fun canPause() = recording || readMode
+    private fun pauseLabel() = if (paused) "Resume" else "Pause"
+    private fun refreshPauseUi() {
+        pauseBtns = pauseBtns.filter { it.isAttachedToWindow }
+        pauseBtns.forEach { b -> b.text = pauseLabel(); b.contentDescription = if (paused) "Resume. Continues scrolling" + (if (recording) " and recording" else "") else "Pause. Stops scrolling" + (if (recording) " and recording" else "") }
+        widget?.apply {
+            if (paused) { label = "PAUSED"; labelSp = 7f; alpha = 0.85f; fill = Color.parseColor("#3A3B42") }
+            else if (recording) { label = "STOP"; labelSp = 9f; alpha = 0.55f; fill = Color.parseColor("#E5484D") }
+            else if (readMode) { label = "STOP"; labelSp = 9f; alpha = 0.7f; fill = Color.parseColor("#3A3B42") }
+            invalidate()
+        }
+    }
+    private fun togglePause() {
+        if (!canPause()) return
+        if (!paused) {
+            paused = true; pauseT0 = System.currentTimeMillis(); pauseCount++
+            if (recording) { val ok = runCatching { recorder?.pause() }.isSuccess; if (!ok) toast("Could not pause the recording; it keeps recording. Scrolling is paused.") }
+        } else {
+            paused = false; pauseMs += System.currentTimeMillis() - pauseT0
+            if (recording) runCatching { recorder?.resume() }
+        }
+        refreshPauseUi()
+    }
+    /** Closes an open pause (called when scrolling or the take ends) and resets the per-take counters. */
+    private fun endPauseTracking(keepCounts: Boolean) {
+        if (paused) { pauseMs += System.currentTimeMillis() - pauseT0; paused = false }
+        if (!keepCounts) { pauseCount = 0; pauseMs = 0L }
+    }
     private var lastSwipeMs = 740L   // length of the latest swipe cycle (flick + settle at speed 10, the whole drag at slower speeds)
     private fun scrollStep() {
         val svc = ScrollService.instance
         if (!scrolling || !active() || svc == null) return
         val lvl = speedLevel()
-        if (lvl == 0) {   // stopped: wait, and do not let the time cap run while paused
+        if (lvl == 0 || paused) {   // stopped or paused: wait, and do not let the time cap or the bottom check run
             if (pausedSince == 0L) pausedSince = System.currentTimeMillis()
             ui.postDelayed(scrollRun, 400); return
         }
@@ -545,7 +586,7 @@ class CaptureService : Service() {
             val dist = (v * 4.0).coerceIn(0.2, (SLOW_Y0 - 0.06f).toDouble())   // screens per drag; the drag starts at SLOW_Y0 and must end above y=0.06 (a negative end point crashes the gesture builder)
             val dur = (dist / v * 1000).toLong()               // constant speed, no fling at the lift
             lastSwipeMs = dur + 120L
-            for (k in 1..(dur / 1500L).toInt()) ui.postDelayed({ if (scrolling && active() && speedLevel() > 0) app.vocr.Haptics.autoPulse(this) }, k * 1500L)   // gentle pulse every ~1.5 s during a slow drag
+            for (k in 1..(dur / 1500L).toInt()) ui.postDelayed({ if (scrolling && active() && speedLevel() > 0 && !paused) app.vocr.Haptics.autoPulse(this) }, k * 1500L)   // gentle pulse every ~1.5 s during a slow drag
             svc.swipe(m.widthPixels, m.heightPixels, SLOW_Y0, (SLOW_Y0 - dist).toFloat(), dur, startX(SLOW_Y0)) { ok ->
                 if (ok) swipes++
                 ui.postDelayed({ checkBottom(svc) }, 120L)
@@ -572,6 +613,7 @@ class CaptureService : Service() {
         svc.thumb { t ->
             ui.post {
                 if (!scrolling || !active()) return@post
+                if (paused) { ui.postDelayed(scrollRun, 400); return@post }   // a pause can never trigger the bottom stop
                 val prev = lastThumb
                 if (t != null && prev != null) {
                     var d = 0L; for (i in t.indices) d += Math.abs(t[i] - prev[i])
@@ -608,7 +650,7 @@ class CaptureService : Service() {
     private fun startReadMode() {
         if (recording) { toast("Stop recording first"); return }
         if (readMode) { toast("Already scrolling - tap the bubble to stop"); return }
-        if (ScrollService.instance == null) { toast("Turn on Auto-scroll in ScrOllOn Settings first"); return }
+        if (ScrollService.instance == null) { toast("Turn on Auto-scroll in ScrollRSI Settings first"); return }
         readMode = true; syncSecure(); pausedSince = 0L
         widget?.apply { label = "STOP"; alpha = 0.7f; labelSp = 9f; fill = Color.parseColor("#3A3B42"); ring = -1f; invalidate() }
         lp?.let { it.width = dp(40); it.height = dp(40); widget?.let { w -> runCatching { wm?.updateViewLayout(w, it) } } }
@@ -616,14 +658,16 @@ class CaptureService : Service() {
         startAutoScroll()
         showFloatBar()
     }
-    private fun stopReadMode() { if (!readMode) return; readMode = false; hidePace(); hideFloatBar(); stopAutoScroll(); setWidgetIdle(); syncSecure(); ui.post { refreshQueueUi() } }
+    private fun stopReadMode() { if (!readMode) return; endPauseTracking(false); readMode = false; hidePace(); hideFloatBar(); stopAutoScroll(); setWidgetIdle(); syncSecure(); ui.post { refreshQueueUi() } }
 
     private fun stopRecording() {
         if (!recording) return
         runCatching { stopAutoScroll() }
+        endPauseTracking(true)
         recording = false; starting = false; syncSecure()
         cover?.remove()
         val f = recFile
+        app.vocr.VocrApp.setPauseNote(f, pauseCount, pauseMs); pauseCount = 0; pauseMs = 0L
         val ok = runCatching { recorder?.stop() }.isSuccess
         releaseRecording()
         setWidgetIdle()

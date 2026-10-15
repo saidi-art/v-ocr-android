@@ -60,27 +60,27 @@ jobs:
           arch: x86_64
           script: |
             adb install -r app/build/outputs/apk/debug/app-debug.apk
-            adb shell am start -n app.vocr/.MainActivity
+            adb shell am start -n app.scrollrsi/app.vocr.MainActivity
             sleep 8
             mkdir -p shots
             adb exec-out screencap -p > shots/home.png
             adb logcat -d -b crash > shots/crash.txt || true
             adb logcat -d | grep -E 'AndroidRuntime|FATAL|vocr' | tail -80 > shots/logcat.txt || true
-            adb shell am force-stop app.vocr
-            adb shell am start -n app.vocr/.MainActivity --ez glassdemo true
+            adb shell am force-stop app.scrollrsi
+            adb shell am start -n app.scrollrsi/app.vocr.MainActivity --ez glassdemo true
             sleep 6
             adb exec-out screencap -p > shots/glass.png
-            adb shell am force-stop app.vocr
-            adb shell am start -n app.vocr/.MainActivity --ez queue true
+            adb shell am force-stop app.scrollrsi
+            adb shell am start -n app.scrollrsi/app.vocr.MainActivity --ez queue true
             sleep 25
             adb exec-out screencap -p > shots/queue.png
             adb logcat -d | grep -E 'AndroidRuntime|FATAL' | tail -30 > shots/queuelog.txt || true
-            adb shell am force-stop app.vocr
-            adb shell am start -n app.vocr/.MainActivity --ez demo true
+            adb shell am force-stop app.scrollrsi
+            adb shell am start -n app.scrollrsi/app.vocr.MainActivity --ez demo true
             sleep 150
             adb exec-out screencap -p > shots/strips.png
-            adb shell am force-stop app.vocr
-            adb shell am start -n app.vocr/.MainActivity --ez demo true --ez read true
+            adb shell am force-stop app.scrollrsi
+            adb shell am start -n app.scrollrsi/app.vocr.MainActivity --ez demo true --ez read true
             sleep 420
             adb exec-out screencap -p > shots/text.png
       - name: Name artifacts

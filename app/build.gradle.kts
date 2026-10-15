@@ -7,12 +7,12 @@ android {
     namespace = "app.vocr"
     compileSdk = 36
     defaultConfig {
-        applicationId = "app.vocr"
+        applicationId = "app.scrollrsi"   // permanent Play package ID; the code namespace stays app.vocr
         minSdk = 29
         targetSdk = 36
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
-        versionCode = 69
-        versionName = "0.10.7-t2"
+        versionCode = 70
+        versionName = "0.10.8-t1"
     }
     val ksPath = System.getenv("VOCR_KS_PATH")
     signingConfigs {

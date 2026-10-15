@@ -5,18 +5,18 @@ import android.content.Context
 import android.net.Uri
 import android.provider.MediaStore
 
-/** Titles a result by its content and saves it as Downloads/V-OCR/<title>.txt. Shared by the app flow and the recorder. */
+/** Titles a result by its content and saves it as Downloads/ScrollRSI/<title>.txt. Shared by the app flow and the recorder. */
 object Saver {
     data class Saved(val title: String, val uri: Uri?, val error: String = "")
 
     fun save(ctx: Context, text: String): Saved {
         val stamp = java.text.SimpleDateFormat("yyyy-MM-dd HH-mm", java.util.Locale.US).format(java.util.Date())
         val dict = runCatching { ctx.assets.open("words.txt").use { String(it.readBytes(), Charsets.UTF_8) }.split("\n").map { it.trim().lowercase() }.filter { it.isNotEmpty() }.toHashSet() }.getOrNull()
-        val title = Title.from(text, "V-OCR $stamp", dict)
+        val title = Title.from(text, "ScrollRSI $stamp", dict)
         val cv = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, "$title.txt")
             put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
-            put(MediaStore.MediaColumns.RELATIVE_PATH, "Download/V-OCR")
+            put(MediaStore.MediaColumns.RELATIVE_PATH, "Download/ScrollRSI")
         }
         var err = ""
         val uri = runCatching {

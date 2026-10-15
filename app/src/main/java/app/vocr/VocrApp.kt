@@ -46,6 +46,11 @@ class VocrApp : Application() {
         /** True when the system animation scale is 0 (Reduce motion / animations off): skip springs and slides. */
         fun reducedMotion(): Boolean = runCatching { android.provider.Settings.Global.getFloat(instance!!.contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f }.getOrDefault(false)
 
+        /** Pauses of a recording, by recording file name; added to that take's footer. */
+        private val pauseNotes = java.util.concurrent.ConcurrentHashMap<String, String>()
+        fun setPauseNote(f: File?, count: Int, ms: Long) { if (f != null && count > 0) pauseNotes[f.name] = "Pauses: $count, ${ms / 1000}s paused in total (the video does not include them).\n" }
+        fun takePauseNote(f: File?): String? = f?.let { pauseNotes.remove(it.name) }
+
         fun lastError(): String? = runCatching { file()?.takeIf { it.exists() }?.readText()?.take(1800) }.getOrNull()
     }
 }

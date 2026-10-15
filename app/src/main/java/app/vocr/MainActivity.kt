@@ -360,17 +360,17 @@ fun TextScreen(r: ReadResult, onBack: () -> Unit) {
         Text("Text from ${r.strips} strips", color = TextMain, fontSize = 28.sp, fontWeight = FontWeight.SemiBold, fontFamily = DisplayFont)
         Text("${r.rawLines} lines read, ${r.mergedLines} after removing overlap. Took ${r.ms / 1000.0}s  (${r.detail})", color = Muted, fontSize = 13.sp)
         if (r.savedTitle.isNotEmpty())
-            Text(if (r.savedOk) "Saved to Downloads/V-OCR/${r.savedTitle}.txt" else "Could not save the file (use Copy or Share)", color = Success, fontSize = 13.sp)
+            Text(if (r.savedOk) "Saved to Downloads/ScrollRSI/${r.savedTitle}.txt" else "Could not save the file (use Copy or Share)", color = Success, fontSize = 13.sp)
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = onBack, colors = ButtonDefaults.buttonColors(containerColor = Btn2, contentColor = TextMain)) { Text("Back") }
             Button(onClick = {
                 val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                cm.setPrimaryClip(android.content.ClipData.newPlainText("V-OCR", r.text))
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("ScrollRSI", r.text))
             }, colors = ButtonDefaults.buttonColors(containerColor = Violet, contentColor = OnBronze)) { Text("Copy") }
             Button(onClick = {
                 // Share as an attached .txt (not pasted text), so chat apps receive a file.
-                val name = (r.savedTitle.ifEmpty { "V-OCR" }).replace(Regex("[^A-Za-z0-9 ._-]"), "_") + ".txt"
+                val name = (r.savedTitle.ifEmpty { "ScrollRSI" }).replace(Regex("[^A-Za-z0-9 ._-]"), "_") + ".txt"
                 val dir = java.io.File(ctx.cacheDir, "share").apply { mkdirs(); listFiles()?.forEach { it.delete() } }
                 val f = java.io.File(dir, name).apply { writeText(r.text) }
                 val uri = androidx.core.content.FileProvider.getUriForFile(ctx, ctx.packageName + ".share", f)
@@ -430,7 +430,7 @@ fun QueueList() {
                         0 -> Text("Waiting", color = Muted, fontSize = 12.sp)
                         1 -> { LinearProgressIndicator(progress = { j.frac }, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), color = Violet, trackColor = Card); Text(j.stage, color = Muted, fontSize = 12.sp) }
                         2 -> {
-                            Text("${j.lines} lines in ${j.secs}s - saved to Downloads/V-OCR", color = Success, fontSize = 12.sp)
+                            Text("${j.lines} lines in ${j.secs}s - saved to Downloads/ScrollRSI", color = Success, fontSize = 12.sp)
                             val u = j.result
                             if (u != null) Row(horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.padding(top = 4.dp)) {
                                 Text("Open", color = Lilac, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.hapticClickable {
@@ -454,15 +454,15 @@ fun QueueList() {
     }
 }
 
-/** Opens Downloads/V-OCR in the system Files app; falls back to the Downloads view if the folder link is not handled. */
+/** Opens Downloads/ScrollRSI in the system Files app; falls back to the Downloads view if the folder link is not handled. */
 fun openFolder(ctx: android.content.Context) {
     val flags = if (ctx is android.app.Activity) 0 else android.content.Intent.FLAG_ACTIVITY_NEW_TASK   // same task when launched from an Activity, so Back returns here
-    val dir = android.net.Uri.parse("content://com.android.externalstorage.documents/document/primary%3ADownload%2FV-OCR")
+    val dir = android.net.Uri.parse("content://com.android.externalstorage.documents/document/primary%3ADownload%2FScrollRSI")
     val tries = listOf(
         android.content.Intent(android.content.Intent.ACTION_VIEW).setDataAndType(dir, "vnd.android.document/directory").addFlags(flags),
         android.content.Intent(android.content.Intent.ACTION_VIEW).setDataAndType(dir, "resource/folder").addFlags(flags),
         android.content.Intent(android.app.DownloadManager.ACTION_VIEW_DOWNLOADS).addFlags(flags)
     )
     for (i in tries) { if (runCatching { ctx.startActivity(i) }.isSuccess) return }
-    android.widget.Toast.makeText(ctx, "Files are in Downloads/V-OCR", android.widget.Toast.LENGTH_LONG).show()
+    android.widget.Toast.makeText(ctx, "Files are in Downloads/ScrollRSI", android.widget.Toast.LENGTH_LONG).show()
 }

@@ -12,6 +12,7 @@ import androidx.compose.runtime.*
 import java.io.File
 import app.vocr.capture.QueueService
 import app.vocr.Haptics
+import app.vocr.VocrApp
 
 /**
  * One process-wide queue for everything that needs reading: files picked on the main page and recordings from the widget.
@@ -122,8 +123,9 @@ object JobQueue {
                 if (now - lastNote > 1500) { lastNote = now; notifyStatus(app) }
                 listener?.invoke()
             }
-            val sv = Saver.save(app, rd.text.trimEnd() + "\n\n" + RunStats.footer(res, rd))
-            if (sv.uri == null) throw RuntimeException("could not save the text file to Download/V-OCR (" + sv.error + ")")
+            val ft = RunStats.footer(res, rd).let { b -> VocrApp.takePauseNote(job.tmp)?.let { n -> b + (if (b.endsWith("\n")) "" else "\n") + n } ?: b }
+            val sv = Saver.save(app, rd.text.trimEnd() + "\n\n" + ft)
+            if (sv.uri == null) throw RuntimeException("could not save the text file to Download/ScrollRSI (" + sv.error + ")")
             job.title = sv.title; job.result = sv.uri; job.lines = rd.mergedLines; job.secs = (rd.ms / 1000).toInt()
             job.stage = "Done"; job.state = 2; job.frac = 1f; Haptics.saved(app)
             postDone(app, job, rd.text)
@@ -132,7 +134,7 @@ object JobQueue {
         } catch (e: Throwable) {
             job.state = 3; Haptics.failure(app); job.stage = "Failed: " + (e.message ?: e.javaClass.simpleName)
             nm(app).notify(100 + job.id, Notification.Builder(app, CH_DONE).setSmallIcon(android.R.drawable.stat_notify_error)
-                .setContentTitle("ScrOllOn could not read " + job.label).setContentText(e.message ?: e.javaClass.simpleName).setAutoCancel(true).build())
+                .setContentTitle("ScrollRSI could not read " + job.label).setContentText(e.message ?: e.javaClass.simpleName).setAutoCancel(true).build())
         } finally {
             Sfx.scan(app, false); if (job.state != 2) Sfx.stopCue(app)
             job.tmp?.delete(); runCatching { stripDir?.deleteRecursively() }; runCatching { if (wl.isHeld) wl.release() }
@@ -157,7 +159,7 @@ object JobQueue {
         channels(c)
         val cur = current(); val waiting = jobs.count { it.state == 0 }
         val text = if (cur == null) (if (waiting > 0) "$waiting waiting" else "Finishing") else cur.label + " - " + cur.stage + (if (waiting > 0) "  (+$waiting waiting)" else "")
-        val b = Notification.Builder(c, CH_STATUS).setSmallIcon(android.R.drawable.ic_menu_camera).setContentTitle("ScrOllOn queue").setContentText(text).setOngoing(true)
+        val b = Notification.Builder(c, CH_STATUS).setSmallIcon(android.R.drawable.ic_menu_camera).setContentTitle("ScrollRSI queue").setContentText(text).setOngoing(true)
         if (cur != null) b.setProgress(100, (cur.frac * 100).toInt().coerceIn(0, 100), false)
         return b.build()
     }

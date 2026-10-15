@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="scroll_service_desc">ScrOllOn auto-scroll: swipes the screen up at a steady pace while you record. After each swipe it takes a tiny grey 48x96 screenshot, kept only in memory, to detect the bottom of the page. It does not read text, and nothing leaves your phone.</string>
+    <string name="scroll_service_desc">ScrollRSI auto-scroll: swipes the screen up at a steady pace while you record. After each swipe it takes a tiny grey 48x96 screenshot, kept only in memory, to detect the bottom of the page. It does not read text, and nothing leaves your phone.</string>
 </resources>

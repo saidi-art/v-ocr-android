@@ -43,7 +43,7 @@ import androidx.compose.foundation.selection.selectableGroup
 val GlassBackdrop: Brush = Brush.verticalGradient(listOf(Ground, Ground))
 
 /**
- * ScrOllOn glass: translucent fill over the soft chrome backdrop (solid fallback under API 31, per the sheet), a metallic edge
+ * ScrollRSI glass: translucent fill over the soft chrome backdrop (solid fallback under API 31, per the sheet), a metallic edge
  * (bright top, dark bottom, diagonal sheen) and a faint top highlight. [tint] darkens it for inner items.
  */
 fun Modifier.glassPanel(shape: Shape = RoundedCornerShape(24.dp), tint: Color = Card, strong: Boolean = false): Modifier {

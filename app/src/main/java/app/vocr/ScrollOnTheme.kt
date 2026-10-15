@@ -23,7 +23,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
 
-// ScrOllOn look: graphite ground, chrome and bronze. Tokens follow the design sheet (v2).
+// ScrollRSI look: graphite ground, chrome and bronze. Tokens follow the design sheet (v2).
 /** Two palettes: Graphite (the original) and Paper (ink on cream, tokens from the production deck, "Paper tokens"). Palette only. */
 object Pal {
     var paper by mutableStateOf(false)
@@ -92,11 +92,11 @@ val ScrollOnTypography = Typography(
 fun Label(text: String, modifier: Modifier = Modifier, color: Color = Lilac, size: TextUnit = 11.sp) =
     Text(text.uppercase(), modifier = modifier, color = color, fontFamily = BodyFont, fontWeight = FontWeight.ExtraBold, fontSize = size, letterSpacing = (size.value * 0.22f).sp)
 
-/** ScrOllOn wordmark: Cormorant Garamond with the two O's in bronze. */
+/** ScrollRSI wordmark (working name): Cormorant Garamond, "RSI" in bronze. */
 @Composable
 fun Wordmark(size: TextUnit = 44.sp) {
     Row {
-        for ((t, c) in listOf("Scr" to TextMain, "O" to WordO, "ll" to TextMain, "O" to WordO, "n" to TextMain))
+        for ((t, c) in listOf("Scroll" to TextMain, "RSI" to WordO))
             Text(t, fontFamily = DisplayFont, fontWeight = FontWeight.SemiBold, fontSize = size, color = c)
     }
 }

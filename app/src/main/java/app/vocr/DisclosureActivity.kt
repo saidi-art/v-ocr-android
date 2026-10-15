@@ -60,7 +60,7 @@ fun Disclosure(onAgree: () -> Unit, onDecline: () -> Unit) {
             Text("Auto-scroll needs Accessibility", color = TextMain, fontSize = 32.sp, lineHeight = 34.sp, fontWeight = FontWeight.SemiBold, fontFamily = DisplayFont)
             Spacer(Modifier.height(12.dp))
             Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(20.dp)).padding(18.dp)) {
-                Text("What ScrOllOn does with this permission", color = Lilac, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                Text("What ScrollRSI does with this permission", color = Lilac, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(8.dp))
                 Text(
                     "1. It performs swipe gestures on your screen to scroll the page for you while you record.\n\n" +
@@ -75,15 +75,15 @@ fun Disclosure(onAgree: () -> Unit, onDecline: () -> Unit) {
                 Spacer(Modifier.height(8.dp))
                 Text(
                     "It does not read text, passwords or anything you type, and it does not see other apps' content. " +
-                        "Nothing is sent anywhere: ScrOllOn has no internet permission and reads text on your phone only.",
+                        "Nothing is sent anywhere: ScrollRSI has no internet permission and reads text on your phone only.",
                     color = TextMain, fontSize = 14.sp, lineHeight = 20.sp
                 )
             }
             Spacer(Modifier.height(12.dp))
             Text(
-                "This is optional. ScrOllOn works without it; you just scroll by hand while recording. " +
-                    "If you agree, Android's Accessibility settings open next. Turn on \"ScrOllOn\" there. You can turn it off at any time.\n\n" +
-                    "If Android refuses (\"App was denied access\", or ScrOllOn is greyed out as \"Controlled by restricted setting\"): tap Close, go to Settings > Apps > ScrOllOn > three dots at the top right > Allow restricted settings, then turn it on in Accessibility again. The manual has the full steps.",
+                "This is optional. ScrollRSI works without it; you just scroll by hand while recording. " +
+                    "If you agree, Android's Accessibility settings open next. Turn on \"ScrollRSI\" there. You can turn it off at any time.\n\n" +
+                    "If Android refuses (\"App was denied access\", or ScrollRSI is greyed out as \"Controlled by restricted setting\"): tap Close, go to Settings > Apps > ScrollRSI > three dots at the top right > Allow restricted settings, then turn it on in Accessibility again. The manual has the full steps.",
                 color = Muted, fontSize = 13.sp, lineHeight = 19.sp
             )
         }

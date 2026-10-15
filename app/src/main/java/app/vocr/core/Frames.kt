@@ -19,8 +19,8 @@ object RunStats {
         val ocr = res.strips.size
         val rs = rd.ms / 1000.0
         return buildString {
-            append("--- V-OCR run stats ---\n")
-            append("App: ScrOllOn ${app.vocr.VocrApp.version()}\n")
+            append("--- ScrollRSI run stats ---\n")
+            append("App: ScrollRSI ${app.vocr.VocrApp.version()}\n")
             append("Video: ${res.seconds}s. Frames sampled: ${res.framesTotal}.\n")
             append("Skipped: ${res.dup} total = ${res.wholeSkips} whole-screen still + ${res.regionSkips} region-gated (video up top) + $accum accumulating while scrolling.\n")
             append("Kept for OCR: $ocr strips (${res.full} full, ${res.cropped} cropped).\n")

@@ -25,7 +25,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-/** In-app list of saved captures (Downloads/V-OCR) with a viewer. Back always returns to the app home. */
+/** In-app list of saved captures (Downloads/ScrollRSI) with a viewer. Back always returns to the app home. */
 class SavedActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -39,7 +39,7 @@ private fun loadItems(ctx: android.content.Context): List<Item> {
     val out = ArrayList<Item>()
     val proj = arrayOf(MediaStore.MediaColumns._ID, MediaStore.MediaColumns.DISPLAY_NAME, MediaStore.MediaColumns.SIZE, MediaStore.MediaColumns.DATE_ADDED)
     runCatching {
-        ctx.contentResolver.query(MediaStore.Downloads.EXTERNAL_CONTENT_URI, proj, "${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ?", arrayOf("Download/V-OCR%"), "${MediaStore.MediaColumns.DATE_ADDED} DESC")?.use { c ->
+        ctx.contentResolver.query(MediaStore.Downloads.EXTERNAL_CONTENT_URI, proj, "${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ?", arrayOf("Download/ScrollRSI%"), "${MediaStore.MediaColumns.DATE_ADDED} DESC")?.use { c ->
             while (c.moveToNext()) out.add(Item(ContentUris.withAppendedId(MediaStore.Downloads.EXTERNAL_CONTENT_URI, c.getLong(0)), c.getString(1) ?: "?", c.getLong(2), c.getLong(3) * 1000))
         }
     }
@@ -94,7 +94,7 @@ private fun SavedScreen(onExit: () -> Unit) {
             }
             Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Button(onClick = {
-                    (ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager).setPrimaryClip(android.content.ClipData.newPlainText("ScrOllOn", text))
+                    (ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager).setPrimaryClip(android.content.ClipData.newPlainText("ScrollRSI", text))
                     android.widget.Toast.makeText(ctx, "Copied", android.widget.Toast.LENGTH_SHORT).show()
                 }, colors = ButtonDefaults.buttonColors(containerColor = sec, contentColor = TextMain), modifier = Modifier.weight(1f)) { Text("Copy") }
                 Button(onClick = {

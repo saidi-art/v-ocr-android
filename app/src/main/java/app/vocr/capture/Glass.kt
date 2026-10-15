@@ -40,6 +40,7 @@ internal class Bubble(ctx: Context) : View(ctx) {
         info.contentDescription = when {
             label == "REC" -> "Record. Starts a screen recording"
             label == "STOP" -> "Stop"
+            label == "PAUSED" -> "Paused. Tap to stop"
             label == "SCAN" -> "Reading the recording"
             label.endsWith("%") -> "Reading the recording, $label done"
             else -> label

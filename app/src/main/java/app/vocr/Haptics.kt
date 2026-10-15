@@ -7,7 +7,7 @@ import android.os.Vibrator
 import android.view.HapticFeedbackConstants
 import android.view.View
 
-/** Haptic vocabulary from the ScrOllOn sheet, with API fallbacks. View-based for taps in the app, Vibrator-based for the service and queue. */
+/** Haptic vocabulary from the ScrollRSI sheet, with API fallbacks. View-based for taps in the app, Vibrator-based for the service and queue. */
 object Haptics {
     fun secondary(v: View) { v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP) }
     fun primary(v: View) { v.performHapticFeedback(if (Build.VERSION.SDK_INT >= 23) HapticFeedbackConstants.CONTEXT_CLICK else HapticFeedbackConstants.KEYBOARD_TAP) }
