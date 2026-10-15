@@ -74,12 +74,18 @@ class CaptureService : Service() {
     private fun secureFlag() = if (wantSecure()) WindowManager.LayoutParams.FLAG_SECURE else 0
     private fun syncSecure() {
         val apply = Runnable {
-            val p = lp ?: return@Runnable; val w = widget ?: return@Runnable
-            val want = wantSecure(); val has = (p.flags and WindowManager.LayoutParams.FLAG_SECURE) != 0
-            if (want != has) {
-                p.flags = if (want) p.flags or WindowManager.LayoutParams.FLAG_SECURE else p.flags and WindowManager.LayoutParams.FLAG_SECURE.inv()
-                runCatching { wm?.updateViewLayout(w, p) }
+            val want = wantSecure()
+            fun sync(v: View?, p: WindowManager.LayoutParams?) {
+                if (v == null || p == null) return
+                val has = (p.flags and WindowManager.LayoutParams.FLAG_SECURE) != 0
+                if (want != has) {
+                    p.flags = if (want) p.flags or WindowManager.LayoutParams.FLAG_SECURE else p.flags and WindowManager.LayoutParams.FLAG_SECURE.inv()
+                    runCatching { wm?.updateViewLayout(v, p) }
+                }
             }
+            sync(widget, lp)
+            // menus and the pace bar created while idle must follow the same rule once a take or Scroll starts
+            (menu + listOfNotNull(pace, addChip, fbar)).forEach { v -> sync(v, v.layoutParams as? WindowManager.LayoutParams) }
         }
         if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) apply.run() else ui.post(apply)
     }
@@ -221,8 +227,8 @@ class CaptureService : Service() {
     private var cover: Cover? = null
     private var pace: View? = null
     private fun hidePace() { pace?.let { v -> runCatching { wm?.removeView(v) } }; pace = null }
-    /** The chips go after a few seconds; the pace bar stays while Scroll is ON so the speed can be changed mid-scroll. */
-    private fun hideMenu() { ui.removeCallbacks(hideMenuRun); menu.forEach { v -> runCatching { wm?.removeView(v) } }; menu = emptyList(); if (!readMode) hidePace() }
+    /** The menu (chips and its pace bar) goes after a few seconds. While Scroll is ON the speed lives in the floating bar instead. */
+    private fun hideMenu() { ui.removeCallbacks(hideMenuRun); menu.forEach { v -> runCatching { wm?.removeView(v) } }; menu = emptyList(); hidePace() }
     private fun showPace(p: WindowManager.LayoutParams) {
         hidePace()
         val bar = android.widget.SeekBar(this).apply {
@@ -232,10 +238,10 @@ class CaptureService : Service() {
             progressBackgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#55FFFFFF"))
             setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(sb: android.widget.SeekBar?, v: Int, fromUser: Boolean) {
-                    if (fromUser) { prefs(this@CaptureService).edit().putInt("scrollspeed", v).apply(); ui.removeCallbacks(hideMenuRun); if (!readMode) ui.postDelayed(hideMenuRun, 4000) }
+                    if (fromUser) { prefs(this@CaptureService).edit().putInt("scrollspeed", v).apply(); ui.removeCallbacks(hideMenuRun); ui.postDelayed(hideMenuRun, 4000) }
                 }
                 override fun onStartTrackingTouch(sb: android.widget.SeekBar?) { ui.removeCallbacks(hideMenuRun) }
-                override fun onStopTrackingTouch(sb: android.widget.SeekBar?) { sb?.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP); if (!readMode) ui.postDelayed(hideMenuRun, 4000) }
+                override fun onStopTrackingTouch(sb: android.widget.SeekBar?) { sb?.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP); ui.postDelayed(hideMenuRun, 4000) }
             })
         }
         val pill = android.widget.LinearLayout(this).apply {
@@ -252,9 +258,99 @@ class CaptureService : Service() {
     }
     private val hideMenuRun = Runnable { hideMenu() }
 
+    // ---- floating speed bar (Scroll ON only): draggable, folds to an edge handle after 3 s, stays until Scroll ends ------------------
+    private var fbar: View? = null
+    private var fbarLp: WindowManager.LayoutParams? = null
+    private var fbarFolded = false
+    private var fbarRight = true
+    private val foldRun = Runnable { foldFloatBar(true) }
+    private fun hideFloatBar() { ui.removeCallbacks(foldRun); fbar?.let { v -> runCatching { wm?.removeView(v) } }; fbar = null; fbarLp = null }
+    private fun fbarOpenX(): Int { val w = fbar?.measuredWidth ?: dp(220); return if (fbarRight) screenW() - w - dp(6) else dp(6) }
+    private fun fbarFoldX(): Int { val w = fbar?.measuredWidth ?: dp(220); return if (fbarRight) screenW() - dp(18) else -(w - dp(18)) }
+    private fun slideFloat(x: Int) {
+        val q = fbarLp ?: return; val v = fbar ?: return
+        android.animation.ValueAnimator.ofInt(q.x, x).apply {
+            duration = 180
+            addUpdateListener { q.x = it.animatedValue as Int; runCatching { wm?.updateViewLayout(v, q) } }
+            start()
+        }
+    }
+    private fun foldFloatBar(on: Boolean) {
+        ui.removeCallbacks(foldRun)
+        val v = fbar ?: return
+        fbarFolded = on
+        v.alpha = if (on) 0.65f else 1f
+        slideFloat(if (on) fbarFoldX() else fbarOpenX())
+        if (!on) ui.postDelayed(foldRun, 3000)
+    }
+    private fun showFloatBar() {
+        hideFloatBar()
+        val pr = prefs(this)
+        val bar = android.widget.SeekBar(this).apply {
+            max = 10; progress = speedLevel()
+            val bronze = android.content.res.ColorStateList.valueOf(accentC())
+            progressTintList = bronze; thumbTintList = bronze
+            progressBackgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#55FFFFFF"))
+            setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(sb: android.widget.SeekBar?, v: Int, fromUser: Boolean) {
+                    if (fromUser) { pr.edit().putInt("scrollspeed", v).apply(); ui.removeCallbacks(foldRun) }
+                }
+                override fun onStartTrackingTouch(sb: android.widget.SeekBar?) { ui.removeCallbacks(foldRun) }
+                override fun onStopTrackingTouch(sb: android.widget.SeekBar?) { sb?.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP); ui.removeCallbacks(foldRun); ui.postDelayed(foldRun, 3000) }
+            })
+        }
+        val pill = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(dp(14), dp(8), dp(14), dp(6))
+            background = GradientDrawable().apply { setColor(if (app.vocr.Pal.paper) Color.parseColor("#EBF9F6F0") else Color.parseColor("#E625262B")); cornerRadius = dp(18).toFloat() }
+            addView(android.widget.TextView(this@CaptureService).apply { text = "Pace  (10 = normal, 0 = pause)  \u2630"; setTextColor(mutedC()); textSize = 11f })
+            addView(bar, android.widget.LinearLayout.LayoutParams(dp(190), android.widget.LinearLayout.LayoutParams.WRAP_CONTENT))
+        }
+        pill.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+        fbarRight = if (pr.contains("fbar_right")) pr.getBoolean("fbar_right", true) else sideRight
+        val b = lp
+        val maxY = (resources.displayMetrics.heightPixels - pill.measuredHeight - dp(48)).coerceAtLeast(dp(40))
+        val y0 = (if (pr.contains("fbar_y")) pr.getInt("fbar_y", dp(300)) else (b?.y ?: dp(220)) + dp(70)).coerceIn(dp(40), maxY)
+        val q = WindowManager.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or secureFlag(), PixelFormat.TRANSLUCENT).apply { gravity = Gravity.TOP or Gravity.START; x = 0; y = y0 }
+        fbar = pill; fbarLp = q; fbarFolded = false
+        q.x = fbarOpenX()
+        // drag anywhere except the slider; a touch on the folded handle slides the pill back out
+        var sx = 0f; var sy = 0f; var ox = 0; var oy = 0; var moved = false; var wasFolded = false
+        pill.setOnTouchListener { _, e ->
+            when (e.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    ui.removeCallbacks(foldRun); sx = e.rawX; sy = e.rawY; ox = q.x; oy = q.y; moved = false; wasFolded = fbarFolded
+                    if (fbarFolded) foldFloatBar(false)
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (Math.abs(e.rawX - sx) > dp(6) || Math.abs(e.rawY - sy) > dp(6)) moved = true
+                    if (moved) {
+                        q.x = ox + (e.rawX - sx).toInt(); q.y = (oy + (e.rawY - sy).toInt()).coerceIn(dp(40), maxY)
+                        runCatching { wm?.updateViewLayout(pill, q) }
+                    }
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    if (moved) {
+                        fbarRight = q.x + pill.measuredWidth / 2 > screenW() / 2
+                        pr.edit().putBoolean("fbar_right", fbarRight).putInt("fbar_y", q.y).apply()
+                        fbarFolded = false; slideFloat(fbarOpenX()); ui.postDelayed(foldRun, 3000)
+                    } else if (!wasFolded) ui.postDelayed(foldRun, 3000)
+                }
+            }
+            true
+        }
+        runCatching { wm?.addView(pill, q) }
+        ui.postDelayed(foldRun, 3000)
+    }
+
     private fun chip(text: String, bg: Int, onClick: () -> Unit): TextView = glassChip(this, text, bg).apply { setOnClickListener { it.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP); onClick() } }
 
-    private fun overlay(v: View, x: Int, y: Int) {
+    private fun overlay(v: View, x0: Int, y0: Int) {
+        // measure and keep the whole chip on screen (the bubble often sits at an edge)
+        v.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+        val x = x0.coerceIn(dp(4), (screenW() - v.measuredWidth - dp(4)).coerceAtLeast(dp(4)))
+        val y = y0.coerceAtLeast(dp(4))
         val q = WindowManager.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or secureFlag(), PixelFormat.TRANSLUCENT).apply { gravity = Gravity.TOP or Gravity.START; this.x = x; this.y = y }
         runCatching { wm?.addView(v, q) }
@@ -305,13 +401,12 @@ class CaptureService : Service() {
             if (readMode) { stopReadMode(); hideMenu() }
             else {
                 startReadMode()
-                if (readMode) { rd.text = rdText(); styleRd(); ui.removeCallbacks(hideMenuRun); ui.postDelayed(hideMenuRun, 5000) }   // the pace bar below stays visible while Scroll is ON
-                else hideMenu()
+                hideMenu()   // the floating speed bar takes over while Scroll is ON
             }
         }
         overlay(auto, p.x - dp(6), p.y + p.height + dp(46))
         overlay(rd, p.x - dp(6), p.y + p.height + dp(86))
-        showPace(p)
+        if (!readMode) showPace(p)   // in Scroll mode the speed lives in the floating bar
         // Cover is parked (Cover.AVAILABLE = false): no menu entry for now.
         val cv: TextView? = if (Cover.AVAILABLE) {
         val c = chip("Cover", chipC()) {
@@ -333,7 +428,7 @@ class CaptureService : Service() {
 
     private fun closeWidget() { removeWidget(); stopForeground(STOP_FOREGROUND_REMOVE); stopSelf() }
 
-    private fun removeWidget() { hidePace(); cover?.remove(); app.vocr.core.JobQueue.listener = null; hideAddChip(); hideMenu(); ui.removeCallbacks(tuckRun); widget?.let { runCatching { wm?.removeView(it) } }; widget = null }
+    private fun removeWidget() { hidePace(); hideFloatBar(); cover?.remove(); app.vocr.core.JobQueue.listener = null; hideAddChip(); hideMenu(); ui.removeCallbacks(tuckRun); widget?.let { runCatching { wm?.removeView(it) } }; widget = null }
 
     private fun setWidgetIdle() {
         widget?.apply { label = "REC"; alpha = 1f; labelSp = 11f; fill = Color.parseColor("#3A3B42"); ring = -1f; invalidate() }
@@ -502,8 +597,9 @@ class CaptureService : Service() {
         lp?.let { it.width = dp(40); it.height = dp(40); widget?.let { w -> runCatching { wm?.updateViewLayout(w, it) } } }
         tuck(false)
         startAutoScroll()
+        showFloatBar()
     }
-    private fun stopReadMode() { if (!readMode) return; readMode = false; hidePace(); stopAutoScroll(); setWidgetIdle(); ui.post { refreshQueueUi() } }
+    private fun stopReadMode() { if (!readMode) return; readMode = false; hidePace(); hideFloatBar(); stopAutoScroll(); setWidgetIdle(); syncSecure(); ui.post { refreshQueueUi() } }
 
     private fun stopRecording() {
         if (!recording) return
