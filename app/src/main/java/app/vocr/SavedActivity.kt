@@ -24,6 +24,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 
 /** In-app list of saved captures (Downloads/ScrollRSI) with a viewer. Back always returns to the app home. */
 class SavedActivity : ComponentActivity() {
@@ -91,6 +93,14 @@ private fun SavedScreen(onExit: () -> Unit) {
                 Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(20.dp)).padding(18.dp)) {
                     SelectionContainer { Text(text, color = TextMain, fontSize = 14.sp, lineHeight = 20.sp) }
                 }
+            }
+            if (!cur.name.removeSuffix(".txt").endsWith("(clean)")) {
+                Button(onClick = {
+                    val r = app.vocr.core.Saver.saveAs(ctx, cur.name.removeSuffix(".txt") + " (clean)", app.vocr.core.ReadingCopy.make(text))
+                    if (r.uri != null) { items = loadItems(ctx); android.widget.Toast.makeText(ctx, "Clean copy saved. The original is unchanged.", android.widget.Toast.LENGTH_LONG).show() }
+                    else android.widget.Toast.makeText(ctx, "Could not save: " + r.error, android.widget.Toast.LENGTH_LONG).show()
+                }, colors = ButtonDefaults.buttonColors(containerColor = sec, contentColor = TextMain),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).semantics { contentDescription = "Clean copy. Saves a second, tidied file. The original stays unchanged." }) { Text("Clean copy") }
             }
             Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Button(onClick = {

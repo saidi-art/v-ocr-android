@@ -496,6 +496,7 @@ class CaptureService : Service() {
                     r.start()
                     recording = true; starting = false; paused = false; pauseCount = 0; pauseMs = 0L; app.vocr.Haptics.recStart(this)
                     setWidgetRecording()
+                    showFloatBar()   // speed bar + Pause stay on screen during a take too (folds to the edge handle like in Scroll on)
                     if (prefs(this).getBoolean("autoscroll", false) && ScrollService.instance != null) startAutoScroll()
                 } catch (e: Throwable) {
                     cover?.remove(); releaseRecording(); recording = false; starting = false; syncSecure(); setWidgetIdle(); fgIdle("Tap the floating button to record")
@@ -665,6 +666,7 @@ class CaptureService : Service() {
         runCatching { stopAutoScroll() }
         endPauseTracking(true)
         recording = false; starting = false; syncSecure()
+        if (!readMode) hideFloatBar()
         cover?.remove()
         val f = recFile
         app.vocr.VocrApp.setPauseNote(f, pauseCount, pauseMs); pauseCount = 0; pauseMs = 0L
