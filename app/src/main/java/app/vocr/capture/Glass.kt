@@ -34,6 +34,17 @@ internal class Bubble(ctx: Context) : View(ctx) {
     private val pt = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textAlign = Paint.Align.CENTER; isFakeBoldText = true }
     private val pg = Paint(Paint.ANTI_ALIAS_FLAG)
     init { setLayerType(LAYER_TYPE_SOFTWARE, null) }   // setShadowLayer on shapes needs software rendering; the view is tiny
+    override fun onInitializeAccessibilityNodeInfo(info: android.view.accessibility.AccessibilityNodeInfo) {
+        super.onInitializeAccessibilityNodeInfo(info)
+        info.className = "android.widget.Button"
+        info.contentDescription = when {
+            label == "REC" -> "Record. Starts a screen recording"
+            label == "STOP" -> "Stop"
+            label == "SCAN" -> "Reading the recording"
+            label.endsWith("%") -> "Reading the recording, $label done"
+            else -> label
+        }
+    }
     override fun onDraw(c: Canvas) {
         val d = resources.displayMetrics.density; val w = width.toFloat(); val h = height.toFloat()
         val sw = 4f * d; pr.strokeWidth = sw
@@ -87,6 +98,11 @@ internal class AddChip(ctx: Context) : View(ctx) {
     private val pb = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#9A7650") }
     private val pg = Paint(Paint.ANTI_ALIAS_FLAG)
     init { setLayerType(LAYER_TYPE_SOFTWARE, null) }
+    override fun onInitializeAccessibilityNodeInfo(info: android.view.accessibility.AccessibilityNodeInfo) {
+        super.onInitializeAccessibilityNodeInfo(info)
+        info.className = "android.widget.Button"
+        info.contentDescription = if (count > 1) "Add recordings. $count in the queue" else "Add recordings"
+    }
     override fun onDraw(c: Canvas) {
         val d = resources.displayMetrics.density; val w = width.toFloat(); val h = height.toFloat(); val cx = w / 2; val cy = h / 2
         val rad = w / 2 - 4 * d

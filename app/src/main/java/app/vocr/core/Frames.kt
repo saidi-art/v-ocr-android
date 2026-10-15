@@ -27,6 +27,7 @@ object RunStats {
             append("Frame analysis total: ${res.ms / 1000.0}s. ${res.timing}\n")
             append("OCR: %.1fs for $ocr strips (%.2f strips/s). Lines read ${rd.rawLines}, after overlap removal ${rd.mergedLines}.\n".format(rs, if (rs > 0) ocr / rs else 0.0))
             if (res.fpsInfo.isNotEmpty()) append("Sampling: ${res.fpsInfo}\n")
+            app.vocr.VocrApp.lastStop()?.let { append("Last auto-scroll stop: $it") }
             app.vocr.VocrApp.lastError()?.let { append("Last app error on this device (for diagnosis):\n$it\n") }
         }
     }

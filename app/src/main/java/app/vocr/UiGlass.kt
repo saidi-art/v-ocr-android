@@ -31,6 +31,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 
 /** Kept for the screens that still name it. */
 val GlassBackdrop: Brush = Brush.verticalGradient(listOf(Ground, Ground))
@@ -70,7 +77,8 @@ fun Button(
     val view = LocalView.current
     val primary = colors.containerColor == Violet
     val shape = RoundedCornerShape(27.dp)
-    val sc by animateFloatAsState(if (pressed) 0.97f else 1f, if (pressed) spring(0.80f, 800f) else spring(0.55f, 400f), label = "press")
+    val still = remember { app.vocr.VocrApp.reducedMotion() }   // system animations off: no springs
+    val sc by animateFloatAsState(if (pressed) 0.97f else 1f, if (still) androidx.compose.animation.core.snap() else if (pressed) spring(0.80f, 800f) else spring(0.55f, 400f), label = "press")
     androidx.compose.runtime.LaunchedEffect(pressed) { if (pressed && enabled) Haptics.secondary(view) }   // same tick as the floating bubble, on touch-down
     val surface: Modifier = Modifier.bubbleBody(shape, if (primary) Violet else Btn2, pressed, enabled)
     androidx.compose.material3.Button(
@@ -118,3 +126,33 @@ fun Modifier.bubbleBody(shape: Shape, base: Color, pressed: Boolean, enabled: Bo
         }
         .border(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = if (paper) 0.9f else 0.55f), (if (paper) Color(0xFF0C0C0C).copy(alpha = 0.22f) else Color.Black.copy(alpha = 0.30f)))), shape)
 }
+
+
+/** Two-option control: Paper | Graphite, with a small swatch in each segment. Replaces the old toggle. */
+@Composable
+fun ThemeSegmented(paper: Boolean, onPick: (Boolean) -> Unit, modifier: Modifier = Modifier) {
+    val view = LocalView.current
+    val shape = RoundedCornerShape(27.dp)
+    androidx.compose.foundation.layout.Row(
+        modifier.clip(shape).background(TrackOff, shape).padding(3.dp).androidx_selectGroup(),
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+    ) {
+        @Composable
+        fun seg(label: String, isPaper: Boolean, swatch: Color, modifier: Modifier) {
+            val sel = paper == isPaper
+            val m = modifier.heightIn(min = 44.dp).clip(shape)
+                .then(if (sel) Modifier.bubbleBody(shape, Btn2, false) else Modifier)
+                .androidx_selectable(sel) { if (!sel) { Haptics.toggle(view, true); onPick(isPaper) } }
+            androidx.compose.foundation.layout.Row(m, horizontalArrangement = androidx.compose.foundation.layout.Arrangement.Center, verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                androidx.compose.foundation.layout.Box(Modifier.size(13.dp).clip(androidx.compose.foundation.shape.CircleShape).background(swatch).border(1.dp, Muted, androidx.compose.foundation.shape.CircleShape))
+                androidx.compose.foundation.layout.Spacer(Modifier.width(8.dp))
+                androidx.compose.material3.Text(label, color = if (sel) TextMain else Muted, fontSize = 14.sp, fontWeight = if (sel) androidx.compose.ui.text.font.FontWeight.SemiBold else androidx.compose.ui.text.font.FontWeight.Normal)
+            }
+        }
+        seg("Paper", true, Color(0xFFF9F6F0), Modifier.weight(1f))
+        seg("Graphite", false, Color(0xFF2A2B30), Modifier.weight(1f))
+    }
+}
+private fun Modifier.androidx_selectGroup(): Modifier = this.selectableGroup()
+private fun Modifier.androidx_selectable(sel: Boolean, onClick: () -> Unit): Modifier =
+    this.selectable(selected = sel, role = androidx.compose.ui.semantics.Role.RadioButton, onClick = onClick)

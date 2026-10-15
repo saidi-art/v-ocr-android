@@ -73,7 +73,7 @@ class CaptureService : Service() {
     private fun wantSecure() = starting || recording || scrolling || readMode
     private fun secureFlag() = if (wantSecure()) WindowManager.LayoutParams.FLAG_SECURE else 0
     private fun syncSecure() {
-        val apply = Runnable {
+        val apply = Runnable { runCatching {
             val want = wantSecure()
             fun sync(v: View?, p: WindowManager.LayoutParams?) {
                 if (v == null || p == null) return
@@ -86,7 +86,7 @@ class CaptureService : Service() {
             sync(widget, lp)
             // menus and the pace bar created while idle must follow the same rule once a take or Scroll starts
             (menu + listOfNotNull(pace, addChip, fbar)).forEach { v -> sync(v, v.layoutParams as? WindowManager.LayoutParams) }
-        }
+        } }
         if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) apply.run() else ui.post(apply)
     }
     private fun active() = recording || readMode
@@ -163,6 +163,7 @@ class CaptureService : Service() {
 
     private fun slideTo(x: Int) {
         val p = lp ?: return; val w = widget ?: return
+        if (app.vocr.VocrApp.reducedMotion()) { p.x = x; runCatching { wm?.updateViewLayout(w, p) }; return }
         android.animation.ValueAnimator.ofInt(p.x, x).apply {
             duration = 180
             addUpdateListener { p.x = it.animatedValue as Int; runCatching { wm?.updateViewLayout(w, p) } }
@@ -238,6 +239,7 @@ class CaptureService : Service() {
             progressBackgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#55FFFFFF"))
             setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(sb: android.widget.SeekBar?, v: Int, fromUser: Boolean) {
+                    sb?.let { androidx.core.view.ViewCompat.setStateDescription(it, "$v of 10") }
                     if (fromUser) { prefs(this@CaptureService).edit().putInt("scrollspeed", v).apply(); ui.removeCallbacks(hideMenuRun); ui.postDelayed(hideMenuRun, 4000) }
                 }
                 override fun onStartTrackingTouch(sb: android.widget.SeekBar?) { ui.removeCallbacks(hideMenuRun) }
@@ -269,6 +271,7 @@ class CaptureService : Service() {
     private fun fbarFoldX(): Int { val w = fbar?.measuredWidth ?: dp(220); return if (fbarRight) screenW() - dp(18) else -(w - dp(18)) }
     private fun slideFloat(x: Int) {
         val q = fbarLp ?: return; val v = fbar ?: return
+        if (app.vocr.VocrApp.reducedMotion()) { q.x = x; runCatching { wm?.updateViewLayout(v, q) }; return }
         android.animation.ValueAnimator.ofInt(q.x, x).apply {
             duration = 180
             addUpdateListener { q.x = it.animatedValue as Int; runCatching { wm?.updateViewLayout(v, q) } }
@@ -293,6 +296,7 @@ class CaptureService : Service() {
             progressBackgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#55FFFFFF"))
             setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(sb: android.widget.SeekBar?, v: Int, fromUser: Boolean) {
+                    sb?.let { androidx.core.view.ViewCompat.setStateDescription(it, "$v of 10") }
                     if (fromUser) { pr.edit().putInt("scrollspeed", v).apply(); ui.removeCallbacks(foldRun) }
                 }
                 override fun onStartTrackingTouch(sb: android.widget.SeekBar?) { ui.removeCallbacks(foldRun) }
@@ -363,6 +367,7 @@ class CaptureService : Service() {
         val close = chip("\u00D7", Color.parseColor("#E5484D")) {
             hideMenu(); if (recording) toast("Stop recording first") else { if (readMode) stopReadMode(); closeWidget() }
         }
+        close.contentDescription = "Close the floating button"
         fun modeText() = if (prefs(this).getBoolean("fast", false)) "Fast" else "Slow"
         val mode = chip(modeText(), chipC()) {}
         mode.setOnClickListener { it.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP)
@@ -503,7 +508,7 @@ class CaptureService : Service() {
     // Pace: a 0.6-screen swipe in 90 ms (about 0.11 screen per frame at 60 fps, a third of the 0.30 span limit the tracker is
     // tuned to), then 650 ms for the fling to settle. The recording stops after scrollcapsec seconds (default 300) and the text is read.
     private var scrolling = false; private var swipes = 0; private var scrollT0 = 0L
-    private val scrollRun = Runnable { try { scrollStep() } catch (e: Exception) { android.util.Log.e("vocr", "scrollStep failed", e); app.vocr.VocrApp.note("scrollStep failed", e); stopAutoScroll() } }   // a failed step must stop auto-scroll, never kill the app
+    private val scrollRun = Runnable { try { scrollStep() } catch (e: Exception) { android.util.Log.e("vocr", "scrollStep failed", e); app.vocr.VocrApp.note("scrollStep failed", e); app.vocr.VocrApp.noteStop("error in a scroll step (${e.javaClass.simpleName}), scrolling stopped, recording left running"); stopAutoScroll() } }   // a failed step must stop auto-scroll, never kill the app
     private fun startAutoScroll() { app.vocr.Haptics.autoStart(this); app.vocr.core.Sfx.scroll(this, true); lastThumb = null; still = 0; scrolling = true; syncSecure(); swipes = 0; scrollT0 = System.currentTimeMillis(); ui.postDelayed(scrollRun, 2500) }
     private fun stopAutoScroll() { if (scrolling) app.vocr.Haptics.autoEnd(this); app.vocr.core.Sfx.scroll(this, false); scrolling = false; syncSecure(); ui.removeCallbacks(scrollRun) }
     // Speed 0..10 (home > Settings). 10 = today's tested pace (a 90 ms swipe, then a 650 ms settle) and is the default.
@@ -516,6 +521,7 @@ class CaptureService : Service() {
     private fun capMs(): Long { val l = speedLevel(); val base = prefs(this).getInt("scrollcapsec", 300) * 1000L
         return if (l >= 10) base else minOf(1_800_000L, maxOf(base, (base * 0.6 / crawlSpeed(l.coerceAtLeast(1))).toLong())) }
     private var pausedSince = 0L
+    private var lastSwipeMs = 740L   // length of the latest swipe cycle (flick + settle at speed 10, the whole drag at slower speeds)
     private fun scrollStep() {
         val svc = ScrollService.instance
         if (!scrolling || !active() || svc == null) return
@@ -525,9 +531,10 @@ class CaptureService : Service() {
             ui.postDelayed(scrollRun, 400); return
         }
         if (pausedSince != 0L) { scrollT0 += System.currentTimeMillis() - pausedSince; pausedSince = 0L; still = 0 }
-        if (System.currentTimeMillis() - scrollT0 >= capMs()) { endScroll("Auto-scroll done"); return }
+        if (System.currentTimeMillis() - scrollT0 >= capMs()) { endScroll("Auto-scroll done", "time cap"); return }
         val m = resources.displayMetrics
         if (lvl >= 10) {
+            lastSwipeMs = 740L
             svc.swipe(m.widthPixels, m.heightPixels, 0.70f, 0.10f, 90, startX()) { ok ->
                 if (ok) swipes++
                 app.vocr.Haptics.autoPulse(this)
@@ -537,6 +544,7 @@ class CaptureService : Service() {
             val v = crawlSpeed(lvl)
             val dist = (v * 4.0).coerceIn(0.2, (SLOW_Y0 - 0.06f).toDouble())   // screens per drag; the drag starts at SLOW_Y0 and must end above y=0.06 (a negative end point crashes the gesture builder)
             val dur = (dist / v * 1000).toLong()               // constant speed, no fling at the lift
+            lastSwipeMs = dur + 120L
             for (k in 1..(dur / 1500L).toInt()) ui.postDelayed({ if (scrolling && active() && speedLevel() > 0) app.vocr.Haptics.autoPulse(this) }, k * 1500L)   // gentle pulse every ~1.5 s during a slow drag
             svc.swipe(m.widthPixels, m.heightPixels, SLOW_Y0, (SLOW_Y0 - dist).toFloat(), dur, startX(SLOW_Y0)) { ok ->
                 if (ok) swipes++
@@ -571,9 +579,11 @@ class CaptureService : Service() {
                     still = if (mad < 1.2) still + 1 else 0
                     // No change after a swipe: the page may just be slow to load. Let go, wait 4 s, try again; each wait is 2 s longer
                     // (4, 6, 8 s). If the third retry still changes nothing, it is the bottom: end the recording.
-                    if (still > STUCK_RETRIES) { endScroll(if (readMode) "Reached the bottom" else "Reached the bottom - reading now"); return@post }
+                    if (still > STUCK_RETRIES) { endScroll(if (readMode) "Reached the bottom" else "Reached the bottom - reading now", "bottom"); return@post }
                     if (still > 0) {
-                        val pause = (STUCK_FIRST_PAUSE_S + STUCK_STEP_S * (still - 1)) * 1000L
+                        // Same confirmation time at every speed (about 21 s from the first still frame): slow drags already take seconds, so the waits shrink by that much.
+                        val f = ((21720.0 - 3 * (lastSwipeMs + 500)) / 18000.0).coerceIn(0.1, 1.0)
+                        val pause = ((STUCK_FIRST_PAUSE_S + STUCK_STEP_S * (still - 1)) * 1000L * f).toLong()
                         scrollT0 += pause   // waiting for the page does not count against the time cap
                         ui.postDelayed(scrollRun, pause); return@post
                     }
@@ -585,7 +595,14 @@ class CaptureService : Service() {
     }
 
     /** The page ended or the time cap hit: stop the recording (and read it) or, in hands-free mode, just stop scrolling. */
-    private fun endScroll(msg: String) { if (readMode) { toast(msg); stopReadMode() } else { stopAutoScroll(); toast(msg); stopRecording() } }
+    private fun endScroll(msg: String, why: String = "other") {
+        runCatching { app.vocr.VocrApp.noteStop("$why, speed ${speedLevel()}, still=$still, swipes=$swipes, scrolled ${(System.currentTimeMillis() - scrollT0) / 1000}s, ${if (readMode) "Scroll mode" else "take"}") }
+        if (readMode) { toast(msg); stopReadMode() }
+        else {
+            runCatching { stopAutoScroll() }   // whatever happens there, the recording must still be stopped
+            toast(msg); stopRecording()
+        }
+    }
 
     /** Hands-free reading: auto-scroll with NO recording, no capture and no queue job. Tap the bubble to stop. */
     private fun startReadMode() {
@@ -603,7 +620,7 @@ class CaptureService : Service() {
 
     private fun stopRecording() {
         if (!recording) return
-        stopAutoScroll()
+        runCatching { stopAutoScroll() }
         recording = false; starting = false; syncSecure()
         cover?.remove()
         val f = recFile

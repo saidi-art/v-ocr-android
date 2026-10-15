@@ -30,6 +30,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -202,11 +205,17 @@ fun Home(preview: Picked? = null) {
         if (showSettings) {
             Spacer(Modifier.height(10.dp))
             Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(20.dp)).padding(16.dp)) {
-                Button(
-                    onClick = { showSettings = false; DisclosureActivity.openAccessibility(ctx) },
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Btn2, contentColor = TextMain)
-                ) { Text(if (app.vocr.capture.ScrollService.instance != null) "Auto-scroll: enabled" else if (app.vocr.capture.ScrollService.enabledInSettings(ctx)) "Auto-scroll: ON but stopped - switch it off and on" else "Auto-scroll: turn on in Accessibility", fontSize = 14.sp) }
+                val asReady = app.vocr.capture.ScrollService.instance != null
+                val asStopped = !asReady && app.vocr.capture.ScrollService.enabledInSettings(ctx)
+                // A status row, not a button: ready = tick, no pressed state; otherwise a link row that opens Accessibility settings.
+                Row(
+                    Modifier.fillMaxWidth().heightIn(min = 48.dp).then(if (asReady) Modifier else Modifier.clickable { showSettings = false; DisclosureActivity.openAccessibility(ctx) }),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Auto-scroll", color = TextMain, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    if (asReady) Text("\u2713 Ready", color = Success, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    else Text(if (asStopped) "ON but stopped - switch it off and on  \u203A" else "Turn on in Accessibility  \u203A", color = Lilac, fontSize = 13.sp)
+                }
                 Spacer(Modifier.height(14.dp))
                 val view = androidx.compose.ui.platform.LocalView.current
                 var speed by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getInt("scrollspeed", 10).toFloat()) }
@@ -215,6 +224,7 @@ fun Home(preview: Picked? = null) {
                     Text(speed.toInt().toString() + if (speed.toInt() == 10) "  (default)" else "", color = Lilac, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                 }
                 Slider(
+                    modifier = Modifier.semantics { stateDescription = "${speed.toInt()} of 10" },
                     value = speed, onValueChange = { val n = Math.round(it).toFloat(); if (n != speed) Haptics.detent(view); speed = n },
                     onValueChangeFinished = { app.vocr.capture.CaptureService.prefs(ctx).edit().putInt("scrollspeed", speed.toInt()).apply() },
                     valueRange = 0f..10f, steps = 9,
@@ -228,41 +238,42 @@ fun Home(preview: Picked? = null) {
                 )
                 Spacer(Modifier.height(14.dp))
                 var snd by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("sound", true)) }
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically) {
                     Switch(checked = snd, onCheckedChange = { snd = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("sound", it).apply(); app.vocr.core.Sfx.refresh(ctx) })
                     Spacer(Modifier.width(8.dp))
                     Text("Sound (auto-scroll and end cue)", color = Muted, fontSize = 13.sp)
                 }
                 Spacer(Modifier.height(6.dp))
                 var light by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("lightcapture", false)) }
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically) {
                     Switch(checked = light, onCheckedChange = { light = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("lightcapture", it).apply() })
                     Spacer(Modifier.width(8.dp))
-                    Text("Lighter capture (30 fps, 5 Mbps) - test", color = Muted, fontSize = 13.sp)
+                    Text("Lighter capture (30 fps, 5 Mbps)", color = Muted, fontSize = 13.sp)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Beta", color = TextMain, fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(Btn2).padding(horizontal = 8.dp, vertical = 2.dp))
                 }
                 Spacer(Modifier.height(6.dp))
                 var hap by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("haptics", true)) }
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically) {
                     Switch(checked = hap, onCheckedChange = { hap = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("haptics", it).apply() })
                     Spacer(Modifier.width(8.dp))
                     Text("Soft haptics while auto-scroll runs", color = Muted, fontSize = 13.sp)
                 }
                 Spacer(Modifier.height(6.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Switch(checked = Pal.paper, onCheckedChange = { Pal.set(ctx, it) })
-                    Spacer(Modifier.width(8.dp))
-                    Text("Paper theme (ink on cream). Off = Graphite", color = Muted, fontSize = 13.sp)
-                }
+                Text("Theme", color = Muted, fontSize = 13.sp)
+                Spacer(Modifier.height(4.dp))
+                ThemeSegmented(paper = Pal.paper, onPick = { Pal.set(ctx, it) }, modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(6.dp))
                 if (app.vocr.capture.Cover.AVAILABLE) {   // Cover is parked for further development
                 var cov by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("cover", false)) }
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically) {
                     Switch(checked = cov, onCheckedChange = { cov = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("cover", it).apply() })
                     Spacer(Modifier.width(8.dp))
                     Text("Cover: hide a region (e.g. a playing video) in recordings. Set it from the bubble: long-press, Cover", color = Muted, fontSize = 13.sp)
                 }
                 var covStrip by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("cover_strip", true)) }
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically) {
                     Switch(checked = covStrip, onCheckedChange = { covStrip = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("cover_strip", it).apply() })
                     Spacer(Modifier.width(8.dp))
                     Text("Cover also hides the status bar strip (clock, notifications)", color = Muted, fontSize = 13.sp)

@@ -39,6 +39,13 @@ class VocrApp : Application() {
             }
         }
 
+        private fun stopFile() = instance?.let { File(it.filesDir, "last-stop.log") }
+        /** Why the last auto-scroll ended (bottom, time cap, user, error), so a missed or early stop can be explained. Separate from the crash log. */
+        fun noteStop(what: String) { runCatching { val f = stopFile() ?: return; f.writeText(SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date()) + "  " + what + "\n") } }
+        fun lastStop(): String? = runCatching { stopFile()?.takeIf { it.exists() }?.readText()?.take(400) }.getOrNull()
+        /** True when the system animation scale is 0 (Reduce motion / animations off): skip springs and slides. */
+        fun reducedMotion(): Boolean = runCatching { android.provider.Settings.Global.getFloat(instance!!.contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f }.getOrDefault(false)
+
         fun lastError(): String? = runCatching { file()?.takeIf { it.exists() }?.readText()?.take(1800) }.getOrNull()
     }
 }
