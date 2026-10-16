@@ -29,29 +29,23 @@ class LongShotSession(private val ctx: Context, first: Bitmap) {
 
     /** Adds the next capture (the page scrolled down by some rows). */
     fun addFrame(cur: Bitmap): Outcome {
-        if (cur.width != w || cur.height != h) return Outcome.MISMATCH
+        if (cur.width != w || cur.height != h) { note("size changed ${cur.width}x${cur.height} vs ${w}x$h"); return Outcome.MISMATCH }
         val curLuma = luma(cur)
-        val hdr = fixedRows(prevLuma, curLuma, fromTop = true)
-        val ftr = fixedRows(prevLuma, curLuma, fromTop = false)
-        val top = hdr; val bottom = h - ftr
-        if (bottom - top < h / 3) return Outcome.MISMATCH
-        // coarse offset on a 360 px wide copy (the app's existing scroll detector), then refined at full resolution
+        // coarse offset on a 360 px wide copy (the app's existing scroll detector); ShotMatch refines it at full resolution, or finds it itself
         val s = max(1, w / Pipeline.DET_W)
         val dyS = runCatching {
             val a = Pipeline.toGray(Bitmap.createScaledBitmap(prev, w / s, h / s, true))
             val b = Pipeline.toGray(Bitmap.createScaledBitmap(cur, w / s, h / s, true))
             StripBuilder.detectScroll(a, b)
         }.getOrDefault(0)
-        if (dyS <= 0) {
-            return if (diff(prevLuma, curLuma, 0, top, bottom) < 3.0) Outcome.END else Outcome.MISMATCH
+        val m = ShotMatch.find(prevLuma, curLuma, w, h, if (dyS > 0) dyS * s else 0, s)
+        note("frame ${frames + 1}: hint=${dyS * s} dy=${m.dy} score=${"%.1f".format(m.score)} still=${"%.1f".format(m.still)} hdr=${m.hdr} ftr=${m.ftr} -> ${m.status}")
+        when (m.status) {
+            ShotMatch.Status.END -> return Outcome.END
+            ShotMatch.Status.MISMATCH -> return Outcome.MISMATCH
+            else -> {}
         }
-        var best = Int.MAX_VALUE; var bestScore = Double.MAX_VALUE
-        for (d in (dyS * s - s - 1)..(dyS * s + s + 1)) {
-            if (d < 1 || d > bottom - top - h / 5) continue
-            val sc = diff(prevLuma, curLuma, d, top, bottom)
-            if (sc < bestScore) { bestScore = sc; best = d }
-        }
-        if (best == Int.MAX_VALUE || bestScore > 12.0) return Outcome.MISMATCH
+        val best = m.dy; val ftr = m.ftr; val top = m.hdr; val bottom = h - ftr
         if (ftrPrev < 0) { writer.add(prev, 0, h - ftr); ftrPrev = ftr }   // first pair: the first capture is written up to its footer
         val start = (h - ftrPrev - best).coerceIn(top, bottom)
         if (bottom > start) writer.add(cur, start, bottom)
@@ -59,6 +53,8 @@ class LongShotSession(private val ctx: Context, first: Bitmap) {
         prev.recycle(); prev = cur; prevLuma = curLuma; frames++
         return if (writer.rows >= MAX_ROWS) Outcome.CAP else Outcome.ADDED
     }
+
+    private fun note(t: String) { runCatching { app.vocr.VocrApp.note("longshot: $t", null) } }
 
     /** Writes the last capture's fixed footer and returns the finished part files (in the app cache). */
     fun finish(): List<File> {
@@ -69,33 +65,6 @@ class LongShotSession(private val ctx: Context, first: Bitmap) {
     }
 
     fun discard() { runCatching { prev.recycle() }; writer.discard() }
-
-    /** Mean absolute grey difference between prev rows (y+dy) and cur rows y over the content band, sampled. */
-    private fun diff(a: ByteArray, b: ByteArray, dy: Int, top: Int, bottom: Int): Double {
-        var sum = 0L; var n = 0
-        var y = top
-        while (y < bottom - dy) {
-            val ro = y * w; val po = (y + dy) * w
-            var x = 0
-            while (x < w) { sum += abs((b[ro + x].toInt() and 255) - (a[po + x].toInt() and 255)); n++; x += 5 }
-            y += 3
-        }
-        return if (n == 0) 255.0 else sum.toDouble() / n
-    }
-
-    /** Rows at the top (or bottom) that are identical in both captures: a fixed header or footer. Capped at a quarter of the screen. */
-    private fun fixedRows(a: ByteArray, b: ByteArray, fromTop: Boolean): Int {
-        var n = 0; val cap = h / 4
-        while (n < cap) {
-            val y = if (fromTop) n else h - 1 - n
-            var sum = 0L; var c = 0; var x = 0
-            val o = y * w
-            while (x < w) { sum += abs((a[o + x].toInt() and 255) - (b[o + x].toInt() and 255)); c++; x += 6 }
-            if (sum.toDouble() / c > 1.5) break
-            n++
-        }
-        return n
-    }
 
     companion object {
         const val PART_H = 8000
@@ -168,21 +137,24 @@ class PartWriter(private val ctx: Context, private val w: Int) {
 
 /** Saves screenshot parts to Download/ScrollRSI and, when asked, the OCR text of the full-resolution image next to them. */
 object ShotSaver {
-    /** Returns the saved names. A single part keeps the plain name; several parts are numbered. */
-    fun save(ctx: Context, base: String, parts: List<File>, withText: Boolean): String {
-        val names = ArrayList<String>()
+    class Result(val names: String, val images: List<android.net.Uri>, val textUri: android.net.Uri?, val text: String)
+
+    /** Saves the parts. A single part keeps the plain name; several parts are numbered. */
+    fun save(ctx: Context, base: String, parts: List<File>, withText: Boolean): Result {
+        val names = ArrayList<String>(); val uris = ArrayList<android.net.Uri>()
         parts.forEachIndexed { i, f ->
             val name = if (parts.size == 1) "$base.png" else "$base part ${i + 1}.png"
             val r = app.vocr.core.Saver.saveFile(ctx, name, "image/png", f)
             if (r.uri == null) throw java.io.IOException(r.error)
-            names.add(name)
+            names.add(name); uris.add(r.uri)
         }
+        var tu: android.net.Uri? = null; var tt = ""
         if (withText) runCatching {
             val text = ocr(ctx, parts)
-            if (text.isNotBlank()) app.vocr.core.Saver.saveAs(ctx, base, text)
+            if (text.isNotBlank()) { tu = app.vocr.core.Saver.saveAs(ctx, base, text).uri; tt = text }
         }
         parts.forEach { it.delete() }
-        return names.joinToString(", ")
+        return Result(names.joinToString(", "), uris, tu, tt)
     }
 
     /** OCR on native-resolution strips of about one screen with a small overlap (never on a downscaled copy), stitched like a video job. */
@@ -218,5 +190,83 @@ object ShotSaver {
             val sp = app.vocr.core.Spacing.load(ctx.assets.open("words.txt").use { String(it.readBytes(), Charsets.UTF_8) }.split("\n"))
             return app.vocr.core.Stitch.merge(perStrip.map { st -> st.map { sp.fix(it.text) } }).map { app.vocr.core.Fix.lookalikes(it) }.joinToString("\n")
         } finally { eng.close(); app.vocr.core.Pipeline.gate.unlock() }
+    }
+}
+
+
+/** Pure offset finder for two captures (grey bytes, w x h). Kept free of Android classes so it can be unit-tested. */
+object ShotMatch {
+    enum class Status { OK, END, MISMATCH }
+    class Match(val status: Status, val dy: Int, val score: Double, val still: Double, val hdr: Int, val ftr: Int)
+
+    /** Rows at the top (or bottom) that are identical in both captures: a fixed header or footer. Capped at a quarter of the screen. */
+    fun fixedRows(a: ByteArray, b: ByteArray, w: Int, h: Int, fromTop: Boolean): Int {
+        // A fixed bar is the run of rows from the edge that stay the same between the two captures. A blinking cursor, a typing
+        // indicator or a clock changes a few rows inside it, so only a run of RUN differing rows in a row ends the bar.
+        val cap = h / 4; val run = 24
+        var last = 0; var miss = 0; var n = 0
+        while (n < cap) {
+            val y = if (fromTop) n else h - 1 - n
+            var sum = 0L; var c = 0; var x = 0
+            val o = y * w
+            while (x < w) { sum += abs((a[o + x].toInt() and 255) - (b[o + x].toInt() and 255)); c++; x += 6 }
+            if (sum.toDouble() / c > 1.5) { miss++; if (miss >= run) break } else { miss = 0; last = n + 1 }
+            n++
+        }
+        return last
+    }
+
+    /**
+     * Mean absolute difference between prev rows (y+dy) and cur rows y over the content band, counted only where there is something to
+     * compare (an edge in either picture). Flat dark areas match at every offset and would otherwise make any offset look good.
+     * Returns 255 when there is too little structure to judge.
+     */
+    fun diff(a: ByteArray, b: ByteArray, w: Int, dy: Int, top: Int, bottom: Int, rowStep: Int = 3, colStep: Int = 5): Double {
+        // per-row mean over edge samples; the worst tenth of rows is ignored (a typing cursor, a changing composer, a clock)
+        val rows = ArrayList<Double>(); var n = 0
+        var y = top
+        while (y < bottom - dy) {
+            val ro = y * w; val po = (y + dy) * w
+            var rs = 0L; var rn = 0
+            var x = 0
+            while (x + 5 < w) {
+                val c0 = b[ro + x].toInt() and 255; val p0 = a[po + x].toInt() and 255
+                val edge = abs(c0 - (b[ro + x + 5].toInt() and 255)) > 18 || abs(p0 - (a[po + x + 5].toInt() and 255)) > 18
+                if (edge) { rs += abs(c0 - p0); rn++ }
+                x += colStep
+            }
+            if (rn > 0) { rows.add(rs.toDouble() / rn); n += rn }
+            y += rowStep
+        }
+        if (n < 120 || rows.size < 8) return 255.0
+        rows.sort()
+        val keep = (rows.size * 9) / 10
+        var t = 0.0
+        for (i in 0 until keep) t += rows[i]
+        return t / keep
+    }
+
+    fun find(a: ByteArray, b: ByteArray, w: Int, h: Int, hint: Int, scale: Int): Match {
+        val hdr = fixedRows(a, b, w, h, true); val ftr = fixedRows(a, b, w, h, false)
+        val top = hdr; val bottom = h - ftr
+        if (bottom - top < h / 3) return Match(Status.MISMATCH, 0, 255.0, 255.0, hdr, ftr)
+        val maxDy = bottom - top - h / 8
+        val still = diff(a, b, w, 0, top, bottom)
+        var best = -1; var bestScore = Double.MAX_VALUE
+        fun consider(d: Int) { if (d < 1 || d > maxDy) return; val sc = diff(a, b, w, d, top, bottom); if (sc < bestScore) { bestScore = sc; best = d } }
+        if (hint > 0) for (d in (hint - scale - 1)..(hint + scale + 1)) consider(d)
+        if (best < 0 || bestScore > 12.0) {
+            // the coarse detector gave nothing usable (dark chats, sparse pages): scan every offset, coarse then fine
+            val cands = ArrayList<Pair<Int, Double>>()
+            var d = 6
+            while (d <= maxDy) { cands.add(d to diff(a, b, w, d, top, bottom, 7, 9)); d += 4 }
+            cands.sortBy { it.second }
+            for ((d0, _) in cands.take(4)) for (e in (d0 - 5)..(d0 + 5)) consider(e)
+        }
+        if (best < 0 || bestScore > 12.0 || bestScore > 255.0 - 1) {
+            return if (still < 3.0) Match(Status.END, 0, bestScore, still, hdr, ftr) else Match(Status.MISMATCH, 0, bestScore, still, hdr, ftr)
+        }
+        if (still < 255.0 && bestScore > still * 0.8 && still < 3.0) return Match(Status.END, 0, bestScore, still, hdr, ftr)   // no motion: the end of the page
+        return Match(Status.OK, best, bestScore, still, hdr, ftr)
     }
 }

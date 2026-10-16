@@ -169,13 +169,16 @@ object JobQueue {
     private fun postDone(c: Context, job: Job, text: String) {
         channels(c)
         val b = Notification.Builder(c, CH_DONE).setSmallIcon(android.R.drawable.stat_sys_download_done)
-            .setContentTitle(job.title).setContentText("Text ready: ${job.lines} lines in ${job.secs}s. Tap to open.")
+            .setContentTitle(job.title).setContentText("Text ready: ${job.lines} lines in ${job.secs}s. Tap to open, or Share.")
             .setStyle(Notification.BigTextStyle().bigText(text.take(600))).setAutoCancel(true)
         val uri = job.result
         if (uri != null) {
             val view = Intent(c, app.vocr.SavedActivity::class.java).setData(uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)   // opens the text inside the app
             b.setContentIntent(PendingIntent.getActivity(c, 1000 + job.id, view, PendingIntent.FLAG_IMMUTABLE))
-            val send = Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Share text")
+            val share = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_STREAM, uri).putExtra(Intent.EXTRA_SUBJECT, job.title).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            share.clipData = android.content.ClipData.newRawUri(job.title, uri)   // lets the chosen app read the file
+            if (text.length < 100_000) share.putExtra(Intent.EXTRA_TEXT, text)    // chat apps paste the text itself; others take the file
+            val send = Intent.createChooser(share, "Share text").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             b.addAction(Notification.Action.Builder(null, "Share", PendingIntent.getActivity(c, 2000 + job.id, send, PendingIntent.FLAG_IMMUTABLE)).build())
         }
         nm(c).notify(100 + job.id, b.build())

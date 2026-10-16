@@ -529,7 +529,7 @@ class CaptureService : Service() {
                     val f = java.io.File(cacheDir, "shot_${System.nanoTime()}_0.png")
                     f.outputStream().use { bm.compress(Bitmap.CompressFormat.PNG, 100, it) }
                     val n = ShotSaver.save(this, base, listOf(f), prefs(this).getBoolean("shot_text", false))
-                    toast("Saved to Download/ScrollRSI: $n")
+                    toast("Saved to Download/ScrollRSI: ${n.names}"); postShotDone(n, false)
                 } catch (e: Throwable) { toast("Could not save: " + (e.message ?: e.javaClass.simpleName)); shotSaved = false }
             }
             shotSession = LongShotSession(this, bm)
@@ -543,18 +543,23 @@ class CaptureService : Service() {
         hideShotBar()
         val row = android.widget.LinearLayout(this).apply { orientation = android.widget.LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         val sc = glassChip(this, "\u2B07 Scroll capture", accentC()).apply {
-            contentDescription = "Scroll capture. Hold to keep scrolling and capturing, or tap to add one page."
+            contentDescription = "Scroll capture. Tap to scroll and capture by itself until you tap Done, or hold to scroll while held."
             setTextColor(onAccentC())
-            var downAt = 0L
+            var downAt = 0L; var pausedByDown = false
             setOnTouchListener { v, e ->
                 when (e.actionMasked) {
                     MotionEvent.ACTION_DOWN -> {
                         v.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP)
-                        ui.removeCallbacks(shotIdleRun); downAt = System.currentTimeMillis(); shotHolding = true; startLongLoop(); true
+                        ui.removeCallbacks(shotIdleRun)
+                        if (shotAuto) { shotAuto = false; pausedByDown = true; toast("Auto scroll paused"); true }   // a tap while auto runs pauses it after the current page
+                        else { pausedByDown = false; downAt = System.currentTimeMillis(); shotHolding = true; if (shotRunning) shotQueued = true; startLongLoop(); true }
                     }
                     MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        if (pausedByDown) { pausedByDown = false; ui.removeCallbacks(shotIdleRun); ui.postDelayed(shotIdleRun, 2000); return@setOnTouchListener true }
+                        val shortTap = e.actionMasked == MotionEvent.ACTION_UP && System.currentTimeMillis() - downAt < 350
+                        if (shortTap) { shotAuto = true; toast("Auto scroll on. Tap Done when finished") }   // one tap = keep going by itself
                         shotHolding = false
-                        ui.removeCallbacks(shotIdleRun); ui.postDelayed(shotIdleRun, 2000)   // 2 s to press again, then it saves
+                        ui.removeCallbacks(shotIdleRun); if (!shotAuto) ui.postDelayed(shotIdleRun, 2000)   // 2 s to press again, then it saves
                         true
                     }
                     else -> true
@@ -563,7 +568,7 @@ class CaptureService : Service() {
         }
         val done = glassChip(this, "Done", chipC()).apply {
             contentDescription = "Save the capture now"
-            setOnClickListener { ui.removeCallbacks(shotIdleRun); finishLong() }
+            setOnClickListener { shotAuto = false; ui.removeCallbacks(shotIdleRun); finishLong() }
         }
         row.addView(sc); row.addView(android.widget.Space(this), android.widget.LinearLayout.LayoutParams(dp(8), 1)); row.addView(done)
         row.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
@@ -577,6 +582,8 @@ class CaptureService : Service() {
 
     private fun hideShotBar() { shotBar?.let { v -> runCatching { wm?.removeView(v) } }; shotBar = null }
 
+    @Volatile private var shotAuto = false
+    @Volatile private var shotQueued = false   // a tap that arrives while a page is still being captured waits for its turn
     private fun startLongLoop() {
         if (shotRunning) return
         shotRunning = true
@@ -586,7 +593,7 @@ class CaptureService : Service() {
     private fun swipeBlocking(): Boolean {
         val svc = ScrollService.instance ?: return false
         val l = java.util.concurrent.CountDownLatch(1); var ok = false
-        svc.swipe(screenW(), resources.displayMetrics.heightPixels, 0.78f, 0.22f, 450L) { ok = it; l.countDown() }
+        svc.swipe(screenW(), resources.displayMetrics.heightPixels, 0.80f, 0.20f, 450L) { ok = it; l.countDown() }
         l.await(4, java.util.concurrent.TimeUnit.SECONDS)
         return ok
     }
@@ -595,8 +602,8 @@ class CaptureService : Service() {
     private fun longLoop() {
         val s = shotSession ?: return
         var ends = 0; var reason = ""; var first = true
-        while ((first || shotHolding) && reason.isEmpty()) {   // a tap runs one page, a hold keeps going
-            first = false
+        while ((first || shotHolding || shotQueued || shotAuto) && reason.isEmpty()) {   // a tap runs one page, a hold keeps going
+            first = false; shotQueued = false
             if (!swipeBlocking()) { reason = "Scrolling failed. Check that Accessibility is on."; break }
             Thread.sleep(380)
             var a = snapBlocking() ?: run { reason = "A screenshot failed"; null } ?: break
@@ -610,11 +617,34 @@ class CaptureService : Service() {
             when (s.addFrame(a)) {
                 LongShotSession.Outcome.ADDED -> { ends = 0 }
                 LongShotSession.Outcome.END -> { a.recycle(); if (++ends >= 2) reason = "End of the page" }
-                LongShotSession.Outcome.MISMATCH -> { a.recycle(); reason = "Stopped: the page changed while capturing (video or animation)" }
+                LongShotSession.Outcome.MISMATCH -> { a.recycle(); reason = "Stopped: could not line up this page (video or animation on screen?). Saved what was captured" }
                 LongShotSession.Outcome.CAP -> reason = "Reached the size limit"
             }
         }
-        if (reason.isNotEmpty()) { shotHolding = false; ui.post { toast(reason); ui.removeCallbacks(shotIdleRun); finishLong() } }
+        if (reason.isNotEmpty()) { shotHolding = false; shotAuto = false; ui.post { toast(reason); ui.removeCallbacks(shotIdleRun); finishLong() } }
+    }
+
+    private var shotNoteId = 5000
+    /** The "ready" notification for a screenshot or long shot, with Share (images, plus the text when Shot text is on). */
+    private fun postShotDone(r: ShotSaver.Result, tall: Boolean) = runCatching {
+        val imgs = r.images; if (imgs.isEmpty()) return@runCatching
+        val title = if (tall) "Long shot saved" else "Screenshot saved"
+        val id = shotNoteId++
+        val view = Intent(Intent.ACTION_VIEW).setDataAndType(imgs[0], "image/png").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        val share = if (imgs.size == 1) Intent(Intent.ACTION_SEND).setType("image/png").putExtra(Intent.EXTRA_STREAM, imgs[0])
+            else Intent(Intent.ACTION_SEND_MULTIPLE).setType("image/png").putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(imgs))
+        share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        val cd = android.content.ClipData.newRawUri(title, imgs[0]); imgs.drop(1).forEach { cd.addItem(android.content.ClipData.Item(it)) }
+        r.textUri?.let { cd.addItem(android.content.ClipData.Item(it)) }
+        share.clipData = cd
+        if (r.text.isNotBlank() && r.text.length < 100_000) share.putExtra(Intent.EXTRA_TEXT, r.text)
+        val chooser = Intent.createChooser(share, "Share").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val b = Notification.Builder(this, CH_DONE).setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setContentTitle(title).setContentText((if (imgs.size > 1) "${imgs.size} parts" else "1 image") + " in Download/ScrollRSI. Tap to open, or Share.")
+            .setAutoCancel(true)
+            .setContentIntent(PendingIntent.getActivity(this, id, view, PendingIntent.FLAG_IMMUTABLE))
+            .addAction(Notification.Action.Builder(null, "Share", PendingIntent.getActivity(this, id + 10000, chooser, PendingIntent.FLAG_IMMUTABLE)).build())
+        nm().notify(id, b.build())
     }
 
     private fun finishLong() {
@@ -629,7 +659,7 @@ class CaptureService : Service() {
                 val tall = s.frames > 1
                 val base = (if (tall) "ScrollRSI long shot " else "ScrollRSI shot ") + stamp()
                 val n = ShotSaver.save(this, base, parts, prefs(this).getBoolean("shot_text", false))
-                toast("Saved to Download/ScrollRSI: $n")
+                toast("Saved to Download/ScrollRSI: ${n.names}"); postShotDone(n, tall)
             } catch (e: Throwable) { toast("Could not save: " + (e.message ?: e.javaClass.simpleName)); runCatching { s.discard() } }
         }
     }
