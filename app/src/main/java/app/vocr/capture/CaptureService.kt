@@ -650,6 +650,10 @@ class CaptureService : Service() {
     @Volatile private var shotX = ScrollService.X0
     @Volatile private var shotRatio = 1.0f
     @Volatile private var shotReqPx = 0f
+    @Volatile private var shotSince = 0f      // estimated page movement (px) since the last accepted capture
+    @Volatile private var shotBack = false    // next drag goes back (finger down) to restore the overlap
+    @Volatile private var shotBackMode = false
+    @Volatile private var shotLonger = false  // next drag is the longer retry (the page did not move)
     private fun sizeSwipe(s: LongShotSession) {
         val hPx = resources.displayMetrics.heightPixels.toFloat()
         val band = hPx - s.lastHdr - s.lastFtr
@@ -670,8 +674,10 @@ class CaptureService : Service() {
         val svc = ScrollService.instance ?: return false
         val hPx = resources.displayMetrics.heightPixels
         val l = java.util.concurrent.CountDownLatch(1); var ok = false
-        shotReqPx = (shotY0 - shotY1) * hPx
-        val dur = (shotReqPx / 0.78f).toLong().coerceIn(300L, 2500L)   // about 0.78 px per ms, the same finger speed every time
+        val req = Math.abs(shotY0 - shotY1) * hPx
+        val dur = (req / 0.78f).toLong().coerceIn(300L, 2500L)   // about 0.78 px per ms, the same finger speed every time
+        if (shotBackMode) { shotSince = (shotSince - req * shotRatio).coerceAtLeast(0f); shotReqPx = 0f }   // a drag back is not used to calibrate the ratio
+        else { shotSince += req * shotRatio; shotReqPx = req }
         svc.swipe(screenW(), hPx, shotY0, shotY1, dur, xFrac = shotX, tailMs = 160L) { ok = it; l.countDown() }
         l.await(dur / 1000 + 6, java.util.concurrent.TimeUnit.SECONDS)
         return ok
@@ -704,7 +710,7 @@ class CaptureService : Service() {
             s.logLine("capture settle tries=$tries settled=$settled after ${System.currentTimeMillis() - t0} ms")
             if (firstCycle && s.sameAsLast(a)) { a.recycle(); s.logLine("first capture equals the one already taken") }
             else when (s.addFrame(a)) {
-                LongShotSession.Outcome.ADDED -> { ends = 0; mmRound = 0; sizeSwipe(s) }
+                LongShotSession.Outcome.ADDED -> { ends = 0; mmRound = 0; shotSince = 0f; shotLonger = false; sizeSwipe(s) }
                 LongShotSession.Outcome.END -> { a.recycle(); if (++ends >= 3) reason = if (s.frames <= 1) "Stopped: the page did not scroll (swipe ignored or a fixed screen?)" else "End of the page" }
                 LongShotSession.Outcome.MISMATCH -> {
                     a.recycle()
@@ -714,15 +720,22 @@ class CaptureService : Service() {
                         tries2++; Thread.sleep(2000)
                         val c = snapBlocking() ?: continue
                         when (s.addFrame(c)) {
-                            LongShotSession.Outcome.ADDED -> { ok = true; mmRound = 0; sizeSwipe(s) }
+                            LongShotSession.Outcome.ADDED -> { ok = true; mmRound = 0; shotSince = 0f; shotLonger = false; sizeSwipe(s) }
                             LongShotSession.Outcome.END -> { c.recycle(); ok = true; if (++ends >= 3) reason = if (s.frames <= 1) "Stopped: the page did not scroll (swipe ignored or a fixed screen?)" else "End of the page" }
                             LongShotSession.Outcome.CAP -> { ok = true; reason = "Reached the size limit" }
                             else -> c.recycle()
                         }
                     }
                     if (!ok) {
-                        // the page may simply not have moved (a video pane, a swipe the app ignored): scroll again with a longer drag in another column before giving up
-                        if (mmRound < 2) { mmRound++; s.logLine("no match after 3 captures: longer drag round $mmRound") }
+                        val hh = resources.displayMetrics.heightPixels
+                        s.logLine("no match after 3 captures: estimated displacement since the last accepted capture ${"%.0f".format(shotSince)}px of ${hh}px, ratio ${"%.2f".format(shotRatio)}, round $mmRound")
+                        if (mmRound < 2 && shotSince >= hh * 0.08f) { mmRound++; shotBack = true; s.logLine("recovery: drag back to restore the overlap, round $mmRound") }
+                        else if (mmRound < 2) { mmRound++; shotLonger = true; s.logLine("recovery: the page has hardly moved, longer drag, round $mmRound") }
+                        else if (s.gaps < 3) {
+                            val c = snapBlocking()
+                            if (c != null && s.reanchor(c)) { mmRound = 0; shotSince = 0f; shotBack = false; shotLonger = false }
+                            else { c?.recycle(); reason = "Stopped: could not line up this page (video or animation on screen?). Saved what was captured" }
+                        }
                         else reason = "Stopped: could not line up this page (video or animation on screen?). Saved what was captured"
                     }
                 }
@@ -733,7 +746,14 @@ class CaptureService : Service() {
             // ---- 2) scroll up, only when another cycle is wanted
             if (!(shotHolding || shotQueued || shotAuto)) break
             // nothing has moved since the first capture: this is not a proven end. Try again with a longer drag in another column before giving up.
-            if (ends > 0 || mmRound > 0) { shotY0 = 0.80f; shotY1 = 0.50f; shotX = floatArrayOf(0.35f, 0.2f, 0.75f, 0.55f)[(ends + mmRound) % 4]; s.logLine("no movement yet: retry drag at x=$shotX") } else shotX = ScrollService.X0
+            shotBackMode = false
+            if (shotBack) {
+                shotBack = false; shotBackMode = true
+                val hh = resources.displayMetrics.heightPixels.toFloat()
+                val dist = (shotSince * 0.5f / shotRatio).coerceIn(hh * 0.10f, hh * 0.70f)
+                shotY0 = (0.5f * hh - dist / 2f) / hh; shotY1 = (0.5f * hh + dist / 2f) / hh; shotX = ScrollService.X0
+                s.logLine("drag back ${"%.2f".format(shotY0)}->${"%.2f".format(shotY1)}")
+            } else if (ends > 0 || shotLonger) { shotLonger = false; shotY0 = 0.80f; shotY1 = 0.50f; shotX = floatArrayOf(0.35f, 0.2f, 0.75f, 0.55f)[(ends + mmRound) % 4]; s.logLine("no movement yet: retry drag at x=$shotX") } else shotX = ScrollService.X0
             val sw = swipeBlocking()
             s.logLine("swipe ${"%.2f".format(shotY0)}->${"%.2f".format(shotY1)} ok=$sw")
             if (!sw) { reason = "Scrolling failed. Check that Accessibility is on."; break }
@@ -780,7 +800,7 @@ class CaptureService : Service() {
                 val tall = s.frames > 1
                 val base = (if (tall) "ScrollRSI long shot " else "ScrollRSI shot ") + stamp()
                 val n = ShotSaver.save(this, base, parts, prefs(this).getBoolean("shot_text", false))
-                toast("Saved to Download/ScrollRSI: ${n.names}"); postShotDone(n, tall)
+                toast("Saved to Download/ScrollRSI: ${n.names}" + (if (s.gaps > 0) ". The page could not be lined up ${s.gaps} time(s): a section may be missing between image parts" else "")); postShotDone(n, tall)
                 firstShot = null
             } catch (e: Throwable) { toast("Could not save: " + (e.message ?: e.javaClass.simpleName)); runCatching { s.discard() } }
         }

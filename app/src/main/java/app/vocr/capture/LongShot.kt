@@ -35,6 +35,17 @@ class LongShotSession(private val ctx: Context, first: Bitmap, private val sysTo
     fun logText(): String = log.toString()
     fun logLine(t: String) = note(t)
     fun sameAsLast(cur: Bitmap): Boolean = same(prev, cur)
+    var gaps = 0; private set
+    /** The page could not be lined up with the last accepted capture. Close the current image part and continue from this capture; a section between the two may be missing (told to the user at the end). */
+    fun reanchor(cur: Bitmap): Boolean {
+        if (cur.width != w || cur.height != h) return false
+        writer.breakPart()
+        val old = prev
+        prev = cur; prevLuma = luma(cur); ftrPrev = -1; band = null; bandSeen = 0; frames++; gaps++
+        runCatching { old.recycle() }
+        note("re-anchored on the current capture (no match with the last one): a section may be missing here, new image part. gaps=$gaps")
+        return true
+    }
     val rows: Int get() = writer.rows
 
     /** Adds the next capture (the page scrolled down by some rows). */
@@ -154,6 +165,7 @@ class PartWriter(private val ctx: Context, private val w: Int) {
         b.recycle(); cur = null; canvas = null; fill = 0
     }
 
+    fun breakPart() { if (fill > 0) flush() }
     fun finish(): List<File> { if (fill > 0) flush(); return files }
     fun discard() { runCatching { cur?.recycle() }; files.forEach { it.delete() }; files.clear() }
 }
@@ -294,7 +306,7 @@ object ShotMatch {
         if (n < minSamples || rows.size < 6) { lastTrim = 255.0; return 255.0 }
         val all = rows.average()
         rows.sort()
-        val keep = (rows.size * 3) / 4
+        val keep = (rows.size * 7) / 10
         var t = 0.0
         for (i in 0 until keep) t += rows[i]
         lastTrim = t / keep
@@ -334,7 +346,7 @@ object ShotMatch {
             }
         }
         if (best < 0 || bestTrim > 12.0 || bestScore > 255.0 - 1) {
-            return if (still < 3.0) Match(Status.END, 0, bestScore, still, hdr, ftr) else Match(Status.MISMATCH, 0, bestScore, still, hdr, ftr)
+            return if (still < 3.0) Match(Status.END, 0, bestScore, still, hdr, ftr) else Match(Status.MISMATCH, max(best, 0), bestScore, still, hdr, ftr)
         }
         if (still < 255.0 && bestScore > still * 0.8 && still < 3.0) return Match(Status.END, 0, bestScore, still, hdr, ftr)   // no motion: the end of the page
         return Match(Status.OK, best, bestScore, still, hdr, ftr)
