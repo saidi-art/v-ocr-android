@@ -52,7 +52,6 @@ class CaptureService : Service() {
         const val EXTRA_DATA = "data"
         private const val CH_STATUS = "vocr_status2"
         private const val CH_DONE = "vocr_done2"
-        private const val CH_SAVED = "vocr_saved"
         private const val ID_FG = 41
         fun prefs(ctx: Context) = ctx.getSharedPreferences("vocr", Context.MODE_PRIVATE)
     }
@@ -118,7 +117,6 @@ class CaptureService : Service() {
         runCatching { nm().deleteNotificationChannel("vocr_status"); nm().deleteNotificationChannel("vocr_done") }
         nm().createNotificationChannel(NotificationChannel(CH_STATUS, "Recorder status", NotificationManager.IMPORTANCE_LOW).apply { setShowBadge(false) })
         nm().createNotificationChannel(NotificationChannel(CH_DONE, "Text ready", NotificationManager.IMPORTANCE_HIGH).apply { setShowBadge(false) })
-        nm().createNotificationChannel(NotificationChannel(CH_SAVED, "Saved screenshots", NotificationManager.IMPORTANCE_LOW).apply { setShowBadge(false) })
     }
 
     private fun act(action: String, label: String): Notification.Action {
@@ -773,27 +771,26 @@ class CaptureService : Service() {
     @Volatile private var firstShot: ShotSaver.Result? = null
     private var shotNoteId = 5000
     /** The "ready" notification for a screenshot or long shot, with Share (images, plus the text when Shot text is on). */
-    private fun postShotDone(r: ShotSaver.Result, tall: Boolean, gaps: Int = 0) = runCatching {
+    private fun postShotDone(r: ShotSaver.Result, tall: Boolean) = runCatching {
         val imgs = r.images; if (imgs.isEmpty()) return@runCatching
         val title = if (tall) "Long shot saved" else "Screenshot saved"
-        val sub = (if (imgs.size > 1) "${imgs.size} parts" else "1 image") + (if (r.textUri != null) " and text" else "") + " in Download/ScrollRSI" + (if (gaps > 0) ". The page could not be lined up $gaps time(s): a section may be missing between image parts" else "")
-        val item = SavedItem(imgs, r.textUri, r.text, title, sub)
         val id = shotNoteId++
-        if (gaps > 0) toast("The page could not be lined up $gaps time(s): a section may be missing between image parts")
-        val overlay = android.provider.Settings.canDrawOverlays(this)
-        // with the overlay allowed, the sphere card is the pop-up and the notification is silent; without it the notification keeps its pop-up
-        val panel = item.toExtras(Intent(this, SavedPanelActivity::class.java)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-        val d = (resources.displayMetrics.density * 48).toInt()
-        val icon = runCatching { val bmp = Bitmap.createBitmap(d, d, Bitmap.Config.ARGB_8888); val v = Ball(this, SphereShade.big(SphereShade.today()), 0.38f, 0f, true); v.measure(View.MeasureSpec.makeMeasureSpec(d, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(d, View.MeasureSpec.EXACTLY)); v.layout(0, 0, d, d); v.draw(Canvas(bmp)); bmp }.getOrNull()
-        val b = Notification.Builder(this, if (overlay) CH_SAVED else CH_DONE).setSmallIcon(android.R.drawable.stat_sys_download_done)
-            .setContentTitle(title).setContentText(sub).setStyle(Notification.BigTextStyle().bigText(sub))
+        val view = Intent(Intent.ACTION_VIEW).setDataAndType(imgs[0], "image/png").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        val share = if (imgs.size == 1) Intent(Intent.ACTION_SEND).setType("image/png").putExtra(Intent.EXTRA_STREAM, imgs[0])
+            else Intent(Intent.ACTION_SEND_MULTIPLE).setType("image/png").putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(imgs))
+        share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        val cd = android.content.ClipData.newRawUri(title, imgs[0]); imgs.drop(1).forEach { cd.addItem(android.content.ClipData.Item(it)) }
+        r.textUri?.let { cd.addItem(android.content.ClipData.Item(it)) }
+        share.clipData = cd
+        if (r.text.isNotBlank() && r.text.length < 100_000) share.putExtra(Intent.EXTRA_TEXT, r.text)
+        val chooser = Intent.createChooser(share, "Share").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val b = Notification.Builder(this, CH_DONE).setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setContentTitle(title).setContentText((if (imgs.size > 1) "${imgs.size} parts" else "1 image") + " in Download/ScrollRSI. Tap to open, or Share.")
             .setAutoCancel(true)
-            .setContentIntent(PendingIntent.getActivity(this, id, panel, PendingIntent.FLAG_IMMUTABLE))
-        icon?.let { b.setLargeIcon(it) }
+            .setContentIntent(PendingIntent.getActivity(this, id, view, PendingIntent.FLAG_IMMUTABLE))
+            .addAction(Notification.Action.Builder(null, "Share", PendingIntent.getActivity(this, id + 10000, chooser, PendingIntent.FLAG_IMMUTABLE)).build())
         nm().notify(id, b.build())
-        if (overlay) ui.post { runCatching { (savedCard ?: SavedCard(this, wm ?: getSystemService(WINDOW_SERVICE) as WindowManager, ui).also { savedCard = it }).show(item, sysBar("status_bar_height")) } }
     }
-    private var savedCard: SavedCard? = null
 
     private fun finishLong() {
         val s = shotSession ?: return
@@ -807,14 +804,14 @@ class CaptureService : Service() {
         shotExec.execute {
             try {
                 fun writeLog(st: String) { logTxt?.let { l -> runCatching { app.vocr.core.Saver.saveAs(this, "ScrollRSI shot log $st", l.replaceFirst("ScrollRSI shot log ", "ScrollRSI shot log $st")) } } }
-                if (s.frames == 1 && alreadySaved) { writeLog(if (firstStamp.isNotEmpty()) firstStamp else stamp()); s.discard(); firstShot?.let { postShotDone(it, false) }; firstShot = null; return@execute }
+                if (s.frames == 1 && alreadySaved) { writeLog(if (firstStamp.isNotEmpty()) firstStamp else stamp()); s.discard(); firstShot?.let { toast("Saved to Download/ScrollRSI: ${it.names}"); postShotDone(it, false) }; firstShot = null; return@execute }
                 val parts = s.finish()
                 val tall = s.frames > 1
                 val st = stamp()
                 val base = (if (tall) "ScrollRSI long shot " else "ScrollRSI shot ") + st
                 writeLog(st)
                 val n = ShotSaver.save(this, base, parts, prefs(this).getBoolean("shot_text", false))
-                postShotDone(n, tall, s.gaps)
+                toast("Saved to Download/ScrollRSI: ${n.names}" + (if (s.gaps > 0) ". The page could not be lined up ${s.gaps} time(s): a section may be missing between image parts" else "")); postShotDone(n, tall)
                 firstShot = null
             } catch (e: Throwable) { toast("Could not save: " + (e.message ?: e.javaClass.simpleName)); runCatching { s.discard() } }
         }

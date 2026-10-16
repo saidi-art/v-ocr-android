@@ -74,7 +74,7 @@ class LongShotSession(private val ctx: Context, first: Bitmap, private val sysTo
         val bandCrop = if (bRow >= 0) h - bRow else 0
         if (bandCrop > 0) note("flat band at screen rows ${bnd!![0]}..${bnd[0] + bnd[1]} value ${bnd[2]} (sighting ${bands.count(bnd)}): cropped as a host strip")
         else if (bnd != null) note("flat band at screen rows ${bnd[0]}..${bnd[0] + bnd[1]} value ${bnd[2]}: first sighting, not cropped yet")
-        val hid = ShotMatch.hiddenFooter(prevLuma, curLuma, w, h, m.dy, m.hdr, h - m.ftr)
+        val hid = if (ShotMatch.HIDDEN_FOOTER) ShotMatch.hiddenFooter(prevLuma, curLuma, w, h, m.dy, m.hdr, h - m.ftr) else 0
         val hidCrop = if (hid in 1..(h / 4)) m.ftr + hid else 0
         if (hidCrop > 0) note("a bar at the bottom of the previous capture is gone in this one: cutting $hid rows above the footer")
         val ftr = max(max(max(m.ftr, stickyFtr), bandCrop), hidCrop); val top = max(m.hdr, stickyTop); val best = m.dy; val bottom = h - ftr
@@ -82,10 +82,11 @@ class LongShotSession(private val ctx: Context, first: Bitmap, private val sysTo
         if (m.hdr in 1..(h / 4)) stickyTop = max(stickyTop, m.hdr)
         lastHdr = top; lastFtr = ftr; lastDy = best
         if (ftrPrev < 0) { writer.add(prev, 0, h - ftr); ftrPrev = ftr }   // first pair: the first capture is written up to its footer
-        val start = (h - ftrPrev - best).coerceIn(top, bottom)
+        val sm = ShotMatch.seam(h, ftrPrev, ftr, best, top)
+        val start = sm[0]
         if (bottom > start) writer.add(cur, start, bottom)
         note("seam: rows $start..$bottom of the new capture appended, image rows now ${writer.rows} (dy=$best hdr=$top ftr=$ftr, detected hdr=${m.hdr} ftr=${m.ftr})")
-        ftrPrev = ftr
+        ftrPrev = sm[2]   // where the written rows end, in this capture's coordinates (the footer when rows were appended)
         prev.recycle(); prev = cur; prevLuma = curLuma; frames++
         return if (writer.rows >= MAX_ROWS) Outcome.CAP else Outcome.ADDED
     }
@@ -244,7 +245,17 @@ class BandTracker {
 object ShotMatch {
     /** Columns right of this percentage of the width are not scored: the screen-recorder bubble, a picture-in-picture video or an edge panel often sit there and change by themselves. */
     const val EDGE = 88
+    /** Cutting a bottom bar that vanishes after the first scroll is OFF: on a list page it read an offset off by one row as a 468 row bar. Needs a lab check on an X run. */
+    const val HIDDEN_FOOTER = false
     enum class Status { OK, END, MISMATCH }
+
+    /** Where to append the new capture: [start row, bottom row, new "footer edge" distance]. The previous slice ended `ftrPrev` rows above the previous capture's bottom, which is row h - ftrPrev - dy of the new capture.
+     *  When the footer grows by more than dy between two pairs, bottom falls above that row: nothing new is appended and the written end stays at start (not bottom), so the next pair does not repeat rows. */
+    fun seam(h: Int, ftrPrev: Int, ftr: Int, dy: Int, top: Int): IntArray {
+        val bottom = h - ftr
+        val start = max(h - ftrPrev - dy, top)
+        return intArrayOf(start, bottom, if (start > bottom) h - start else ftr)
+    }
 
     /** A bar at the bottom of the first capture that is gone in the next one (X and Chrome hide it while you scroll down). The page content under it shows up in the next capture,
      *  so the rows of the first capture that no longer match the shifted next capture, at its bottom edge, are that bar. Returns how many rows above `bottom` to cut (0 when none). */

@@ -157,4 +157,19 @@ class ShotMatchTest {
         assertTrue("cut=$cut", cut in 140..160)
         assertEquals(0, ShotMatch.hiddenFooter(frame(500), frame(500 + 700), W, H, 700, HDR, H - FTR))
     }
+
+    @Test fun seamKeepsContentContinuousWhenTheFooterJumps() {
+        // lab numbers: dy=422, hdr=1053, footer 315 cut up to 783 in the first pair: 422 new rows, nothing repeated
+        val a = ShotMatch.seam(2340, 783, 783, 422, 1053)
+        assertEquals(1135, a[0]); assertEquals(1557, a[1]); assertEquals(783, a[2])
+        // footer grows 315 -> 783 on a later pair (jump 468 > dy 422): nothing appended, the written end stays at the true row
+        val b = ShotMatch.seam(2340, 315, 783, 422, 0)
+        assertEquals(1603, b[0]); assertTrue(b[0] > b[1]); assertEquals(737, b[2])
+        // the next pair continues from that end: 376 new rows, and the written end is the footer edge again
+        val c = ShotMatch.seam(2340, b[2], 783, 422, 0)
+        assertEquals(1181, c[0]); assertEquals(1557, c[1]); assertEquals(783, c[2])
+        // normal steady scroll: rows appended = dy
+        val d = ShotMatch.seam(2340, 135, 135, 1000, 97)
+        assertEquals(1000, d[1] - d[0])
+    }
 }
