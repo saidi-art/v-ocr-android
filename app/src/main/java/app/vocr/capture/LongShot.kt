@@ -205,6 +205,8 @@ object ShotSaver {
 
 /** Pure offset finder for two captures (grey bytes, w x h). Kept free of Android classes so it can be unit-tested. */
 object ShotMatch {
+    /** Columns right of this percentage of the width are not scored: the screen-recorder bubble, a picture-in-picture video or an edge panel often sit there and change by themselves. */
+    const val EDGE = 88
     enum class Status { OK, END, MISMATCH }
     class Match(val status: Status, val dy: Int, val score: Double, val still: Double, val hdr: Int, val ftr: Int)
 
@@ -218,7 +220,7 @@ object ShotMatch {
             val y = if (fromTop) n else h - 1 - n
             var sum = 0L; var c = 0; var x = 0
             val o = y * w
-            while (x < w) { sum += abs((a[o + x].toInt() and 255) - (b[o + x].toInt() and 255)); c++; x += 6 }
+            while (x < w * EDGE / 100) { sum += abs((a[o + x].toInt() and 255) - (b[o + x].toInt() and 255)); c++; x += 6 }
             if (sum.toDouble() / c > 1.5) { miss++; if (miss >= run) break } else { miss = 0; last = n + 1 }
             n++
         }
@@ -238,7 +240,7 @@ object ShotMatch {
             val ro = y * w; val po = (y + dy) * w
             var rs = 0L; var rn = 0
             var x = 0
-            while (x + 5 < w) {
+            while (x + 5 < w * EDGE / 100) {
                 val c0 = b[ro + x].toInt() and 255; val p0 = a[po + x].toInt() and 255
                 val edge = abs(c0 - (b[ro + x + 5].toInt() and 255)) > 18 || abs(p0 - (a[po + x + 5].toInt() and 255)) > 18
                 // movingOnly: a pixel that is the same in both captures at the same screen position is background (a fixed wallpaper, a fixed bar), not page content
@@ -265,7 +267,7 @@ object ShotMatch {
         if (bottom - top < h / 3) {
             // nearly everything is fixed: either the page stopped moving (the end) or there is no room to match
             var sum = 0L; var n = 0; var y = 0
-            while (y < h) { var x = 0; while (x < w) { sum += abs((a[y * w + x].toInt() and 255) - (b[y * w + x].toInt() and 255)); n++; x += 7 }; y += 5 }
+            while (y < h) { var x = 0; while (x < w * EDGE / 100) { sum += abs((a[y * w + x].toInt() and 255) - (b[y * w + x].toInt() and 255)); n++; x += 7 }; y += 5 }
             return if (sum.toDouble() / n < 1.0) Match(Status.END, 0, 0.0, 0.0, hdr, ftr) else Match(Status.MISMATCH, 0, 255.0, 255.0, hdr, ftr)
         }
         val maxDy = bottom - top - h / 8

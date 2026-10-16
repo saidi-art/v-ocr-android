@@ -705,7 +705,7 @@ class CaptureService : Service() {
             if (firstCycle && s.sameAsLast(a)) { a.recycle(); s.logLine("first capture equals the one already taken") }
             else when (s.addFrame(a)) {
                 LongShotSession.Outcome.ADDED -> { ends = 0; sizeSwipe(s) }
-                LongShotSession.Outcome.END -> { a.recycle(); if (++ends >= (if (s.frames <= 1) 3 else 2)) reason = if (s.frames <= 1) "Stopped: the page did not scroll (swipe ignored or a fixed screen?)" else "End of the page" }
+                LongShotSession.Outcome.END -> { a.recycle(); if (++ends >= 3) reason = if (s.frames <= 1) "Stopped: the page did not scroll (swipe ignored or a fixed screen?)" else "End of the page" }
                 LongShotSession.Outcome.MISMATCH -> {
                     a.recycle()
                     // a toast or a heads-up notification may have been on screen: wait for it to go, capture the same page again (up to 3 tries)
@@ -715,7 +715,7 @@ class CaptureService : Service() {
                         val c = snapBlocking() ?: continue
                         when (s.addFrame(c)) {
                             LongShotSession.Outcome.ADDED -> { ok = true; sizeSwipe(s) }
-                            LongShotSession.Outcome.END -> { c.recycle(); ok = true; if (++ends >= (if (s.frames <= 1) 3 else 2)) reason = if (s.frames <= 1) "Stopped: the page did not scroll (swipe ignored or a fixed screen?)" else "End of the page" }
+                            LongShotSession.Outcome.END -> { c.recycle(); ok = true; if (++ends >= 3) reason = if (s.frames <= 1) "Stopped: the page did not scroll (swipe ignored or a fixed screen?)" else "End of the page" }
                             LongShotSession.Outcome.CAP -> { ok = true; reason = "Reached the size limit" }
                             else -> c.recycle()
                         }
@@ -729,7 +729,7 @@ class CaptureService : Service() {
             // ---- 2) scroll up, only when another cycle is wanted
             if (!(shotHolding || shotQueued || shotAuto)) break
             // nothing has moved since the first capture: this is not a proven end. Try again with a longer drag in another column before giving up.
-            if (s.frames <= 1 && ends > 0) { shotY0 = 0.80f; shotY1 = 0.50f; shotX = floatArrayOf(0.35f, 0.2f, 0.75f, 0.55f)[ends % 4]; s.logLine("no movement yet: retry drag at x=$shotX") } else shotX = ScrollService.X0
+            if (ends > 0) { shotY0 = 0.80f; shotY1 = 0.50f; shotX = floatArrayOf(0.35f, 0.2f, 0.75f, 0.55f)[ends % 4]; s.logLine("no movement yet: retry drag at x=$shotX") } else shotX = ScrollService.X0
             val sw = swipeBlocking()
             s.logLine("swipe ${"%.2f".format(shotY0)}->${"%.2f".format(shotY1)} ok=$sw")
             if (!sw) { reason = "Scrolling failed. Check that Accessibility is on."; break }

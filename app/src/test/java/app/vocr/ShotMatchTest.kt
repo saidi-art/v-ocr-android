@@ -113,4 +113,16 @@ class ShotMatchTest {
             assertEquals(dy, m.dy)
         }
     }
+
+    // a video / recorder bubble that changes by itself in the right-edge strip must not break the join or fake motion
+    @Test fun ignoresAChangingRightEdgeStrip() {
+        val r = Random(9)
+        val a = frame(2500); val b = frame(2500 + 700)
+        for (y in 300 until 900) for (x in (W * 90 / 100) until W) { a[y * W + x] = r.nextInt(256).toByte(); b[y * W + x] = r.nextInt(256).toByte() }
+        val m = ShotMatch.find(a, b, W, H, 0, 2)
+        assertEquals(ShotMatch.Status.OK, m.status); assertEquals(700, m.dy)
+        val c = frame(2500); val d = frame(2500)
+        for (y in 300 until 900) for (x in (W * 90 / 100) until W) { c[y * W + x] = r.nextInt(256).toByte(); d[y * W + x] = r.nextInt(256).toByte() }
+        assertEquals(ShotMatch.Status.END, ShotMatch.find(c, d, W, H, 0, 2).status)
+    }
 }
