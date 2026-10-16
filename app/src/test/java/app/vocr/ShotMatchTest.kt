@@ -137,4 +137,24 @@ class ShotMatchTest {
         val h2 = ByteArray(W * H) { 255.toByte() }
         assertNull(ShotMatch.flatBand(h2, W, H))
     }
+
+    @Test fun bandTrackerCropsFromTheSecondSightingEvenWhenItBlinks() {
+        val t = app.vocr.capture.BandTracker()
+        val b = intArrayOf(2194, 11, 96)
+        assertEquals(-1, t.see(b))        // first sighting: not cropped yet
+        assertEquals(-1, t.see(null))     // the strip is missing in the next capture
+        assertEquals(2194, t.see(b))      // seen again at the same row: cropped
+        assertEquals(-1, t.see(null))
+        assertEquals(2194, t.see(b))      // and every time after
+        assertEquals(-1, t.see(intArrayOf(1500, 11, 96)))   // a different row is a new strip (page content moves)
+    }
+
+    @Test fun findsABottomBarThatDisappearsWhenScrolling() {
+        val a = frame(500); val b = frame(500 + 700)
+        val top = H - FTR - 150
+        for (y in top until H - FTR) for (x in 0 until W) a[y * W + x] = (if ((x / 40 + y / 6) % 2 == 0) 235 else 20).toByte()   // a nav bar with icons
+        val cut = ShotMatch.hiddenFooter(a, b, W, H, 700, HDR, H - FTR)
+        assertTrue("cut=$cut", cut in 140..160)
+        assertEquals(0, ShotMatch.hiddenFooter(frame(500), frame(500 + 700), W, H, 700, HDR, H - FTR))
+    }
 }

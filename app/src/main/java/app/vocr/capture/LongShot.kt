@@ -24,7 +24,7 @@ class LongShotSession(private val ctx: Context, first: Bitmap, private val sysTo
     private var prevLuma: ByteArray = luma(first)
     private var ftrPrev = -1
     private var stickyFtr = 0; private var stickyTop = 0
-    private var band: IntArray? = null; private var bandSeen = 0   // a flat strip at the same screen row in successive captures
+    private val bands = BandTracker(); private var bandSeeded = false   // a flat strip at the same screen row, seen in at least two captures of the run (it may be missing from some)
     private val writer = PartWriter(ctx, w)
     var frames = 1; private set
     /** Fixed rows found at the top and bottom by the last good join (status bar, headers, other windows, composer, navigation bar). */
@@ -41,7 +41,7 @@ class LongShotSession(private val ctx: Context, first: Bitmap, private val sysTo
         if (cur.width != w || cur.height != h) return false
         writer.breakPart()
         val old = prev
-        prev = cur; prevLuma = luma(cur); ftrPrev = -1; band = null; bandSeen = 0; frames++; gaps++
+        prev = cur; prevLuma = luma(cur); ftrPrev = -1; frames++; gaps++
         runCatching { old.recycle() }
         note("re-anchored on the current capture (no match with the last one): a section may be missing here, new image part. gaps=$gaps")
         return true
@@ -68,15 +68,17 @@ class LongShotSession(private val ctx: Context, first: Bitmap, private val sysTo
         }
         // A bar that slides away while scrolling and back on a scroll up (X, Chrome) is only 'fixed' in the pairs where it is visible in both captures.
         // In another pair it looks like content and would be written into the middle of the image. Keep the largest bar seen so far, as long as it is a sane size.
+        if (!bandSeeded) { bandSeeded = true; bands.see(ShotMatch.flatBand(prevLuma, w, h)) }   // the first capture counts as a sighting too
         val bnd = ShotMatch.flatBand(curLuma, w, h)
-        val b0 = band
-        if (bnd != null) {
-            if (b0 != null && b0[0] == bnd[0] && b0[1] == bnd[1] && abs(b0[2] - bnd[2]) <= 2) bandSeen++ else { band = bnd; bandSeen = if (frames == 0 && ShotMatch.flatBand(prevLuma, w, h)?.let { it[0] == bnd[0] && it[1] == bnd[1] } == true) 2 else 1 }
-        } else { band = null; bandSeen = 0 }
-        val bandCrop = if (bandSeen >= 2) h - bnd!![0] else 0
-        if (bandCrop > 0) note("flat band at screen rows ${bnd!![0]}..${bnd[0] + bnd[1]} value ${bnd[2]} seen in $bandSeen captures: cropped as a host strip")
-        val ftr = max(max(m.ftr, stickyFtr), bandCrop); val top = max(m.hdr, stickyTop); val best = m.dy; val bottom = h - ftr
-        if (m.ftr in 1..(h / 4)) stickyFtr = max(stickyFtr, m.ftr)
+        val bRow = bands.see(bnd)
+        val bandCrop = if (bRow >= 0) h - bRow else 0
+        if (bandCrop > 0) note("flat band at screen rows ${bnd!![0]}..${bnd[0] + bnd[1]} value ${bnd[2]} (sighting ${bands.count(bnd)}): cropped as a host strip")
+        else if (bnd != null) note("flat band at screen rows ${bnd[0]}..${bnd[0] + bnd[1]} value ${bnd[2]}: first sighting, not cropped yet")
+        val hid = ShotMatch.hiddenFooter(prevLuma, curLuma, w, h, m.dy, m.hdr, h - m.ftr)
+        val hidCrop = if (hid in 1..(h / 4)) m.ftr + hid else 0
+        if (hidCrop > 0) note("a bar at the bottom of the previous capture is gone in this one: cutting $hid rows above the footer")
+        val ftr = max(max(max(m.ftr, stickyFtr), bandCrop), hidCrop); val top = max(m.hdr, stickyTop); val best = m.dy; val bottom = h - ftr
+        if (max(m.ftr, hidCrop) in 1..(h / 4)) stickyFtr = max(stickyFtr, max(m.ftr, hidCrop))
         if (m.hdr in 1..(h / 4)) stickyTop = max(stickyTop, m.hdr)
         lastHdr = top; lastFtr = ftr; lastDy = best
         if (ftrPrev < 0) { writer.add(prev, 0, h - ftr); ftrPrev = ftr }   // first pair: the first capture is written up to its footer
@@ -229,28 +231,55 @@ object ShotSaver {
 }
 
 
+/** Remembers flat strips (first row, rows, value) seen in the captures of one run. A strip seen a second time at the same screen row is a host strip, whether or not it was present in the capture in between. */
+class BandTracker {
+    private val seen = HashMap<Long, Int>()
+    private fun key(b: IntArray) = b[0] * 1_000_000L + b[1] * 1_000L + b[2] / 3
+    fun count(b: IntArray?): Int = if (b == null) 0 else seen[key(b)] ?: 0
+    /** Records a sighting (or none) and returns the strip's first row when it should be cropped, else -1. */
+    fun see(b: IntArray?): Int { if (b == null) return -1; val c = (seen[key(b)] ?: 0) + 1; seen[key(b)] = c; return if (c >= 2) b[0] else -1 }
+}
+
 /** Pure offset finder for two captures (grey bytes, w x h). Kept free of Android classes so it can be unit-tested. */
 object ShotMatch {
     /** Columns right of this percentage of the width are not scored: the screen-recorder bubble, a picture-in-picture video or an edge panel often sit there and change by themselves. */
     const val EDGE = 88
     enum class Status { OK, END, MISMATCH }
 
+    /** A bar at the bottom of the first capture that is gone in the next one (X and Chrome hide it while you scroll down). The page content under it shows up in the next capture,
+     *  so the rows of the first capture that no longer match the shifted next capture, at its bottom edge, are that bar. Returns how many rows above `bottom` to cut (0 when none). */
+    fun hiddenFooter(a: ByteArray, b: ByteArray, w: Int, h: Int, dy: Int, top: Int, bottom: Int): Int {
+        val xe = w * 90 / 100
+        val lowest = max(top + dy, bottom - h / 5)
+        var topMismatch = -1; var count = 0
+        var y = bottom - 1
+        while (y >= lowest) {
+            val yb = y - dy
+            if (yb < top) break
+            var sum = 0L; var n = 0; var x = 0
+            while (x < xe) { sum += abs((a[y * w + x].toInt() and 255) - (b[yb * w + x].toInt() and 255)); n++; x += 3 }
+            if (sum.toDouble() / n > 15.0) { topMismatch = y; count++ }
+            y--
+        }
+        return if (count >= 4 && topMismatch >= 0) bottom - topMismatch else 0
+    }
+
     /** A flat band: 6 to 20 rows in the lower 40% of the screen, one single grey value across the left 90% of the width, clearly different from the rows above and below.
      *  Returns (first row, row count, value) or null. Used to find a host or system strip that sits at the same screen row in every capture. */
     fun flatBand(a: ByteArray, w: Int, h: Int): IntArray? {
         val xe = w * 90 / 100
-        fun rowVal(y: Int): Int {   // the row's value when flat, else -1
-            val o = y * w; val v = a[o].toInt() and 255
-            var x = 0
-            while (x < xe) { if (abs((a[o + x].toInt() and 255) - v) > 2) return -1; x += 3 }
-            return v
+        fun rowVal(y: Int): Int {   // the row's value when flat (at least 97% of the samples within 3 grey levels of the middle one), else -1
+            val o = y * w; val v = a[o + xe / 2].toInt() and 255
+            var n = 0; var bad = 0; var x = 0
+            while (x < xe) { n++; if (abs((a[o + x].toInt() and 255) - v) > 3) bad++; x += 3 }
+            return if (bad * 100 <= n * 3) v else -1
         }
         var y = h * 60 / 100
         while (y < h) {
             val v = rowVal(y)
             if (v in 30..200) {
                 var e = y + 1
-                while (e < h && rowVal(e).let { it >= 0 && abs(it - v) <= 2 }) e++
+                while (e < h && rowVal(e).let { it >= 0 && abs(it - v) <= 3 }) e++
                 val n = e - y
                 if (n in 6..20 && y > 0) {
                     val above = rowVal(y - 1); val below = if (e < h) rowVal(e) else -1

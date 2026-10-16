@@ -537,7 +537,8 @@ class CaptureService : Service() {
         snap { bm ->
             if (bm == null) { shotRunning = false; toast("Could not take the screenshot"); return@snap }
             if (LongShotSession.blank(bm)) { shotRunning = false; bm.recycle(); toast("This app blocks screenshots (the picture is black)"); return@snap }
-            val base = "ScrollRSI shot " + stamp()
+            shotStamp = stamp(); shotEndReason = ""
+            val base = "ScrollRSI shot " + shotStamp
             shotSaved = save
             if (save) shotExec.execute {
                 try {
@@ -632,10 +633,12 @@ class CaptureService : Service() {
     }
 
     /** Numbers only (offsets, scores, row counts, statuses): no screen content. Saved next to the images so a failed capture can be explained. */
-    private fun saveShotLog(s: LongShotSession, reason: String) = runCatching {
+    @Volatile private var shotEndReason = ""
+    @Volatile private var shotStamp = ""
+    private fun buildLabel() = runCatching { val i = packageManager.getPackageInfo(packageName, 0); i.longVersionCode.toString() + " (" + i.versionName + ")" }.getOrDefault("unknown")
+    private fun shotLogText(s: LongShotSession, reason: String): String {
         val h = resources.displayMetrics.heightPixels
-        val txt = "ScrollRSI shot log " + stamp() + "\n" + reason + "\nscreen " + screenW() + "x" + h + " swipe " + shotY0 + " to " + shotY1 + " probed=" + shotProbed + " sysTop=" + sysBar("status_bar_height") + " sysBottom=" + sysBar("navigation_bar_height") + "\n" + s.logText()
-        app.vocr.core.Saver.saveAs(this, "ScrollRSI shot log " + stamp(), txt)
+        return "ScrollRSI shot log \nbuild " + buildLabel() + "\nresult: " + (if (reason.isEmpty()) "finished normally" else reason) + "\nimages: " + s.frames + " captured, " + s.gaps + " gap(s)\nscreen " + screenW() + "x" + h + " swipe " + shotY0 + " to " + shotY1 + " probed=" + shotProbed + " sysTop=" + sysBar("status_bar_height") + " sysBottom=" + sysBar("navigation_bar_height") + "\n" + s.logText()
     }
 
     private fun sysBar(name: String): Int = runCatching { val id = resources.getIdentifier(name, "dimen", "android"); if (id > 0) resources.getDimensionPixelSize(id) else 0 }.getOrDefault(0)
@@ -690,6 +693,8 @@ class CaptureService : Service() {
     private fun longLoop() {
         val s = shotSession ?: return
         var ends = 0; var mmRound = 0; var reason = ""; var first = true; var firstCycle = true
+        var afterBack = false; var backEnds = 0; var sawMm = false
+        fun endReasonText(frames: Int) = if (frames > 1) "End of the page" else if (sawMm) "Stopped: the page changed but could not be lined up, and then stopped moving. Saved what was captured" else "Stopped: the page did not scroll (swipe ignored or a fixed screen?)"
         while ((first || shotHolding || shotQueued || shotAuto) && reason.isEmpty()) {
             first = false; shotQueued = false
             shotLoopRan = true
@@ -709,10 +714,11 @@ class CaptureService : Service() {
             if (a == null) { reason = "A screenshot failed"; break }
             s.logLine("capture settle tries=$tries settled=$settled after ${System.currentTimeMillis() - t0} ms")
             if (firstCycle && s.sameAsLast(a)) { a.recycle(); s.logLine("first capture equals the one already taken") }
-            else when (s.addFrame(a)) {
-                LongShotSession.Outcome.ADDED -> { ends = 0; mmRound = 0; shotSince = 0f; shotLonger = false; sizeSwipe(s) }
-                LongShotSession.Outcome.END -> { a.recycle(); if (++ends >= 3) reason = if (s.frames <= 1) "Stopped: the page did not scroll (swipe ignored or a fixed screen?)" else "End of the page" }
+            else { val wasBack = afterBack; afterBack = false; when (s.addFrame(a)) {
+                LongShotSession.Outcome.ADDED -> { ends = 0; backEnds = 0; mmRound = 0; shotSince = 0f; shotLonger = false; sizeSwipe(s) }
+                LongShotSession.Outcome.END -> { a.recycle(); if (wasBack && backEnds < 3) { backEnds++; shotLonger = true; s.logLine("same as the last accepted capture right after a drag back: the page is back where it was, not the end. Longer forward drag, try $backEnds of 3") } else if (++ends >= 3) reason = endReasonText(s.frames) }
                 LongShotSession.Outcome.MISMATCH -> {
+                    sawMm = true
                     a.recycle()
                     // a toast or a heads-up notification may have been on screen: wait for it to go, capture the same page again (up to 3 tries)
                     var tries2 = 0; var ok = false
@@ -721,7 +727,7 @@ class CaptureService : Service() {
                         val c = snapBlocking() ?: continue
                         when (s.addFrame(c)) {
                             LongShotSession.Outcome.ADDED -> { ok = true; mmRound = 0; shotSince = 0f; shotLonger = false; sizeSwipe(s) }
-                            LongShotSession.Outcome.END -> { c.recycle(); ok = true; if (++ends >= 3) reason = if (s.frames <= 1) "Stopped: the page did not scroll (swipe ignored or a fixed screen?)" else "End of the page" }
+                            LongShotSession.Outcome.END -> { c.recycle(); ok = true; if (wasBack && backEnds < 3) { backEnds++; shotLonger = true; s.logLine("same as the last accepted capture right after a drag back: not the end, try $backEnds of 3") } else if (++ends >= 3) reason = endReasonText(s.frames) }
                             LongShotSession.Outcome.CAP -> { ok = true; reason = "Reached the size limit" }
                             else -> c.recycle()
                         }
@@ -740,7 +746,7 @@ class CaptureService : Service() {
                     }
                 }
                 LongShotSession.Outcome.CAP -> reason = "Reached the size limit"
-            }
+            } }
             firstCycle = false
             if (reason.isNotEmpty()) break
             // ---- 2) scroll up, only when another cycle is wanted
@@ -752,14 +758,14 @@ class CaptureService : Service() {
                 val hh = resources.displayMetrics.heightPixels.toFloat()
                 val dist = (shotSince * 0.5f / shotRatio).coerceIn(hh * 0.10f, hh * 0.70f)
                 shotY0 = (0.5f * hh - dist / 2f) / hh; shotY1 = (0.5f * hh + dist / 2f) / hh; shotX = ScrollService.X0
-                s.logLine("drag back ${"%.2f".format(shotY0)}->${"%.2f".format(shotY1)}")
+                afterBack = true; s.logLine("drag back ${"%.2f".format(shotY0)}->${"%.2f".format(shotY1)}")
             } else if (ends > 0 || shotLonger) { shotLonger = false; shotY0 = 0.80f; shotY1 = 0.50f; shotX = floatArrayOf(0.35f, 0.2f, 0.75f, 0.55f)[(ends + mmRound) % 4]; s.logLine("no movement yet: retry drag at x=$shotX") } else shotX = ScrollService.X0
             val sw = swipeBlocking()
             s.logLine("swipe ${"%.2f".format(shotY0)}->${"%.2f".format(shotY1)} ok=$sw")
             if (!sw) { reason = "Scrolling failed. Check that Accessibility is on."; break }
             Thread.sleep(380)
         }
-        if (reason.isNotEmpty()) { app.vocr.VocrApp.note("longshot: loop ended: $reason", null); if (reason.startsWith("Stopped") || reason.startsWith("Scrolling") || reason.startsWith("A screenshot")) saveShotLog(s, reason); shotHolding = false; shotAuto = false; ui.post { toast(reason); ui.removeCallbacks(shotIdleRun); finishLong(); ui.postDelayed({ if (shotSession == null && !shotRunning) showAgainBar() }, 1200) } }
+        if (reason.isNotEmpty()) { app.vocr.VocrApp.note("longshot: loop ended: $reason", null); shotEndReason = reason; shotHolding = false; shotAuto = false; ui.post { toast(reason); ui.removeCallbacks(shotIdleRun); finishLong(); ui.postDelayed({ if (shotSession == null && !shotRunning) showAgainBar() }, 1200) } }
     }
 
     @Volatile private var firstShot: ShotSaver.Result? = null
@@ -789,16 +795,21 @@ class CaptureService : Service() {
     private fun finishLong() {
         val s = shotSession ?: return
         if (shotRunning) { ui.postDelayed(shotIdleRun, 600); return }   // a capture step is still being joined
-        if (shotLoopRan && s.frames <= 1) saveShotLog(s, "Ended with only one image after a scroll attempt")
+        val endReason = shotEndReason; shotEndReason = ""
+        val logTxt = if (shotLoopRan) runCatching { shotLogText(s, if (endReason.isEmpty() && s.frames <= 1) "Ended with only one image after a scroll attempt" else endReason) }.getOrNull() else null
+        val firstStamp = shotStamp
         shotLoopRan = false
         shotSession = null; hideShotBar(); shotHolding = false
         val alreadySaved = shotSaved; shotSaved = false
         shotExec.execute {
             try {
-                if (s.frames == 1 && alreadySaved) { s.discard(); firstShot?.let { toast("Saved to Download/ScrollRSI: ${it.names}"); postShotDone(it, false) }; firstShot = null; return@execute }
+                fun writeLog(st: String) { logTxt?.let { l -> runCatching { app.vocr.core.Saver.saveAs(this, "ScrollRSI shot log $st", l.replaceFirst("ScrollRSI shot log ", "ScrollRSI shot log $st")) } } }
+                if (s.frames == 1 && alreadySaved) { writeLog(if (firstStamp.isNotEmpty()) firstStamp else stamp()); s.discard(); firstShot?.let { toast("Saved to Download/ScrollRSI: ${it.names}"); postShotDone(it, false) }; firstShot = null; return@execute }
                 val parts = s.finish()
                 val tall = s.frames > 1
-                val base = (if (tall) "ScrollRSI long shot " else "ScrollRSI shot ") + stamp()
+                val st = stamp()
+                val base = (if (tall) "ScrollRSI long shot " else "ScrollRSI shot ") + st
+                writeLog(st)
                 val n = ShotSaver.save(this, base, parts, prefs(this).getBoolean("shot_text", false))
                 toast("Saved to Download/ScrollRSI: ${n.names}" + (if (s.gaps > 0) ". The page could not be lined up ${s.gaps} time(s): a section may be missing between image parts" else "")); postShotDone(n, tall)
                 firstShot = null
