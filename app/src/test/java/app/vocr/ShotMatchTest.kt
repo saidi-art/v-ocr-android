@@ -125,4 +125,16 @@ class ShotMatchTest {
         for (y in 300 until 900) for (x in (W * 90 / 100) until W) { c[y * W + x] = r.nextInt(256).toByte(); d[y * W + x] = r.nextInt(256).toByte() }
         assertEquals(ShotMatch.Status.END, ShotMatch.find(c, d, W, H, 0, 2).status)
     }
+
+    @Test fun findsAFlatHostStripAndIgnoresPlainPages() {
+        val f = frame(2500)
+        assertNull(ShotMatch.flatBand(f, W, H))
+        val g = frame(2500)
+        for (y in 1180 until 1191) for (x in 0 until (W * 94 / 100)) g[y * W + x] = 96.toByte()
+        val b = ShotMatch.flatBand(g, W, H)
+        assertNotNull(b); assertEquals(1180, b!![0]); assertEquals(11, b[1])
+        // a white page margin is not a band
+        val h2 = ByteArray(W * H) { 255.toByte() }
+        assertNull(ShotMatch.flatBand(h2, W, H))
+    }
 }

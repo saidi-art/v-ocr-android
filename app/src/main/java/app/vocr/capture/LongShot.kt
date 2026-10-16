@@ -23,6 +23,8 @@ class LongShotSession(private val ctx: Context, first: Bitmap, private val sysTo
     private var prev: Bitmap = first
     private var prevLuma: ByteArray = luma(first)
     private var ftrPrev = -1
+    private var stickyFtr = 0; private var stickyTop = 0
+    private var band: IntArray? = null; private var bandSeen = 0   // a flat strip at the same screen row in successive captures
     private val writer = PartWriter(ctx, w)
     var frames = 1; private set
     /** Fixed rows found at the top and bottom by the last good join (status bar, headers, other windows, composer, navigation bar). */
@@ -53,12 +55,23 @@ class LongShotSession(private val ctx: Context, first: Bitmap, private val sysTo
             ShotMatch.Status.MISMATCH -> return Outcome.MISMATCH
             else -> {}
         }
-        val best = m.dy; val ftr = m.ftr; val top = m.hdr; val bottom = h - ftr
+        // A bar that slides away while scrolling and back on a scroll up (X, Chrome) is only 'fixed' in the pairs where it is visible in both captures.
+        // In another pair it looks like content and would be written into the middle of the image. Keep the largest bar seen so far, as long as it is a sane size.
+        val bnd = ShotMatch.flatBand(curLuma, w, h)
+        val b0 = band
+        if (bnd != null) {
+            if (b0 != null && b0[0] == bnd[0] && b0[1] == bnd[1] && abs(b0[2] - bnd[2]) <= 2) bandSeen++ else { band = bnd; bandSeen = if (frames == 0 && ShotMatch.flatBand(prevLuma, w, h)?.let { it[0] == bnd[0] && it[1] == bnd[1] } == true) 2 else 1 }
+        } else { band = null; bandSeen = 0 }
+        val bandCrop = if (bandSeen >= 2) h - bnd!![0] else 0
+        if (bandCrop > 0) note("flat band at screen rows ${bnd!![0]}..${bnd[0] + bnd[1]} value ${bnd[2]} seen in $bandSeen captures: cropped as a host strip")
+        val ftr = max(max(m.ftr, stickyFtr), bandCrop); val top = max(m.hdr, stickyTop); val best = m.dy; val bottom = h - ftr
+        if (m.ftr in 1..(h / 4)) stickyFtr = max(stickyFtr, m.ftr)
+        if (m.hdr in 1..(h / 4)) stickyTop = max(stickyTop, m.hdr)
         lastHdr = top; lastFtr = ftr; lastDy = best
         if (ftrPrev < 0) { writer.add(prev, 0, h - ftr); ftrPrev = ftr }   // first pair: the first capture is written up to its footer
         val start = (h - ftrPrev - best).coerceIn(top, bottom)
         if (bottom > start) writer.add(cur, start, bottom)
-        note("seam: rows $start..$bottom of the new capture appended, image rows now ${writer.rows} (dy=$best hdr=$top ftr=$ftr)")
+        note("seam: rows $start..$bottom of the new capture appended, image rows now ${writer.rows} (dy=$best hdr=$top ftr=$ftr, detected hdr=${m.hdr} ftr=${m.ftr})")
         ftrPrev = ftr
         prev.recycle(); prev = cur; prevLuma = curLuma; frames++
         return if (writer.rows >= MAX_ROWS) Outcome.CAP else Outcome.ADDED
@@ -209,6 +222,33 @@ object ShotMatch {
     /** Columns right of this percentage of the width are not scored: the screen-recorder bubble, a picture-in-picture video or an edge panel often sit there and change by themselves. */
     const val EDGE = 88
     enum class Status { OK, END, MISMATCH }
+
+    /** A flat band: 6 to 20 rows in the lower 40% of the screen, one single grey value across the left 90% of the width, clearly different from the rows above and below.
+     *  Returns (first row, row count, value) or null. Used to find a host or system strip that sits at the same screen row in every capture. */
+    fun flatBand(a: ByteArray, w: Int, h: Int): IntArray? {
+        val xe = w * 90 / 100
+        fun rowVal(y: Int): Int {   // the row's value when flat, else -1
+            val o = y * w; val v = a[o].toInt() and 255
+            var x = 0
+            while (x < xe) { if (abs((a[o + x].toInt() and 255) - v) > 2) return -1; x += 3 }
+            return v
+        }
+        var y = h * 60 / 100
+        while (y < h) {
+            val v = rowVal(y)
+            if (v in 30..200) {
+                var e = y + 1
+                while (e < h && rowVal(e).let { it >= 0 && abs(it - v) <= 2 }) e++
+                val n = e - y
+                if (n in 6..20 && y > 0) {
+                    val above = rowVal(y - 1); val below = if (e < h) rowVal(e) else -1
+                    if ((above < 0 || abs(above - v) > 20) && (below < 0 || abs(below - v) > 20)) return intArrayOf(y, n, v)
+                }
+                y = e
+            } else y++
+        }
+        return null
+    }
     class Match(val status: Status, val dy: Int, val score: Double, val still: Double, val hdr: Int, val ftr: Int)
 
     /** Rows at the top (or bottom) that are identical in both captures: a fixed header or footer. Capped at 45% of the screen (a split-screen window above or below is fixed too). */
