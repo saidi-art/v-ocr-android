@@ -18,19 +18,27 @@ class ScrollService : AccessibilityService() {
     fun swipe(w: Int, h: Int, y0: Float, y1: Float, durMs: Long, xFrac: Float = X0, tailMs: Long = 0L, done: (Boolean) -> Unit) {
         // Never hand the gesture builder a point off the screen or a zero/overlong duration: it throws and would take the whole service down.
         // tailMs > 0: the finger stays still at the end for that long before lifting, so the page does not fling on after the drag (long screenshots need a predictable distance).
+        var s1: GestureDescription.StrokeDescription? = null; var tail: Path? = null
         val g = try {
             val x = (w * xFrac).coerceIn(1f, w - 1f); val ya = (h * y0).coerceIn(1f, h - 1f); val yb = (h * y1).coerceIn(1f, h - 1f)
             val d = durMs.coerceIn(1L, GestureDescription.getMaxGestureDuration() / 2)
             val p = Path().apply { moveTo(x, ya); lineTo(x, yb) }
-            if (tailMs > 0) {
-                val s1 = GestureDescription.StrokeDescription(p, 0, d, true)
-                val s2 = s1.continueStroke(Path().apply { moveTo(x, yb) }, d, tailMs, false)
-                GestureDescription.Builder().addStroke(s1).addStroke(s2).build()
-            } else GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(p, 0, d)).build()
+            // with a tail the drag is the first part of a continued stroke: Android wants the continuation in a second gesture, dispatched when the first one completes
+            if (tailMs > 0) { tail = Path().apply { moveTo(x, yb) }; s1 = GestureDescription.StrokeDescription(p, 0, d, true); GestureDescription.Builder().addStroke(s1).build() }
+            else GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(p, 0, d)).build()
         } catch (e: Exception) { app.vocr.VocrApp.note("swipe build failed", e); done(false); return }
         val ok = try {
             dispatchGesture(g, object : GestureResultCallback() {
-                override fun onCompleted(d: GestureDescription?) { done(true) }
+                override fun onCompleted(d: GestureDescription?) {
+                    val st = s1; val tp = tail
+                    if (st == null || tp == null) { done(true); return }
+                    // the page has been dragged; hold the finger still, then lift. If the hold cannot be sent the drag already happened, so the swipe still counts.
+                    val sent = try { dispatchGesture(GestureDescription.Builder().addStroke(st.continueStroke(tp, 0, tailMs, false)).build(), object : GestureResultCallback() {
+                        override fun onCompleted(d: GestureDescription?) { done(true) }
+                        override fun onCancelled(d: GestureDescription?) { done(true) }
+                    }, null) } catch (e: Exception) { app.vocr.VocrApp.note("tail dispatch failed", e); false }
+                    if (!sent) done(true)
+                }
                 override fun onCancelled(d: GestureDescription?) { done(false) }
             }, null)
         } catch (e: Exception) { app.vocr.VocrApp.note("dispatchGesture failed", e); false }

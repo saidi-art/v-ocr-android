@@ -647,6 +647,7 @@ class CaptureService : Service() {
 
     // The page does not move exactly as far as the finger (flings add distance). After every join the real distance is compared with
     // the requested one, and the next drag is sized so the page moves about 55% of the moving area. Constant finger speed keeps that ratio steady.
+    @Volatile private var shotX = ScrollService.X0
     @Volatile private var shotRatio = 1.0f
     @Volatile private var shotReqPx = 0f
     private fun sizeSwipe(s: LongShotSession) {
@@ -671,7 +672,7 @@ class CaptureService : Service() {
         val l = java.util.concurrent.CountDownLatch(1); var ok = false
         shotReqPx = (shotY0 - shotY1) * hPx
         val dur = (shotReqPx / 0.78f).toLong().coerceIn(300L, 2500L)   // about 0.78 px per ms, the same finger speed every time
-        svc.swipe(screenW(), hPx, shotY0, shotY1, dur, tailMs = 160L) { ok = it; l.countDown() }
+        svc.swipe(screenW(), hPx, shotY0, shotY1, dur, xFrac = shotX, tailMs = 160L) { ok = it; l.countDown() }
         l.await(dur / 1000 + 6, java.util.concurrent.TimeUnit.SECONDS)
         return ok
     }
@@ -704,7 +705,7 @@ class CaptureService : Service() {
             if (firstCycle && s.sameAsLast(a)) { a.recycle(); s.logLine("first capture equals the one already taken") }
             else when (s.addFrame(a)) {
                 LongShotSession.Outcome.ADDED -> { ends = 0; sizeSwipe(s) }
-                LongShotSession.Outcome.END -> { a.recycle(); if (++ends >= 2) reason = "End of the page" }
+                LongShotSession.Outcome.END -> { a.recycle(); if (++ends >= (if (s.frames <= 1) 3 else 2)) reason = if (s.frames <= 1) "Stopped: the page did not scroll (swipe ignored or a fixed screen?)" else "End of the page" }
                 LongShotSession.Outcome.MISMATCH -> {
                     a.recycle()
                     // a toast or a heads-up notification may have been on screen: wait for it to go, capture the same page again (up to 3 tries)
@@ -714,7 +715,7 @@ class CaptureService : Service() {
                         val c = snapBlocking() ?: continue
                         when (s.addFrame(c)) {
                             LongShotSession.Outcome.ADDED -> { ok = true; sizeSwipe(s) }
-                            LongShotSession.Outcome.END -> { c.recycle(); ok = true; if (++ends >= 2) reason = "End of the page" }
+                            LongShotSession.Outcome.END -> { c.recycle(); ok = true; if (++ends >= (if (s.frames <= 1) 3 else 2)) reason = if (s.frames <= 1) "Stopped: the page did not scroll (swipe ignored or a fixed screen?)" else "End of the page" }
                             LongShotSession.Outcome.CAP -> { ok = true; reason = "Reached the size limit" }
                             else -> c.recycle()
                         }
@@ -727,6 +728,8 @@ class CaptureService : Service() {
             if (reason.isNotEmpty()) break
             // ---- 2) scroll up, only when another cycle is wanted
             if (!(shotHolding || shotQueued || shotAuto)) break
+            // nothing has moved since the first capture: this is not a proven end. Try again with a longer drag in another column before giving up.
+            if (s.frames <= 1 && ends > 0) { shotY0 = 0.80f; shotY1 = 0.50f; shotX = floatArrayOf(0.35f, 0.2f, 0.75f, 0.55f)[ends % 4]; s.logLine("no movement yet: retry drag at x=$shotX") } else shotX = ScrollService.X0
             val sw = swipeBlocking()
             s.logLine("swipe ${"%.2f".format(shotY0)}->${"%.2f".format(shotY1)} ok=$sw")
             if (!sw) { reason = "Scrolling failed. Check that Accessibility is on."; break }
