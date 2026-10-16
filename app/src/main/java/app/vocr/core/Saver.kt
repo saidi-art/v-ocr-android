@@ -44,4 +44,21 @@ object Saver {
         }.onFailure { err = it.message ?: it.javaClass.simpleName }.getOrNull()
         return Saved(title, uri, err)
     }
+
+    /** Copies an existing file (a finished screenshot part) into Downloads/ScrollRSI under the given name. */
+    fun saveFile(ctx: Context, name: String, mime: String, src: java.io.File): Saved {
+        val cv = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+            put(MediaStore.MediaColumns.MIME_TYPE, mime)
+            put(MediaStore.MediaColumns.RELATIVE_PATH, "Download/ScrollRSI")
+        }
+        var err = ""
+        val uri = runCatching {
+            ctx.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, cv)?.also { u ->
+                val os = ctx.contentResolver.openOutputStream(u) ?: throw java.io.IOException("could not open the new file for writing")
+                os.use { o -> src.inputStream().use { it.copyTo(o) } }
+            } ?: throw java.io.IOException("Android refused to create the file in Downloads")
+        }.onFailure { err = it.message ?: it.javaClass.simpleName }.getOrNull()
+        return Saved(name, uri, err)
+    }
 }

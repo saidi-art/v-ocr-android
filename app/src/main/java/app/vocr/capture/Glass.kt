@@ -128,3 +128,33 @@ internal fun chipHex() = if (app.vocr.Pal.paper) "#E9E3D6" else "#25262B"
 internal fun chipC() = Color.parseColor(chipHex())
 internal fun onAccentC() = Color.parseColor(if (app.vocr.Pal.paper) "#F9F6F0" else "#17120C")
 internal fun mutedC() = Color.parseColor(if (app.vocr.Pal.paper) "#3A3A38" else "#A9A6A0")
+
+
+/** Small round screenshot bubble that sits under the record bubble and moves with it. */
+internal class ShotBubble(ctx: Context) : View(ctx) {
+    private val pf = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val ps = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = Color.WHITE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
+    private val pg = Paint(Paint.ANTI_ALIAS_FLAG)
+    init { setLayerType(LAYER_TYPE_SOFTWARE, null) }
+    override fun onInitializeAccessibilityNodeInfo(info: android.view.accessibility.AccessibilityNodeInfo) {
+        super.onInitializeAccessibilityNodeInfo(info)
+        info.className = "android.widget.Button"
+        info.contentDescription = "Screenshot"
+    }
+    override fun onDraw(c: Canvas) {
+        val d = resources.displayMetrics.density; val w = width.toFloat(); val h = height.toFloat(); val cx = w / 2; val cy = h / 2
+        val rad = w / 2 - 4 * d
+        pf.setShadowLayer(5f * d, 0f, 2f * d, Color.parseColor("#80000000"))
+        pf.shader = LinearGradient(0f, cy - rad, 0f, cy + rad, Color.argb(0xEE, 0x7B, 0x88, 0xC8), Color.argb(0xDC, 0x2C, 0x34, 0x66), Shader.TileMode.CLAMP)
+        c.drawCircle(cx, cy, rad, pf); pf.clearShadowLayer(); pf.shader = null
+        pg.shader = LinearGradient(0f, cy - rad, 0f, cy, Color.argb(0x70, 255, 255, 255), Color.argb(0, 255, 255, 255), Shader.TileMode.CLAMP)
+        c.drawOval(RectF(cx - rad * 0.7f, cy - rad * 0.92f, cx + rad * 0.7f, cy + rad * 0.05f), pg)
+        ps.strokeWidth = 1.2f * d; ps.alpha = 0xAA; c.drawCircle(cx, cy, rad - 0.6f * d, ps); ps.alpha = 255
+        // camera glyph: body, top bump, lens
+        ps.strokeWidth = 2f * d
+        val bw = 8f * d; val bh = 5.5f * d
+        c.drawRoundRect(RectF(cx - bw, cy - bh + 1f * d, cx + bw, cy + bh + 1f * d), 2f * d, 2f * d, ps)
+        c.drawLine(cx - 3f * d, cy - bh + 1f * d, cx - 2f * d, cy - bh - 1.5f * d, ps); c.drawLine(cx - 2f * d, cy - bh - 1.5f * d, cx + 2f * d, cy - bh - 1.5f * d, ps); c.drawLine(cx + 2f * d, cy - bh - 1.5f * d, cx + 3f * d, cy - bh + 1f * d, ps)
+        c.drawCircle(cx, cy + 1f * d, 2.4f * d, ps)
+    }
+}

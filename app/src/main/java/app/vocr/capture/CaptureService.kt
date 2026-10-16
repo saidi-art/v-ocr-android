@@ -19,6 +19,7 @@ import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Build
+import android.graphics.Bitmap
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -166,7 +167,7 @@ class CaptureService : Service() {
         if (app.vocr.VocrApp.reducedMotion()) { p.x = x; runCatching { wm?.updateViewLayout(w, p) }; return }
         android.animation.ValueAnimator.ofInt(p.x, x).apply {
             duration = 180
-            addUpdateListener { p.x = it.animatedValue as Int; runCatching { wm?.updateViewLayout(w, p) } }
+            addUpdateListener { p.x = it.animatedValue as Int; runCatching { wm?.updateViewLayout(w, p) }; syncShotBubble() }
             start()
         }
     }
@@ -177,6 +178,7 @@ class CaptureService : Service() {
         if (on && busy) return   // stay visible while reading so the progress ring can be seen
         tucked = on
         widget?.alpha = if (on) 0.6f else if (recording) 0.55f else 1f
+        syncShotBubble()
         slideTo(targetX(on))
         if (!on) ui.postDelayed(tuckRun, 3000)
     }
@@ -208,7 +210,7 @@ class CaptureService : Service() {
                 }
                 MotionEvent.ACTION_MOVE -> {
                     if (Math.abs(e.rawX - sx) > dp(6) || Math.abs(e.rawY - sy) > dp(6)) { moved = true; ui.removeCallbacks(longRun) }
-                    if (moved) { p.x = ox + (e.rawX - sx).toInt(); p.y = oy + (e.rawY - sy).toInt(); wm?.updateViewLayout(tv, p) }
+                    if (moved) { p.x = ox + (e.rawX - sx).toInt(); p.y = oy + (e.rawY - sy).toInt(); wm?.updateViewLayout(tv, p); syncShotBubble() }
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     tv.pressedState = false; tv.invalidate()
@@ -222,6 +224,7 @@ class CaptureService : Service() {
         }
         widget = tv; lp = p
         runCatching { wm?.addView(tv, p) }
+        ui.postDelayed(shotPoll, 400)
         ui.postDelayed(tuckRun, 3000)
     }
 
@@ -421,6 +424,20 @@ class CaptureService : Service() {
         }
         overlay(auto, p.x - dp(6), p.y + p.height + dp(46))
         overlay(rd, p.x - dp(6), p.y + p.height + dp(86))
+        fun stText() = if (prefs(this).getBoolean("shot_text", false)) "Shot text: ON" else "Shot text: off"
+        val stChip = chip(stText(), chipC()) {}
+        fun styleSt() {
+            val on = prefs(this).getBoolean("shot_text", false)
+            (stChip.background as GradientDrawable).setColor(Color.parseColor(if (on) accentHex() else chipHex()))
+            stChip.setTextColor(if (on) onAccentC() else mutedC())
+        }
+        styleSt()
+        stChip.contentDescription = "Save the text of a screenshot next to the image"
+        stChip.setOnClickListener { it.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP)
+            val a = !prefs(this).getBoolean("shot_text", false); prefs(this).edit().putBoolean("shot_text", a).apply()
+            stChip.text = stText(); styleSt(); ui.removeCallbacks(hideMenuRun); ui.postDelayed(hideMenuRun, 4000)
+        }
+        overlay(stChip, p.x - dp(6), p.y + p.height + dp(126))
         if (!readMode) showPace(p)   // in Scroll mode the speed lives in the floating bar
         // Cover is parked (Cover.AVAILABLE = false): no menu entry for now.
         val cv: TextView? = if (Cover.AVAILABLE) {
@@ -433,7 +450,7 @@ class CaptureService : Service() {
         }
         overlay(c, p.x - dp(6), p.y + p.height + dp(166)); c
         } else null
-        menu = listOfNotNull(close, mode, auto, rd, cv)
+        menu = listOfNotNull(close, mode, auto, rd, stChip, cv)
         ui.postDelayed(hideMenuRun, 4000)
     }
 
@@ -443,7 +460,7 @@ class CaptureService : Service() {
 
     private fun closeWidget() { removeWidget(); stopForeground(STOP_FOREGROUND_REMOVE); stopSelf() }
 
-    private fun removeWidget() { hidePace(); hideFloatBar(); cover?.remove(); app.vocr.core.JobQueue.listener = null; hideAddChip(); hideMenu(); ui.removeCallbacks(tuckRun); widget?.let { runCatching { wm?.removeView(it) } }; widget = null }
+    private fun removeWidget() { ui.removeCallbacks(shotPoll); shotBubble?.let { v -> runCatching { wm?.removeView(v) } }; shotBubble = null; hidePace(); hideFloatBar(); hideShotBar(); shotSession?.discard(); shotSession = null; cover?.remove(); app.vocr.core.JobQueue.listener = null; hideAddChip(); hideMenu(); ui.removeCallbacks(tuckRun); widget?.let { runCatching { wm?.removeView(it) } }; widget = null }
 
     private fun setWidgetIdle() {
         widget?.apply { label = "REC"; alpha = 1f; labelSp = 11f; fill = Color.parseColor("#3A3B42"); ring = -1f; invalidate() }
@@ -456,6 +473,213 @@ class CaptureService : Service() {
         lp?.let { it.width = dp(40); it.height = dp(40); widget?.let { w -> runCatching { wm?.updateViewLayout(w, it) } } }
         tuck(false)
     }
+
+
+    // ---- screenshot and long (scrolling) screenshot ----------------------------------------------------------------
+    // Tap Screenshot: one full-resolution PNG in Download/ScrollRSI, then a "Scroll capture" button appears above the nav bar.
+    // Hold it (or tap it for one page) to scroll the page and extend the picture; 2 s after release the long image is saved.
+    private var shotBar: View? = null
+    private var shotSession: LongShotSession? = null
+    private var shotSaved = false          // the first capture is already saved as a plain screenshot
+    private var shotHolding = false
+    @Volatile private var shotRunning = false
+    private val shotExec = java.util.concurrent.Executors.newSingleThreadExecutor()
+    private val shotIdleRun = Runnable { finishLong() }
+
+    private fun shotViews(): List<View?> = listOf<View?>(widget, pace, addChip, fbar, shotBar, shotBubble) + menu
+
+    /** Hides every overlay of ours for the instant of the capture, then restores it. Alpha keeps the touch stream alive. */
+    private fun snap(done: (Bitmap?) -> Unit) {
+        ui.post {
+            val vs = shotViews().filterNotNull(); val saved = vs.map { it.alpha }
+            vs.forEach { it.alpha = 0f }
+            ui.postDelayed({
+                val svc = ScrollService.instance
+                if (svc == null) { vs.forEachIndexed { i, v -> v.alpha = saved[i] }; done(null) }
+                else svc.fullShot { bm -> ui.post { vs.forEachIndexed { i, v -> v.alpha = saved[i] }; done(bm) } }
+            }, 160)
+        }
+    }
+
+    private fun snapBlocking(): Bitmap? {
+        val l = java.util.concurrent.CountDownLatch(1); var r: Bitmap? = null
+        snap { r = it; l.countDown() }
+        l.await(8, java.util.concurrent.TimeUnit.SECONDS)
+        return r
+    }
+
+    private fun stamp() = java.text.SimpleDateFormat("yyyy-MM-dd HH-mm-ss", java.util.Locale.US).format(java.util.Date())
+
+    private fun startShot(save: Boolean) {
+        if (recording || starting) { toast("Stop recording first"); return }
+        if (shotRunning || shotSession != null) { toast("A screenshot is already open"); return }
+        if (ScrollService.instance == null) {
+            toast("Screenshots need Accessibility. Read the notice first.")
+            app.vocr.DisclosureActivity.openAccessibility(this); return
+        }
+        if (android.os.Build.VERSION.SDK_INT < 30) { toast("Screenshots need Android 11 or newer"); return }
+        shotRunning = true
+        snap { bm ->
+            if (bm == null) { shotRunning = false; toast("Could not take the screenshot"); return@snap }
+            if (LongShotSession.blank(bm)) { shotRunning = false; bm.recycle(); toast("This app blocks screenshots (the picture is black)"); return@snap }
+            val base = "ScrollRSI shot " + stamp()
+            shotSaved = save
+            if (save) shotExec.execute {
+                try {
+                    val f = java.io.File(cacheDir, "shot_${System.nanoTime()}_0.png")
+                    f.outputStream().use { bm.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                    val n = ShotSaver.save(this, base, listOf(f), prefs(this).getBoolean("shot_text", false))
+                    toast("Saved to Download/ScrollRSI: $n")
+                } catch (e: Throwable) { toast("Could not save: " + (e.message ?: e.javaClass.simpleName)); shotSaved = false }
+            }
+            shotSession = LongShotSession(this, bm)
+            shotRunning = false
+            showShotBar()
+            ui.removeCallbacks(shotIdleRun); ui.postDelayed(shotIdleRun, 7000)   // nothing pressed: the bar goes away
+        }
+    }
+
+    private fun showShotBar() {
+        hideShotBar()
+        val row = android.widget.LinearLayout(this).apply { orientation = android.widget.LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        val sc = glassChip(this, "\u2B07 Scroll capture", accentC()).apply {
+            contentDescription = "Scroll capture. Hold to keep scrolling and capturing, or tap to add one page."
+            setTextColor(onAccentC())
+            var downAt = 0L
+            setOnTouchListener { v, e ->
+                when (e.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        v.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP)
+                        ui.removeCallbacks(shotIdleRun); downAt = System.currentTimeMillis(); shotHolding = true; startLongLoop(); true
+                    }
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        shotHolding = false
+                        ui.removeCallbacks(shotIdleRun); ui.postDelayed(shotIdleRun, 2000)   // 2 s to press again, then it saves
+                        true
+                    }
+                    else -> true
+                }
+            }
+        }
+        val done = glassChip(this, "Done", chipC()).apply {
+            contentDescription = "Save the capture now"
+            setOnClickListener { ui.removeCallbacks(shotIdleRun); finishLong() }
+        }
+        row.addView(sc); row.addView(android.widget.Space(this), android.widget.LinearLayout.LayoutParams(dp(8), 1)); row.addView(done)
+        row.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+        val q = WindowManager.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS, PixelFormat.TRANSLUCENT).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = ((screenW() - row.measuredWidth) / 2).coerceAtLeast(dp(4)); y = resources.displayMetrics.heightPixels - dp(150)
+        }
+        runCatching { wm?.addView(row, q); shotBar = row }
+    }
+
+    private fun hideShotBar() { shotBar?.let { v -> runCatching { wm?.removeView(v) } }; shotBar = null }
+
+    private fun startLongLoop() {
+        if (shotRunning) return
+        shotRunning = true
+        shotExec.execute { try { longLoop() } finally { shotRunning = false } }
+    }
+
+    private fun swipeBlocking(): Boolean {
+        val svc = ScrollService.instance ?: return false
+        val l = java.util.concurrent.CountDownLatch(1); var ok = false
+        svc.swipe(screenW(), resources.displayMetrics.heightPixels, 0.78f, 0.22f, 450L) { ok = it; l.countDown() }
+        l.await(4, java.util.concurrent.TimeUnit.SECONDS)
+        return ok
+    }
+
+    /** While the button is held (or one tap is pending): swipe, wait until the page settles, capture, join. */
+    private fun longLoop() {
+        val s = shotSession ?: return
+        var ends = 0; var reason = ""; var first = true
+        while ((first || shotHolding) && reason.isEmpty()) {   // a tap runs one page, a hold keeps going
+            first = false
+            if (!swipeBlocking()) { reason = "Scrolling failed. Check that Accessibility is on."; break }
+            Thread.sleep(380)
+            var a = snapBlocking() ?: run { reason = "A screenshot failed"; null } ?: break
+            var tries = 0
+            while (tries < 4) {   // wait until two captures in a row match: no fling still moving
+                Thread.sleep(220)
+                val b = snapBlocking() ?: break
+                if (LongShotSession.same(a, b)) { a.recycle(); a = b; break }
+                a.recycle(); a = b; tries++
+            }
+            when (s.addFrame(a)) {
+                LongShotSession.Outcome.ADDED -> { ends = 0 }
+                LongShotSession.Outcome.END -> { a.recycle(); if (++ends >= 2) reason = "End of the page" }
+                LongShotSession.Outcome.MISMATCH -> { a.recycle(); reason = "Stopped: the page changed while capturing (video or animation)" }
+                LongShotSession.Outcome.CAP -> reason = "Reached the size limit"
+            }
+        }
+        if (reason.isNotEmpty()) { shotHolding = false; ui.post { toast(reason); ui.removeCallbacks(shotIdleRun); finishLong() } }
+    }
+
+    private fun finishLong() {
+        val s = shotSession ?: return
+        if (shotRunning) { ui.postDelayed(shotIdleRun, 600); return }   // a capture step is still being joined
+        shotSession = null; hideShotBar(); shotHolding = false
+        val alreadySaved = shotSaved; shotSaved = false
+        shotExec.execute {
+            try {
+                if (s.frames == 1 && alreadySaved) { s.discard(); return@execute }
+                val parts = s.finish()
+                val tall = s.frames > 1
+                val base = (if (tall) "ScrollRSI long shot " else "ScrollRSI shot ") + stamp()
+                val n = ShotSaver.save(this, base, parts, prefs(this).getBoolean("shot_text", false))
+                toast("Saved to Download/ScrollRSI: $n")
+            } catch (e: Throwable) { toast("Could not save: " + (e.message ?: e.javaClass.simpleName)); runCatching { s.discard() } }
+        }
+    }
+
+
+    // ---- screenshot bubble: sits under the record bubble, tucks, wakes and moves with it ---------------------------------
+    private var shotBubble: ShotBubble? = null
+    private fun shotBubbleWanted() = widget != null && !tucked && !recording && !starting && !readMode && shotSession == null && menu.isEmpty() && !shotRunning
+    private fun syncShotBubble() {
+        val w = widget; val q = lp
+        if (w == null || q == null || !shotBubbleWanted()) { shotBubble?.let { v -> runCatching { wm?.removeView(v) } }; shotBubble = null; return }
+        val d = dp(40)
+        val x = q.x + (q.width - d) / 2
+        val y = q.y + q.height + dp(8)
+        val cur = shotBubble
+        if (cur == null) {
+            val v = ShotBubble(this)
+            var sx = 0f; var sy = 0f; var ox = 0; var oy = 0; var moved = false; var wasTucked = false
+            v.setOnTouchListener { _, e ->
+                val p = lp ?: return@setOnTouchListener true
+                when (e.action) {
+                    MotionEvent.ACTION_DOWN -> {
+                        v.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP, android.view.HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING)
+                        sx = e.rawX; sy = e.rawY; ox = p.x; oy = p.y; moved = false
+                        ui.removeCallbacks(tuckRun); wasTucked = tucked
+                        if (tucked) tuck(false)   // first touch wakes both bubbles
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        if (Math.abs(e.rawX - sx) > dp(6) || Math.abs(e.rawY - sy) > dp(6)) moved = true
+                        if (moved) { p.x = ox + (e.rawX - sx).toInt(); p.y = oy + (e.rawY - sy).toInt(); widget?.let { runCatching { wm?.updateViewLayout(it, p) } }; syncShotBubble() }
+                    }
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        if (moved) { sideRight = p.x + p.width / 2 > screenW() / 2; tuck(false) }
+                        else if (!wasTucked && e.action == MotionEvent.ACTION_UP) { startShot(save = true); ui.postDelayed(tuckRun, 3000) }
+                        else ui.postDelayed(tuckRun, 3000)
+                    }
+                }
+                true
+            }
+            val lpp = WindowManager.LayoutParams(d, d, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or secureFlag(), PixelFormat.TRANSLUCENT).apply { gravity = Gravity.TOP or Gravity.START; this.x = x; this.y = y }
+            v.alpha = w.alpha
+            runCatching { wm?.addView(v, lpp); shotBubble = v }
+        } else {
+            val cl = cur.layoutParams as WindowManager.LayoutParams
+            cl.x = x; cl.y = y; cur.alpha = w.alpha
+            runCatching { wm?.updateViewLayout(cur, cl) }
+        }
+    }
+    private val shotPoll = object : Runnable { override fun run() { if (widget == null) return; syncShotBubble(); ui.postDelayed(this, 150) } }
 
     private fun onWidgetTap() {
         if (readMode) stopReadMode()

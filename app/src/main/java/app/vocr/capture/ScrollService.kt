@@ -59,6 +59,31 @@ class ScrollService : AccessibilityService() {
         if (!ok) done(null)
     }
 
+
+    /** Full-resolution screenshot (software ARGB bitmap) for the screenshot feature, or null when not available. Retries once or twice when Android rate-limits. */
+    fun fullShot(done: (Bitmap?) -> Unit) {
+        if (android.os.Build.VERSION.SDK_INT < 30) { done(null); return }
+        fun attempt(left: Int) {
+            val ok = runCatching {
+                takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, object : TakeScreenshotCallback {
+                    override fun onSuccess(r: ScreenshotResult) {
+                        val out = runCatching {
+                            val hw = Bitmap.wrapHardwareBuffer(r.hardwareBuffer, r.colorSpace)
+                            val sw = hw?.copy(Bitmap.Config.ARGB_8888, false)
+                            r.hardwareBuffer.close(); hw?.recycle(); sw
+                        }.getOrNull()
+                        done(out)
+                    }
+                    override fun onFailure(code: Int) {
+                        if (left > 0) android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ attempt(left - 1) }, 450) else done(null)
+                    }
+                })
+            }.isSuccess
+            if (!ok) done(null)
+        }
+        attempt(4)
+    }
+
     companion object {
         /** True when Android's enabled-services list contains this service, even if the system has not (re)connected it yet. */
         fun enabledInSettings(ctx: android.content.Context): Boolean {
