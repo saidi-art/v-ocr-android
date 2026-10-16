@@ -683,7 +683,7 @@ class CaptureService : Service() {
      */
     private fun longLoop() {
         val s = shotSession ?: return
-        var ends = 0; var reason = ""; var first = true; var firstCycle = true
+        var ends = 0; var mmRound = 0; var reason = ""; var first = true; var firstCycle = true
         while ((first || shotHolding || shotQueued || shotAuto) && reason.isEmpty()) {
             first = false; shotQueued = false
             shotLoopRan = true
@@ -704,7 +704,7 @@ class CaptureService : Service() {
             s.logLine("capture settle tries=$tries settled=$settled after ${System.currentTimeMillis() - t0} ms")
             if (firstCycle && s.sameAsLast(a)) { a.recycle(); s.logLine("first capture equals the one already taken") }
             else when (s.addFrame(a)) {
-                LongShotSession.Outcome.ADDED -> { ends = 0; sizeSwipe(s) }
+                LongShotSession.Outcome.ADDED -> { ends = 0; mmRound = 0; sizeSwipe(s) }
                 LongShotSession.Outcome.END -> { a.recycle(); if (++ends >= 3) reason = if (s.frames <= 1) "Stopped: the page did not scroll (swipe ignored or a fixed screen?)" else "End of the page" }
                 LongShotSession.Outcome.MISMATCH -> {
                     a.recycle()
@@ -714,13 +714,17 @@ class CaptureService : Service() {
                         tries2++; Thread.sleep(2000)
                         val c = snapBlocking() ?: continue
                         when (s.addFrame(c)) {
-                            LongShotSession.Outcome.ADDED -> { ok = true; sizeSwipe(s) }
+                            LongShotSession.Outcome.ADDED -> { ok = true; mmRound = 0; sizeSwipe(s) }
                             LongShotSession.Outcome.END -> { c.recycle(); ok = true; if (++ends >= 3) reason = if (s.frames <= 1) "Stopped: the page did not scroll (swipe ignored or a fixed screen?)" else "End of the page" }
                             LongShotSession.Outcome.CAP -> { ok = true; reason = "Reached the size limit" }
                             else -> c.recycle()
                         }
                     }
-                    if (!ok) reason = "Stopped: could not line up this page (video or animation on screen?). Saved what was captured"
+                    if (!ok) {
+                        // the page may simply not have moved (a video pane, a swipe the app ignored): scroll again with a longer drag in another column before giving up
+                        if (mmRound < 2) { mmRound++; s.logLine("no match after 3 captures: longer drag round $mmRound") }
+                        else reason = "Stopped: could not line up this page (video or animation on screen?). Saved what was captured"
+                    }
                 }
                 LongShotSession.Outcome.CAP -> reason = "Reached the size limit"
             }
@@ -729,7 +733,7 @@ class CaptureService : Service() {
             // ---- 2) scroll up, only when another cycle is wanted
             if (!(shotHolding || shotQueued || shotAuto)) break
             // nothing has moved since the first capture: this is not a proven end. Try again with a longer drag in another column before giving up.
-            if (ends > 0) { shotY0 = 0.80f; shotY1 = 0.50f; shotX = floatArrayOf(0.35f, 0.2f, 0.75f, 0.55f)[ends % 4]; s.logLine("no movement yet: retry drag at x=$shotX") } else shotX = ScrollService.X0
+            if (ends > 0 || mmRound > 0) { shotY0 = 0.80f; shotY1 = 0.50f; shotX = floatArrayOf(0.35f, 0.2f, 0.75f, 0.55f)[(ends + mmRound) % 4]; s.logLine("no movement yet: retry drag at x=$shotX") } else shotX = ScrollService.X0
             val sw = swipeBlocking()
             s.logLine("swipe ${"%.2f".format(shotY0)}->${"%.2f".format(shotY1)} ok=$sw")
             if (!sw) { reason = "Scrolling failed. Check that Accessibility is on."; break }

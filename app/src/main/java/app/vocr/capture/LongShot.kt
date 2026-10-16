@@ -58,6 +58,7 @@ class LongShotSession(private val ctx: Context, first: Bitmap, private val sysTo
         if (ftrPrev < 0) { writer.add(prev, 0, h - ftr); ftrPrev = ftr }   // first pair: the first capture is written up to its footer
         val start = (h - ftrPrev - best).coerceIn(top, bottom)
         if (bottom > start) writer.add(cur, start, bottom)
+        note("seam: rows $start..$bottom of the new capture appended, image rows now ${writer.rows} (dy=$best hdr=$top ftr=$ftr)")
         ftrPrev = ftr
         prev.recycle(); prev = cur; prevLuma = curLuma; frames++
         return if (writer.rows >= MAX_ROWS) Outcome.CAP else Outcome.ADDED
