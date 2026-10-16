@@ -27,6 +27,7 @@ class LongShotSession(private val ctx: Context, first: Bitmap, private val sysTo
     var frames = 1; private set
     /** Fixed rows found at the top and bottom by the last good join (status bar, headers, other windows, composer, navigation bar). */
     var lastHdr = 0; private set
+    var lastDy = 0; private set
     var lastFtr = 0; private set
     private val log = StringBuilder()
     fun logText(): String = log.toString()
@@ -53,7 +54,7 @@ class LongShotSession(private val ctx: Context, first: Bitmap, private val sysTo
             else -> {}
         }
         val best = m.dy; val ftr = m.ftr; val top = m.hdr; val bottom = h - ftr
-        lastHdr = top; lastFtr = ftr
+        lastHdr = top; lastFtr = ftr; lastDy = best
         if (ftrPrev < 0) { writer.add(prev, 0, h - ftr); ftrPrev = ftr }   // first pair: the first capture is written up to its footer
         val start = (h - ftrPrev - best).coerceIn(top, bottom)
         if (bottom > start) writer.add(cur, start, bottom)

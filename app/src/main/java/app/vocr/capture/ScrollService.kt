@@ -15,11 +15,18 @@ class ScrollService : AccessibilityService() {
     override fun onDestroy() { if (instance === this) instance = null; super.onDestroy() }
 
     /** One swipe from y0 to y1 (fractions of the screen height) at the horizontal centre, lasting durMs. */
-    fun swipe(w: Int, h: Int, y0: Float, y1: Float, durMs: Long, xFrac: Float = X0, done: (Boolean) -> Unit) {
+    fun swipe(w: Int, h: Int, y0: Float, y1: Float, durMs: Long, xFrac: Float = X0, tailMs: Long = 0L, done: (Boolean) -> Unit) {
         // Never hand the gesture builder a point off the screen or a zero/overlong duration: it throws and would take the whole service down.
+        // tailMs > 0: the finger stays still at the end for that long before lifting, so the page does not fling on after the drag (long screenshots need a predictable distance).
         val g = try {
-            val p = Path().apply { moveTo((w * xFrac).coerceIn(1f, w - 1f), (h * y0).coerceIn(1f, h - 1f)); lineTo((w * xFrac).coerceIn(1f, w - 1f), (h * y1).coerceIn(1f, h - 1f)) }
-            GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(p, 0, durMs.coerceIn(1L, GestureDescription.getMaxGestureDuration()))).build()
+            val x = (w * xFrac).coerceIn(1f, w - 1f); val ya = (h * y0).coerceIn(1f, h - 1f); val yb = (h * y1).coerceIn(1f, h - 1f)
+            val d = durMs.coerceIn(1L, GestureDescription.getMaxGestureDuration() / 2)
+            val p = Path().apply { moveTo(x, ya); lineTo(x, yb) }
+            if (tailMs > 0) {
+                val s1 = GestureDescription.StrokeDescription(p, 0, d, true)
+                val s2 = s1.continueStroke(Path().apply { moveTo(x, yb) }, d, tailMs, false)
+                GestureDescription.Builder().addStroke(s1).addStroke(s2).build()
+            } else GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(p, 0, d)).build()
         } catch (e: Exception) { app.vocr.VocrApp.note("swipe build failed", e); done(false); return }
         val ok = try {
             dispatchGesture(g, object : GestureResultCallback() {

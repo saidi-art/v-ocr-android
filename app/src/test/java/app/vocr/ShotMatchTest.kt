@@ -88,4 +88,29 @@ class ShotMatchTest {
         val a = withWallpaper(frame(6000)); val b = withWallpaper(frame(6000))
         assertEquals(ShotMatch.Status.END, ShotMatch.find(a, b, W, H, 0, 2).status)
     }
+
+    // My Files style list: near identical rows, a dark static strip on the right edge, translucent-free header. Probe then a big scroll.
+    @Test fun repeatedRowsWithStaticRightStrip() {
+        val rowH = 190
+        fun listFrame(off: Int): ByteArray {
+            val f = ByteArray(W * H)
+            for (y in 0 until H) for (x in 0 until W) {
+                val py = y + off; val r = py / rowH; val iy = py % rowH
+                var v = 245
+                if (iy == rowH - 1) v = 220
+                if (x in 150..520 && iy in 40..70 && (((x / 4) * (r % 5 + 1) + r) % 3 != 0)) v = 40      // title, differs a little per row
+                if (x in 150..420 && iy in 100..120 && ((x / 6 + r) % 2 == 0)) v = 150
+                if (x in 30..110 && iy in 40..140) v = 70
+                f[y * W + x] = v.toByte()
+            }
+            for (y in 0 until H) for (x in W - 40 until W) f[y * W + x] = 0     // static dark edge panel
+            for (y in 0 until 120) for (x in 0 until W) f[y * W + x] = 250.toByte()  // fixed header
+            return f
+        }
+        for (dy in intArrayOf(350, 700, 800)) {
+            val m = ShotMatch.find(listFrame(2000), listFrame(2000 + dy), W, H, 0, 2, 0, 0)
+            assertEquals("dy=$dy score=${m.score} hdr=${m.hdr}", ShotMatch.Status.OK, m.status)
+            assertEquals(dy, m.dy)
+        }
+    }
 }

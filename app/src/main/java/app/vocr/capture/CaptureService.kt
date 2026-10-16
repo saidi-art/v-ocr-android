@@ -547,7 +547,7 @@ class CaptureService : Service() {
                     firstShot = n   // no toast or pop-up now: they would end up inside the next capture
                 } catch (e: Throwable) { toast("Could not save: " + (e.message ?: e.javaClass.simpleName)); shotSaved = false }
             }
-            shotSession = LongShotSession(this, bm, sysBar("status_bar_height"), sysBar("navigation_bar_height")); shotY0 = 0.80f; shotY1 = 0.65f; shotProbed = false; shotLoopRan = false
+            shotSession = LongShotSession(this, bm, sysBar("status_bar_height"), sysBar("navigation_bar_height")); shotY0 = 0.80f; shotY1 = 0.65f; shotProbed = false; shotLoopRan = false; shotRatio = 1.0f; shotReqPx = 0f
             shotRunning = false
             showShotBar()
             ui.removeCallbacks(shotIdleRun); ui.postDelayed(shotIdleRun, 7000)   // nothing pressed: the bar goes away
@@ -565,10 +565,10 @@ class CaptureService : Service() {
             setOnTouchListener { v, e ->
                 when (e.actionMasked) {
                     MotionEvent.ACTION_DOWN -> {
-                        v.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP)
+                        v.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP, android.view.HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING)
                         ui.removeCallbacks(shotIdleRun)
                         holdFired = false
-                        if (shotAuto) { ignoreDown = true;  }
+                        if (shotAuto) { ignoreDown = true; (v as? TextView)?.let { t -> t.text = "\u2B07 Running... tap Done to stop"; ui.postDelayed({ if (shotAuto) t.text = "\u2B07 Auto scroll running" }, 1500) } }   // a tap while the run goes on is not dead: it answers with a buzz and a label
                         else { ignoreDown = false; downAt = System.currentTimeMillis(); ui.postDelayed(holdRun, 350) }   // nothing starts until the finger lifts or 350 ms pass, so the swipe can't cancel this touch
                         true
                     }
@@ -578,6 +578,7 @@ class CaptureService : Service() {
                         if (holdFired) { holdFired = false; shotHolding = false; ui.removeCallbacks(shotIdleRun); if (!shotAuto) ui.postDelayed(shotIdleRun, 2000) }   // released: 2 s to press again, then it saves
                         else {
                             shotAuto = true   // one tap = keep going by itself (no toast: it would be captured)
+                            (v as? TextView)?.text = "\u2B07 Auto scroll running"
                             startLongLoop()
                         }
                         true
@@ -599,6 +600,26 @@ class CaptureService : Service() {
         }
         runCatching { wm?.addView(row, q); shotBar = row }
     }
+
+    /** After a run stopped (end of page or a failure) what was captured is saved; this keeps one bubble to start a fresh long shot from where the page is now. */
+    private fun showAgainBar() {
+        hideShotBar()
+        val row = android.widget.LinearLayout(this).apply { orientation = android.widget.LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        val again = glassChip(this, "\u21BB Run again", accentC()).apply {
+            setTextColor(onAccentC()); contentDescription = "Start a new long screenshot from the current screen"
+            setOnClickListener { it.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP, android.view.HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING); ui.removeCallbacks(againGone); hideShotBar(); startShot(save = true) }
+        }
+        val close = glassChip(this, "Close", chipC()).apply { setOnClickListener { ui.removeCallbacks(againGone); hideShotBar() } }
+        row.addView(again); row.addView(android.widget.Space(this), android.widget.LinearLayout.LayoutParams(dp(8), 1)); row.addView(close)
+        row.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+        val q = WindowManager.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS, PixelFormat.TRANSLUCENT).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = ((screenW() - row.measuredWidth) / 2).coerceAtLeast(dp(4)); y = resources.displayMetrics.heightPixels - dp(150)
+        }
+        runCatching { wm?.addView(row, q); shotBar = row; ui.removeCallbacks(againGone); ui.postDelayed(againGone, 30000) }
+    }
+    private val againGone = Runnable { if (shotSession == null) hideShotBar() }
 
     private fun hideShotBar() { shotBar?.let { v -> runCatching { wm?.removeView(v) } }; shotBar = null }
 
@@ -624,25 +645,39 @@ class CaptureService : Service() {
     @Volatile private var shotProbed = false
     @Volatile private var shotLoopRan = false
 
+    // The page does not move exactly as far as the finger (flings add distance). After every join the real distance is compared with
+    // the requested one, and the next drag is sized so the page moves about 55% of the moving area. Constant finger speed keeps that ratio steady.
+    @Volatile private var shotRatio = 1.0f
+    @Volatile private var shotReqPx = 0f
     private fun sizeSwipe(s: LongShotSession) {
-        if (shotProbed) return
         val hPx = resources.displayMetrics.heightPixels.toFloat()
         val band = hPx - s.lastHdr - s.lastFtr
         if (band < hPx * 0.3f) return
-        shotY0 = ((s.lastHdr + band * 0.90f) / hPx).coerceIn(0.1f, 0.95f); shotY1 = ((s.lastHdr + band * 0.20f) / hPx).coerceIn(0.05f, 0.9f)
+        if (shotReqPx > 0f && s.lastDy > 0) {
+            val r = (s.lastDy / shotReqPx).coerceIn(0.4f, 2.5f)
+            shotRatio = if (shotProbed) 0.5f * shotRatio + 0.5f * r else r
+        }
+        val want = band * 0.55f
+        val dist = (want / shotRatio).coerceIn(band * 0.15f, band * 0.90f)
+        val mid = s.lastHdr + band * 0.5f
+        shotY0 = ((mid + dist / 2f) / hPx).coerceIn(0.05f, 0.97f); shotY1 = ((mid - dist / 2f) / hPx).coerceIn(0.03f, 0.95f)
         shotProbed = true
+        s.logLine("calibrated: ratio=${"%.2f".format(shotRatio)} (moved ${s.lastDy}px for ${"%.0f".format(shotReqPx)}px asked) next drag ${"%.2f".format(shotY0)}->${"%.2f".format(shotY1)}")
     }
 
     private fun swipeBlocking(): Boolean {
         val svc = ScrollService.instance ?: return false
+        val hPx = resources.displayMetrics.heightPixels
         val l = java.util.concurrent.CountDownLatch(1); var ok = false
-        svc.swipe(screenW(), resources.displayMetrics.heightPixels, shotY0, shotY1, 450L) { ok = it; l.countDown() }
-        l.await(4, java.util.concurrent.TimeUnit.SECONDS)
+        shotReqPx = (shotY0 - shotY1) * hPx
+        val dur = (shotReqPx / 0.78f).toLong().coerceIn(300L, 2500L)   // about 0.78 px per ms, the same finger speed every time
+        svc.swipe(screenW(), hPx, shotY0, shotY1, dur, tailMs = 160L) { ok = it; l.countDown() }
+        l.await(dur / 1000 + 6, java.util.concurrent.TimeUnit.SECONDS)
         return ok
     }
 
     /**
-     * One cycle = 1) screenshot (the bubbles blink once while it is taken, settle checks included), join it, 2) scroll up about 70% of the
+     * One cycle = 1) screenshot (the bubbles blink once while it is taken, settle checks included), join it, 2) scroll up about 55% of the
      * moving area. Repeats while auto is on or the button is held. The very first capture of a run is compared with the one already taken.
      */
     private fun longLoop() {
@@ -697,7 +732,7 @@ class CaptureService : Service() {
             if (!sw) { reason = "Scrolling failed. Check that Accessibility is on."; break }
             Thread.sleep(380)
         }
-        if (reason.isNotEmpty()) { app.vocr.VocrApp.note("longshot: loop ended: $reason", null); if (reason.startsWith("Stopped") || reason.startsWith("Scrolling") || reason.startsWith("A screenshot")) saveShotLog(s, reason); shotHolding = false; shotAuto = false; ui.post { toast(reason); ui.removeCallbacks(shotIdleRun); finishLong() } }
+        if (reason.isNotEmpty()) { app.vocr.VocrApp.note("longshot: loop ended: $reason", null); if (reason.startsWith("Stopped") || reason.startsWith("Scrolling") || reason.startsWith("A screenshot")) saveShotLog(s, reason); shotHolding = false; shotAuto = false; ui.post { toast(reason); ui.removeCallbacks(shotIdleRun); finishLong(); ui.postDelayed({ if (shotSession == null && !shotRunning) showAgainBar() }, 1200) } }
     }
 
     @Volatile private var firstShot: ShotSaver.Result? = null
