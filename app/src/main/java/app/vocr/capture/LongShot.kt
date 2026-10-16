@@ -222,7 +222,7 @@ object ShotMatch {
      * Returns 255 when there is too little structure to judge.
      */
     fun diff(a: ByteArray, b: ByteArray, w: Int, dy: Int, top: Int, bottom: Int, rowStep: Int = 3, colStep: Int = 5): Double {
-        // per-row mean over edge samples; the worst tenth of rows is ignored (a typing cursor, a changing composer, a clock)
+        // per-row mean over edge samples; the worst quarter of rows (a toast, a heads-up notification or a cursor can cover that much) is ignored (a typing cursor, a changing composer, a clock)
         val rows = ArrayList<Double>(); var n = 0
         var y = top
         while (y < bottom - dy) {
@@ -238,13 +238,16 @@ object ShotMatch {
             if (rn > 0) { rows.add(rs.toDouble() / rn); n += rn }
             y += rowStep
         }
-        if (n < 120 || rows.size < 8) return 255.0
+        if (n < 120 || rows.size < 8) { lastTrim = 255.0; return 255.0 }
+        val all = rows.average()
         rows.sort()
-        val keep = (rows.size * 9) / 10
+        val keep = (rows.size * 3) / 4
         var t = 0.0
         for (i in 0 until keep) t += rows[i]
-        return t / keep
+        lastTrim = t / keep
+        return lastTrim + 0.3 * all   // ranks offsets; the trimmed part alone decides acceptance
     }
+    private var lastTrim = 255.0
 
     fun find(a: ByteArray, b: ByteArray, w: Int, h: Int, hint: Int, scale: Int): Match {
         val hdr = fixedRows(a, b, w, h, true); val ftr = fixedRows(a, b, w, h, false)
@@ -252,10 +255,10 @@ object ShotMatch {
         if (bottom - top < h / 3) return Match(Status.MISMATCH, 0, 255.0, 255.0, hdr, ftr)
         val maxDy = bottom - top - h / 8
         val still = diff(a, b, w, 0, top, bottom)
-        var best = -1; var bestScore = Double.MAX_VALUE
-        fun consider(d: Int) { if (d < 1 || d > maxDy) return; val sc = diff(a, b, w, d, top, bottom); if (sc < bestScore) { bestScore = sc; best = d } }
+        var best = -1; var bestScore = Double.MAX_VALUE; var bestTrim = 255.0
+        fun consider(d: Int) { if (d < 1 || d > maxDy) return; val sc = diff(a, b, w, d, top, bottom); if (sc < bestScore) { bestScore = sc; best = d; bestTrim = lastTrim } }
         if (hint > 0) for (d in (hint - scale - 1)..(hint + scale + 1)) consider(d)
-        if (best < 0 || bestScore > 12.0) {
+        if (best < 0 || bestTrim > 12.0) {
             // the coarse detector gave nothing usable (dark chats, sparse pages): scan every offset, coarse then fine
             val cands = ArrayList<Pair<Int, Double>>()
             var d = 6
@@ -263,7 +266,7 @@ object ShotMatch {
             cands.sortBy { it.second }
             for ((d0, _) in cands.take(4)) for (e in (d0 - 5)..(d0 + 5)) consider(e)
         }
-        if (best < 0 || bestScore > 12.0 || bestScore > 255.0 - 1) {
+        if (best < 0 || bestTrim > 12.0 || bestScore > 255.0 - 1) {
             return if (still < 3.0) Match(Status.END, 0, bestScore, still, hdr, ftr) else Match(Status.MISMATCH, 0, bestScore, still, hdr, ftr)
         }
         if (still < 255.0 && bestScore > still * 0.8 && still < 3.0) return Match(Status.END, 0, bestScore, still, hdr, ftr)   // no motion: the end of the page

@@ -52,4 +52,13 @@ class ShotMatchTest {
         val m = ShotMatch.find(frame(4000), frame(4000), W, H, 0, 2)
         assertEquals(ShotMatch.Status.END, m.status)
     }
+
+    @Test fun ignoresAToast() {
+        val a = frame(3000); val b = frame(3000 + 700)
+        val r = Random(5)
+        // a toast over the lower middle of the first capture only
+        for (y in 1180 until 1260) for (x in 90 until 640) a[y * W + x] = (80 + r.nextInt(120)).toByte()
+        val m = ShotMatch.find(a, b, W, H, 0, 2)
+        assertEquals("hdr=${m.hdr} ftr=${m.ftr} score=${m.score} still=${m.still} dy=${m.dy}", ShotMatch.Status.OK, m.status); assertEquals(700, m.dy)
+    }
 }
