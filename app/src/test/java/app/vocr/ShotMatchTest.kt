@@ -33,7 +33,7 @@ class ShotMatchTest {
     @Test fun findsOffsetWithoutAHint() {
         for (dy in intArrayOf(500, 860, 940)) {
             val m = ShotMatch.find(frame(300), frame(300 + dy), W, H, 0, 2)
-            assertEquals("dy=$dy status", ShotMatch.Status.OK, m.status)
+            assertEquals("dy=$dy score=${m.score} still=${m.still} mdy=${m.dy} hdr=${m.hdr} ftr=${m.ftr}", ShotMatch.Status.OK, m.status)
             assertEquals(dy, m.dy)
         }
     }
@@ -60,5 +60,32 @@ class ShotMatchTest {
         for (y in 1180 until 1260) for (x in 90 until 640) a[y * W + x] = (80 + r.nextInt(120)).toByte()
         val m = ShotMatch.find(a, b, W, H, 0, 2)
         assertEquals("hdr=${m.hdr} ftr=${m.ftr} score=${m.score} still=${m.still} dy=${m.dy}", ShotMatch.Status.OK, m.status); assertEquals(700, m.dy)
+    }
+
+    @Test fun splitScreenWithAStaticWindowAbove() {
+        val a = frame(5000); val b = frame(5000 + 400)
+        val r = Random(9)
+        val top = ByteArray(W * 520) { (30 + r.nextInt(200)).toByte() }   // another app's window above, not scrolling
+        System.arraycopy(top, 0, a, 0, top.size); System.arraycopy(top, 0, b, 0, top.size)
+        val m = ShotMatch.find(a, b, W, H, 0, 2, 90, 0)
+        assertEquals("hdr=${m.hdr} ftr=${m.ftr} score=${m.score} still=${m.still} dy=${m.dy}", ShotMatch.Status.OK, m.status); assertEquals(400, m.dy)
+    }
+
+    /** WhatsApp style: a doodle wallpaper that stays fixed on the screen while the bubbles scroll over it. */
+    private fun withWallpaper(f: ByteArray): ByteArray {
+        for (y in HDR until H - FTR) for (x in 0 until W) {
+            val i = y * W + x
+            if (f[i].toInt() == 0) { val d = ((x / 9 + y / 7) % 5 == 0) || ((x * 3 + y * 5) % 23 == 0); f[i] = (if (d) 70 else 20).toByte() }
+        }
+        return f
+    }
+    @Test fun fixedWallpaperUnderScrollingBubbles() {
+        val a = withWallpaper(frame(6000)); val b = withWallpaper(frame(6000 + 700))
+        val m = ShotMatch.find(a, b, W, H, 0, 2)
+        assertEquals("hdr=${m.hdr} ftr=${m.ftr} score=${m.score} still=${m.still} dy=${m.dy}", ShotMatch.Status.OK, m.status); assertEquals(700, m.dy)
+    }
+    @Test fun fixedWallpaperSameScreenIsTheEnd() {
+        val a = withWallpaper(frame(6000)); val b = withWallpaper(frame(6000))
+        assertEquals(ShotMatch.Status.END, ShotMatch.find(a, b, W, H, 0, 2).status)
     }
 }

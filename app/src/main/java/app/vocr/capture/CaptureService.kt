@@ -489,7 +489,22 @@ class CaptureService : Service() {
     private fun shotViews(): List<View?> = listOf<View?>(widget, pace, addChip, fbar, shotBar, shotBubble) + menu
 
     /** Hides every overlay of ours for the instant of the capture, then restores it. Alpha keeps the touch stream alive. */
+    @Volatile private var hideHeld = false
+    private var heldViews: List<View> = emptyList(); private var heldAlpha: List<Float> = emptyList()
+    /** One blink per cycle: hide our overlays once, take every capture of the cycle (settle checks included), then show them again. */
+    private fun holdHidden(on: Boolean) {
+        val l = java.util.concurrent.CountDownLatch(1)
+        ui.post {
+            if (on) { heldViews = shotViews().filterNotNull(); heldAlpha = heldViews.map { it.alpha }; heldViews.forEach { it.alpha = 0f }; hideHeld = true }
+            else { hideHeld = false; heldViews.forEachIndexed { i, v -> v.alpha = heldAlpha[i] }; heldViews = emptyList() }
+            l.countDown()
+        }
+        l.await(2, java.util.concurrent.TimeUnit.SECONDS)
+        if (on) Thread.sleep(160)
+    }
+
     private fun snap(done: (Bitmap?) -> Unit) {
+        if (hideHeld) { val svc = ScrollService.instance; if (svc == null) done(null) else svc.fullShot { bm -> ui.post { done(bm) } }; return }
         ui.post {
             val vs = shotViews().filterNotNull(); val saved = vs.map { it.alpha }
             vs.forEach { it.alpha = 0f }
@@ -532,7 +547,7 @@ class CaptureService : Service() {
                     firstShot = n   // no toast or pop-up now: they would end up inside the next capture
                 } catch (e: Throwable) { toast("Could not save: " + (e.message ?: e.javaClass.simpleName)); shotSaved = false }
             }
-            shotSession = LongShotSession(this, bm)
+            shotSession = LongShotSession(this, bm, sysBar("status_bar_height"), sysBar("navigation_bar_height")); shotY0 = 0.80f; shotY1 = 0.65f; shotProbed = false; shotLoopRan = false
             shotRunning = false
             showShotBar()
             ui.removeCallbacks(shotIdleRun); ui.postDelayed(shotIdleRun, 7000)   // nothing pressed: the bar goes away
@@ -595,32 +610,65 @@ class CaptureService : Service() {
         shotExec.execute { try { longLoop() } finally { shotRunning = false } }
     }
 
+    /** Numbers only (offsets, scores, row counts, statuses): no screen content. Saved next to the images so a failed capture can be explained. */
+    private fun saveShotLog(s: LongShotSession, reason: String) = runCatching {
+        val h = resources.displayMetrics.heightPixels
+        val txt = "ScrollRSI shot log " + stamp() + "\n" + reason + "\nscreen " + screenW() + "x" + h + " swipe " + shotY0 + " to " + shotY1 + " probed=" + shotProbed + " sysTop=" + sysBar("status_bar_height") + " sysBottom=" + sysBar("navigation_bar_height") + "\n" + s.logText()
+        app.vocr.core.Saver.saveAs(this, "ScrollRSI shot log " + stamp(), txt)
+    }
+
+    private fun sysBar(name: String): Int = runCatching { val id = resources.getIdentifier(name, "dimen", "android"); if (id > 0) resources.getDimensionPixelSize(id) else 0 }.getOrDefault(0)
+    // the first swipe is a short probe: it shows which rows move (a split-screen window, headers, a composer), then the swipe is sized to that moving area
+    @Volatile private var shotY0 = 0.80f
+    @Volatile private var shotY1 = 0.65f
+    @Volatile private var shotProbed = false
+    @Volatile private var shotLoopRan = false
+
+    private fun sizeSwipe(s: LongShotSession) {
+        if (shotProbed) return
+        val hPx = resources.displayMetrics.heightPixels.toFloat()
+        val band = hPx - s.lastHdr - s.lastFtr
+        if (band < hPx * 0.3f) return
+        shotY0 = ((s.lastHdr + band * 0.90f) / hPx).coerceIn(0.1f, 0.95f); shotY1 = ((s.lastHdr + band * 0.20f) / hPx).coerceIn(0.05f, 0.9f)
+        shotProbed = true
+    }
+
     private fun swipeBlocking(): Boolean {
         val svc = ScrollService.instance ?: return false
         val l = java.util.concurrent.CountDownLatch(1); var ok = false
-        svc.swipe(screenW(), resources.displayMetrics.heightPixels, 0.80f, 0.20f, 450L) { ok = it; l.countDown() }
+        svc.swipe(screenW(), resources.displayMetrics.heightPixels, shotY0, shotY1, 450L) { ok = it; l.countDown() }
         l.await(4, java.util.concurrent.TimeUnit.SECONDS)
         return ok
     }
 
-    /** While the button is held (or one tap is pending): swipe, wait until the page settles, capture, join. */
+    /**
+     * One cycle = 1) screenshot (the bubbles blink once while it is taken, settle checks included), join it, 2) scroll up about 70% of the
+     * moving area. Repeats while auto is on or the button is held. The very first capture of a run is compared with the one already taken.
+     */
     private fun longLoop() {
         val s = shotSession ?: return
-        var ends = 0; var reason = ""; var first = true
-        while ((first || shotHolding || shotQueued || shotAuto) && reason.isEmpty()) {   // a tap runs one page, a hold keeps going
+        var ends = 0; var reason = ""; var first = true; var firstCycle = true
+        while ((first || shotHolding || shotQueued || shotAuto) && reason.isEmpty()) {
             first = false; shotQueued = false
-            if (!swipeBlocking()) { reason = "Scrolling failed. Check that Accessibility is on."; break }
-            Thread.sleep(380)
-            var a = snapBlocking() ?: run { reason = "A screenshot failed"; null } ?: break
-            var tries = 0
-            while (tries < 4) {   // wait until two captures in a row match: no fling still moving
-                Thread.sleep(220)
-                val b = snapBlocking() ?: break
-                if (LongShotSession.same(a, b)) { a.recycle(); a = b; break }
-                a.recycle(); a = b; tries++
-            }
-            when (s.addFrame(a)) {
-                LongShotSession.Outcome.ADDED -> { ends = 0 }
+            shotLoopRan = true
+            val t0 = System.currentTimeMillis()
+            // ---- 1) screenshot, blink while it is taken
+            holdHidden(true)
+            var a: Bitmap? = null; var tries = 0; var settled = false
+            try {
+                a = snapBlocking()
+                if (a != null) while (tries < 8) {   // wait until two captures in a row match: no fling still moving
+                    Thread.sleep(220)
+                    val b = snapBlocking() ?: break
+                    if (LongShotSession.same(a!!, b)) { a.recycle(); a = b; settled = true; break }
+                    a.recycle(); a = b; tries++
+                }
+            } finally { holdHidden(false) }
+            if (a == null) { reason = "A screenshot failed"; break }
+            s.logLine("capture settle tries=$tries settled=$settled after ${System.currentTimeMillis() - t0} ms")
+            if (firstCycle && s.sameAsLast(a)) { a.recycle(); s.logLine("first capture equals the one already taken") }
+            else when (s.addFrame(a)) {
+                LongShotSession.Outcome.ADDED -> { ends = 0; sizeSwipe(s) }
                 LongShotSession.Outcome.END -> { a.recycle(); if (++ends >= 2) reason = "End of the page" }
                 LongShotSession.Outcome.MISMATCH -> {
                     a.recycle()
@@ -630,7 +678,7 @@ class CaptureService : Service() {
                         tries2++; Thread.sleep(2000)
                         val c = snapBlocking() ?: continue
                         when (s.addFrame(c)) {
-                            LongShotSession.Outcome.ADDED -> ok = true
+                            LongShotSession.Outcome.ADDED -> { ok = true; sizeSwipe(s) }
                             LongShotSession.Outcome.END -> { c.recycle(); ok = true; if (++ends >= 2) reason = "End of the page" }
                             LongShotSession.Outcome.CAP -> { ok = true; reason = "Reached the size limit" }
                             else -> c.recycle()
@@ -640,8 +688,16 @@ class CaptureService : Service() {
                 }
                 LongShotSession.Outcome.CAP -> reason = "Reached the size limit"
             }
+            firstCycle = false
+            if (reason.isNotEmpty()) break
+            // ---- 2) scroll up, only when another cycle is wanted
+            if (!(shotHolding || shotQueued || shotAuto)) break
+            val sw = swipeBlocking()
+            s.logLine("swipe ${"%.2f".format(shotY0)}->${"%.2f".format(shotY1)} ok=$sw")
+            if (!sw) { reason = "Scrolling failed. Check that Accessibility is on."; break }
+            Thread.sleep(380)
         }
-        if (reason.isNotEmpty()) { app.vocr.VocrApp.note("longshot: loop ended: $reason", null); shotHolding = false; shotAuto = false; ui.post { toast(reason); ui.removeCallbacks(shotIdleRun); finishLong() } }
+        if (reason.isNotEmpty()) { app.vocr.VocrApp.note("longshot: loop ended: $reason", null); if (reason.startsWith("Stopped") || reason.startsWith("Scrolling") || reason.startsWith("A screenshot")) saveShotLog(s, reason); shotHolding = false; shotAuto = false; ui.post { toast(reason); ui.removeCallbacks(shotIdleRun); finishLong() } }
     }
 
     @Volatile private var firstShot: ShotSaver.Result? = null
@@ -671,6 +727,8 @@ class CaptureService : Service() {
     private fun finishLong() {
         val s = shotSession ?: return
         if (shotRunning) { ui.postDelayed(shotIdleRun, 600); return }   // a capture step is still being joined
+        if (shotLoopRan && s.frames <= 1) saveShotLog(s, "Ended with only one image after a scroll attempt")
+        shotLoopRan = false
         shotSession = null; hideShotBar(); shotHolding = false
         val alreadySaved = shotSaved; shotSaved = false
         shotExec.execute {
