@@ -17,6 +17,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -33,6 +36,15 @@ class SavedActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent { ScrollOnTheme() { SavedScreen { finish() } } }
     }
+}
+
+private fun mimeOf(name: String): String? = when (name.substringAfterLast('.', "").lowercase()) {
+    "mp4" -> "video/mp4"; "png" -> "image/png"; "jpg", "jpeg" -> "image/jpeg"; "txt" -> null; else -> null
+}
+
+private fun readText(ctx: android.content.Context, u: Uri, size: Long): String {
+    if (size > 5_000_000L) return "This file is too large to show here (" + size / 1048576 + " MB). Use Share or the Files app."
+    return runCatching { ctx.contentResolver.openInputStream(u)?.use { s -> String(s.readBytes(), Charsets.UTF_8) } }.getOrNull() ?: "Could not read this file."
 }
 
 private data class Item(val uri: Uri, val name: String, val size: Long, val date: Long)
@@ -52,14 +64,15 @@ private fun loadItems(ctx: android.content.Context): List<Item> {
 private fun SavedScreen(onExit: () -> Unit) {
     val ctx = LocalContext.current
     val view = androidx.compose.ui.platform.LocalView.current
+    val scope = rememberCoroutineScope()
     var items by remember { mutableStateOf<List<Item>>(emptyList()) }
     var loaded by remember { mutableStateOf(false) }
     var open by remember { mutableStateOf<Item?>(null) }
     var text by remember { mutableStateOf("") }
     LaunchedEffect(Unit) {
-        items = loadItems(ctx); loaded = true
+        items = withContext(Dispatchers.IO) { loadItems(ctx) }; loaded = true
         (ctx as? android.app.Activity)?.intent?.data?.let { u ->   // opened from a "Text ready" notification
-            text = runCatching { ctx.contentResolver.openInputStream(u)?.use { s -> String(s.readBytes(), Charsets.UTF_8) } }.getOrNull() ?: "Could not read this file."
+            text = withContext(Dispatchers.IO) { readText(ctx, u, 0L) }
             open = items.firstOrNull { it.uri == u } ?: Item(u, "Saved text", text.length.toLong(), System.currentTimeMillis())
         }
     }
@@ -77,12 +90,26 @@ private fun SavedScreen(onExit: () -> Unit) {
             if (loaded && items.isEmpty()) Text("Nothing saved yet. Finished captures appear here.", color = Muted, modifier = Modifier.padding(20.dp))
             LazyColumn(Modifier.weight(1f).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 items(items) { it ->
-                    Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(18.dp)).hapticClickable {
-                        Haptics.secondary(view); text = runCatching { ctx.contentResolver.openInputStream(it.uri)?.use { s -> String(s.readBytes(), Charsets.UTF_8) } }.getOrNull() ?: "Could not read this file."; open = it
-                    }.padding(16.dp)) {
-                        Text(it.name.removeSuffix(".txt"), color = TextMain, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 2)
-                        Spacer(Modifier.height(4.dp))
-                        Text(fmt.format(java.util.Date(it.date)) + "  -  " + (if (it.size >= 1024) "${it.size / 1024} kB" else "${it.size} B"), color = Muted, fontSize = 12.sp)
+                    val media = mimeOf(it.name)
+                    Row(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(18.dp)).hapticClickable {
+                        Haptics.secondary(view)
+                        if (media != null) {
+                            runCatching { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW).setDataAndType(it.uri, media).addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)) }
+                                .onFailure { android.widget.Toast.makeText(ctx, "No app found to open this file. Use Share or the Files app.", android.widget.Toast.LENGTH_LONG).show() }
+                        } else {
+                            open = it; text = "Loading..."
+                            scope.launch { text = withContext(Dispatchers.IO) { readText(ctx, it.uri, it.size) } }
+                        }
+                    }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(it.name.removeSuffix(".txt"), color = TextMain, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 2)
+                            Spacer(Modifier.height(4.dp))
+                            Text(fmt.format(java.util.Date(it.date)) + "  -  " + (if (it.size >= 1048576) "${it.size / 1048576} MB" else if (it.size >= 1024) "${it.size / 1024} kB" else "${it.size} B") + (if (media != null) "  -  tap to open" else ""), color = Muted, fontSize = 12.sp)
+                        }
+                        if (media != null) TextButton(onClick = {
+                            val i = android.content.Intent(android.content.Intent.ACTION_SEND).setType(media).putExtra(android.content.Intent.EXTRA_STREAM, it.uri).addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            ctx.startActivity(android.content.Intent.createChooser(i, "Share file"))
+                        }) { Text("Share", color = TextMain) }
                     }
                 }
             }
@@ -97,7 +124,7 @@ private fun SavedScreen(onExit: () -> Unit) {
             if (!cur.name.removeSuffix(".txt").endsWith("(clean)")) {
                 Button(onClick = {
                     val r = app.vocr.core.Saver.saveAs(ctx, cur.name.removeSuffix(".txt") + " (clean)", app.vocr.core.ReadingCopy.make(text))
-                    if (r.uri != null) { items = loadItems(ctx); android.widget.Toast.makeText(ctx, "Clean copy saved. The original is unchanged.", android.widget.Toast.LENGTH_LONG).show() }
+                    if (r.uri != null) { scope.launch { items = withContext(Dispatchers.IO) { loadItems(ctx) } }; android.widget.Toast.makeText(ctx, "Clean copy saved. The original is unchanged.", android.widget.Toast.LENGTH_LONG).show() }
                     else android.widget.Toast.makeText(ctx, "Could not save: " + r.error, android.widget.Toast.LENGTH_LONG).show()
                 }, colors = ButtonDefaults.buttonColors(containerColor = sec, contentColor = TextMain),
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).semantics { contentDescription = "Clean copy. Saves a second, tidied file. The original stays unchanged." }) { Text("Clean copy") }

@@ -46,4 +46,9 @@ class TitleCleanTest {
         val t = "Instinct\nNative it is. Key-gate's dead then - nothing\nto share until the app exists."
         assertEquals("Instinct - Native it is. Key-gate's dead then - nothing", Title.from(t, "x", words))
     }
+
+    @org.junit.Test fun pageExtensionIsDropped() {
+        val r = app.vocr.core.Title.from("release - Sphere palette - 365 days (2).html\nmore text here", "fb")
+        org.junit.Assert.assertFalse(r, r.endsWith(".html"))
+    }
 }

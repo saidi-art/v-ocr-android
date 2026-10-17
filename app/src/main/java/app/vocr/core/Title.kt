@@ -44,6 +44,7 @@ object Title {
                 !time.matches(l) && l.lowercase() !in chromeWords && !l.startsWith("http", true)
         }?.let { clean(it) }?.takeIf { it.length >= 3 && !content.startsWith(it, true) }
         val full = if (header != null) cut("$header - $content", 60) else cut(content, 60)
-        return full.ifBlank { fallback }
+        val bare = full.replace(Regex("(?i)\\.(html?|php|aspx?|xhtml|pdf|txt|mp4|png|jpe?g)\\s*$"), "").trimEnd()
+        return bare.ifBlank { fallback }
     }
 }
