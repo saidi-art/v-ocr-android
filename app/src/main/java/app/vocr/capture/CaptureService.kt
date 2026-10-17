@@ -102,7 +102,7 @@ class CaptureService : Service() {
             ACTION_DENIED -> { setWidgetIdle(); toast("Screen recording was not allowed") }
             ACTION_STOP -> stopRecording()
             ACTION_CLOSE -> closeWidget()
-            else -> { fgIdle("Tap the floating button to record"); addWidget() }
+            else -> { if (recording || starting) fgRecording() else fgIdle("Tap the floating button to record"); addWidget() }   // a second start while recording must keep the media projection type
         }
         return START_NOT_STICKY
     }
@@ -141,9 +141,7 @@ class CaptureService : Service() {
 
     private fun fgRecording() {
         val n = statusNote("Recording the screen. Scroll, then tap Stop.", withStop = true)
-        if (Build.VERSION.SDK_INT >= 34) startForeground(ID_FG, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
-        else if (Build.VERSION.SDK_INT >= 29) startForeground(ID_FG, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
-        else startForeground(ID_FG, n)
+        startForeground(ID_FG, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)   // recording: media projection only (minSdk 29 knows the type)
     }
 
     private fun toast(t: String) = ui.post { android.widget.Toast.makeText(this, t, android.widget.Toast.LENGTH_SHORT).show() }

@@ -4,6 +4,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROCESSING"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <uses-permission android:name="android.permission.VIBRATE" />
@@ -35,10 +36,10 @@
         </provider>
         <service android:name=".capture.CaptureService" android:exported="false"
             android:foregroundServiceType="specialUse|mediaProjection">
-            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="floating screen recorder widget"/>
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="floating shortcut shown over other apps, started by the user, to begin a screen capture; closed by the user"/>
         </service>
-        <service android:name=".capture.QueueService" android:exported="false" android:foregroundServiceType="specialUse">
-            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="reading queued recordings"/>
+        <service android:name=".capture.QueueService" android:exported="false" android:foregroundServiceType="mediaProcessing|specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="on-device OCR of recordings, used only on Android 14 and lower where the mediaProcessing type does not exist"/>
         </service>
         <service android:name=".capture.ScrollService" android:exported="false"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
