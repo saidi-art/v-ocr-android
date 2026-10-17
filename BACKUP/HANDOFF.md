@@ -208,3 +208,11 @@ Throughput data point from his screenshots (real S24 runs, build 57, NOT a contr
 - Lab, 10 fps, adaptive: 547 strips (264 full, 283 crops) vs 3,988. Recall vs the device output (handle clusters) 0.90-0.91, long-line text 0.95. Lab used a CRF-30 720p copy (bias against us). Official 0.905 fling metric NOT re-run (clip gone). Shipped as a declared tradeoff (user: "you make the call").
 - Signing: stable key. Actions secrets VOCR_KEYSTORE_B64 / VOCR_KEYSTORE_PASSWORD; backup in vault as two agent entries. Build 61 signer SHA-256 4e9c04bf1c6dfe56dd5d414d7e183afad299aa2d2a087342e437d1e484beaec5. 61 -> 62 should update in place (unverified).
 - S24 test list for 62: bubble gone from recording (black box or gap?), taps/drag fine; lighter capture on vs off (file size, heat, match rate); footer: strips, scroll matches, fps trace, "End of page" line; recall vs the 599-handle 61 output on the same comments page.
+
+## Builds 90-96 (2026-10-17) - append to BACKUP/HANDOFF.md on wip-wrap
+- 90 (run 88): recording video saved next to text (default ON, switch); Shot text default ON; no video size cap.
+- 91 (run 89): Saved fixes. 92 (run 90): one-tap Done, titles from own text (timestamp fallback), tap hands file to device.
+- 93 (run 91): Saved opens Download/ScrollRSI in Files; file/folder lists get timestamp names.
+- 94/95 (runs 93/94): bento card Home and Settings, same features; restricted-settings hint; Accessibility opens on top of Device Settings in own task. versionCode 95 = 0.12.1-t1. APK build-94/vocr-release-94.apk. CI only; not device-tested. Settings CI screenshot was black (cause unknown).
+- 96 (local, pushed after user GO + token): FLAG_SECURE only while ScrollRSI itself starts/records. Reason: Samsung recorder draws our secure overlay windows as black boxes. Not proven on device. Plus CI waits 14 s for Settings screenshot and keeps settingslog.txt.
+- Signer SHA-256 4e9c04bf...beaec5 unchanged. Run number != versionCode. Open: mp4 timing anomalies, part-height setting decision, Play privacy text must say videos are stored locally.
