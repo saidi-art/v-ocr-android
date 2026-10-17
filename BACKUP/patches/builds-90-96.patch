@@ -1,0 +1,893 @@
+diff --git a/.github/workflows/build.yml b/.github/workflows/build.yml
+index 9052533..12c3ea7 100644
+--- a/.github/workflows/build.yml
++++ b/.github/workflows/build.yml
+@@ -64,6 +64,12 @@ jobs:
+             sleep 8
+             mkdir -p shots
+             adb exec-out screencap -p > shots/home.png
++            adb shell am force-stop app.scrollrsi
++            adb shell am start -n app.scrollrsi/app.vocr.MainActivity --ez settings true || true
++            sleep 14
++            adb exec-out screencap -p > shots/settings.png || true
++            adb logcat -d | grep -E 'AndroidRuntime|FATAL|SettingsActivity' | tail -40 > shots/settingslog.txt || true
++            adb shell am force-stop app.scrollrsi
+             adb logcat -d -b crash > shots/crash.txt || true
+             adb logcat -d | grep -E 'AndroidRuntime|FATAL|vocr' | tail -80 > shots/logcat.txt || true
+             adb shell am force-stop app.scrollrsi
+@@ -101,6 +107,8 @@ jobs:
+             align-${{ github.run_number }}.txt
+             vocr-release-${{ github.run_number }}.apk
+             shots/home.png
++            shots/settings.png
++            shots/settingslog.txt
+             shots/glass.png
+             shots/strips.png
+             shots/text.png
+diff --git a/app/build.gradle.kts b/app/build.gradle.kts
+index 7a6e65b..68b9f30 100644
+--- a/app/build.gradle.kts
++++ b/app/build.gradle.kts
+@@ -11,8 +11,8 @@ android {
+         minSdk = 29
+         targetSdk = 36
+         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
+-        versionCode = 89
+-        versionName = "0.11.17-t1"
++        versionCode = 96
++        versionName = "0.12.2-t1"
+     }
+     val ksPath = System.getenv("VOCR_KS_PATH")
+     signingConfigs {
+diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
+index 3e6c83d..9a9f4c9 100644
+--- a/app/src/main/AndroidManifest.xml
++++ b/app/src/main/AndroidManifest.xml
+@@ -24,6 +24,7 @@
+         </activity>
+         <activity android:name=".ManualActivity" android:exported="false" />
+         <activity android:name=".SavedActivity" android:exported="false" />
++        <activity android:name=".SettingsActivity" android:exported="false" />
+         <activity android:name=".AboutActivity" android:exported="false" />
+         <activity android:name=".DisclosureActivity" android:exported="false" android:noHistory="true" android:excludeFromRecents="true" />
+         <activity android:name=".capture.ConsentActivity" android:exported="false" android:taskAffinity=""
+diff --git a/app/src/main/java/app/vocr/DisclosureActivity.kt b/app/src/main/java/app/vocr/DisclosureActivity.kt
+index 033cd90..820a245 100644
+--- a/app/src/main/java/app/vocr/DisclosureActivity.kt
++++ b/app/src/main/java/app/vocr/DisclosureActivity.kt
+@@ -30,7 +30,7 @@ class DisclosureActivity : ComponentActivity() {
+                     onAgree = {
+                         getSharedPreferences("vocr", MODE_PRIVATE).edit().putBoolean("a11y_ok", true).apply()
+                         finish()   // close this screen first (it is noHistory + excluded from recents), then hand over to Settings
+-                        startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
++                        openAccessibilityStack(this)
+                     },
+                     onDecline = {
+                         Toast.makeText(this, "Auto-scroll stays off. You can still scroll by hand while recording.", Toast.LENGTH_LONG).show()
+@@ -42,11 +42,30 @@ class DisclosureActivity : ComponentActivity() {
+     }
+ 
+     companion object {
++        /** True when the app was not installed by Google Play (a downloaded APK): Android then blocks Accessibility until "Allow restricted settings" is chosen in App info. */
++        fun sideloaded(ctx: android.content.Context): Boolean = runCatching {
++            if (android.os.Build.VERSION.SDK_INT < 30) return false
++            ctx.packageManager.getInstallSourceInfo(ctx.packageName).installingPackageName != "com.android.vending"
++        }.getOrDefault(false)
++
++        /** Opens Android's Accessibility page on top of the main Device Settings page, in Settings' own task. Back from Accessibility then lands on Device Settings
++         *  (where Apps > ScrollRSI > Allow restricted settings is one tap away), and one more Back returns to ScrollRSI. Falls back to the plain Accessibility page. */
++        fun openAccessibilityStack(ctx: android.content.Context) {
++            val main = Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
++            val acc = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
++            if (runCatching { ctx.startActivities(arrayOf(main, acc)) }.isSuccess) return
++            val plain = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
++            if (ctx !is android.app.Activity) plain.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
++            ctx.startActivity(plain)
++        }
++
++        const val RESTRICTED_HINT = "If Android says \"restricted setting\" or \"App was denied access\": Settings > Apps > ScrollRSI > three dots at the top right > Allow restricted settings, then try again."
++
+         /** Open Accessibility settings, but only after the user has accepted the disclosure; otherwise show it first. */
+         fun openAccessibility(ctx: android.content.Context) {
+             val ok = ctx.getSharedPreferences("vocr", android.content.Context.MODE_PRIVATE).getBoolean("a11y_ok", false)
+-            val i = if (ok) Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS) else Intent(ctx, DisclosureActivity::class.java)
+-            // from an Activity: stay in the same task so Back returns to the screen the user left; only a Service needs a new task
++            if (ok) { openAccessibilityStack(ctx); return }
++            val i = Intent(ctx, DisclosureActivity::class.java)
+             if (ctx !is android.app.Activity) i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+             ctx.startActivity(i)
+         }
+diff --git a/app/src/main/java/app/vocr/MainActivity.kt b/app/src/main/java/app/vocr/MainActivity.kt
+index 0e3cf9a..b8c7199 100644
+--- a/app/src/main/java/app/vocr/MainActivity.kt
++++ b/app/src/main/java/app/vocr/MainActivity.kt
+@@ -49,6 +49,7 @@ class MainActivity : ComponentActivity() {
+     override fun onCreate(savedInstanceState: Bundle?) {
+         super.onCreate(savedInstanceState)
+         if (intent.getBooleanExtra("glassdemo", false)) { setContent { GlassDemo() }; return }
++        if (intent.getBooleanExtra("settings", false)) startActivity(android.content.Intent(this, SettingsActivity::class.java))   // used by the CI screenshot
+         setContent { ScrollOnTheme() { Home() } }
+     }
+ }
+@@ -121,198 +122,108 @@ fun Home(preview: Picked? = null) {
+     }
+     val res = result
+     if (res != null) { Strips(res, (ctx as? android.app.Activity)?.intent?.getBooleanExtra("read", false) == true) { result = null }; return }
++    val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
++    val startFloating: () -> Unit = {
++        if (android.os.Build.VERSION.SDK_INT >= 33) notifLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
++        if (!android.provider.Settings.canDrawOverlays(ctx)) {
++            ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION, android.net.Uri.parse("package:" + ctx.packageName)))
++        } else {
++            ctx.startForegroundService(android.content.Intent(ctx, app.vocr.capture.CaptureService::class.java).setAction(app.vocr.capture.CaptureService.ACTION_WIDGET))
++            (ctx as? android.app.Activity)?.moveTaskToBack(true)
++        }
++    }
++    val prefs = app.vocr.capture.CaptureService.prefs(ctx)
+     Column(
+-        Modifier.fillMaxSize().scrollOnBackdrop().systemBarsPadding().verticalScroll(rememberScrollState()).padding(24.dp),
+-        horizontalAlignment = Alignment.Start
++        Modifier.fillMaxSize().scrollOnBackdrop().systemBarsPadding().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp),
++        verticalArrangement = Arrangement.spacedBy(12.dp)
+     ) {
+-        Spacer(Modifier.height(16.dp))
+-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
++        // Header: chevron mark, wordmark, tagline, and the Add button.
++        Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
++            androidx.compose.foundation.Image(androidx.compose.ui.res.painterResource(app.vocr.R.drawable.ic_stat_chevron), contentDescription = null, colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(Violet), modifier = Modifier.size(40.dp))
++            Spacer(Modifier.width(10.dp))
+             Column(Modifier.weight(1f)) {
+-                Spacer(Modifier.height(16.dp))
+-                Wordmark(44.sp)
+-                Text("If you can scroll it, you can save it.", color = Muted, fontSize = 16.sp)
++                Wordmark(34.sp)
++                Text("If you can scroll it, you can save it.", color = Muted, fontSize = 13.sp)
+             }
+             AddButton(JobQueue.activeCount()) { addVideos() }
+         }
+-        Spacer(Modifier.height(12.dp))
+-        QueueList()
+-        Spacer(Modifier.height(16.dp))
+-        Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(28.dp)).padding(24.dp)) {
+-            Text("\u25B6", color = Lilac, fontSize = 32.sp)
+-            Spacer(Modifier.height(12.dp))
+-            Text(picked?.name ?: "Pick screen recordings", color = TextMain, fontSize = 26.sp, fontWeight = FontWeight.SemiBold, fontFamily = DisplayFont)
++        // Hero tile: the main job.
++        Tile(Modifier.fillMaxWidth(), onClick = { addVideos() }) {
++            Text("\u25B6", color = Lilac, fontSize = 28.sp)
++            Spacer(Modifier.height(8.dp))
++            Text("Pick screen recordings", color = TextMain, fontSize = 24.sp, fontWeight = FontWeight.SemiBold, fontFamily = DisplayFont)
+             Spacer(Modifier.height(4.dp))
+-            Text(
+-                picked?.let { "${it.seconds / 60}m ${it.seconds % 60}s  -  ${it.w}x${it.h}" } ?: "OCR runs on your phone. Share only when you choose.",
+-                color = Muted, fontSize = 14.sp
+-            )
+-            val pr = progress
+-            if (pr != null) {
+-                Spacer(Modifier.height(16.dp))
+-                LinearProgressIndicator(progress = { pr.done / pr.total.coerceAtLeast(1).toFloat() }, modifier = Modifier.fillMaxWidth(), color = Violet, trackColor = Ink)
++            Text("OCR runs on your phone. Share only when you choose.", color = Muted, fontSize = 13.sp)
++            Spacer(Modifier.height(14.dp))
++            Button(onClick = { addVideos() }, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(16.dp),
++                colors = ButtonDefaults.buttonColors(containerColor = Violet, contentColor = OnBronze)) { Text("Choose videos", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
++        }
++        // Queue tile: running and finished jobs, or a hint with the latest saved file.
++        if (JobQueue.jobs.isNotEmpty()) QueueList()
++        // Two small tiles: Auto-scroll status and the floating recorder.
++        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
++            val asReady = app.vocr.capture.ScrollService.instance != null
++            val asStopped = !asReady && app.vocr.capture.ScrollService.enabledInSettings(ctx)
++            Tile(Modifier.weight(1f).fillMaxHeight(), onClick = { if (asReady) { ctx.startActivity(android.content.Intent(ctx, SettingsActivity::class.java)) } else { DisclosureActivity.openAccessibility(ctx) } }) {
++                Label("AUTO-SCROLL")
+                 Spacer(Modifier.height(6.dp))
+-                val eta = if (pr.etaS >= 0) "  ~${pr.etaS / 60}m ${pr.etaS % 60}s left" else ""
+-            Text("${pr.stage}  ${pr.done}/${pr.total}$eta  ${pr.lines} lines", color = Muted, fontSize = 13.sp)
+-            if (pr.live.isNotEmpty()) Text(pr.live.joinToString("\n"), color = Lilac, fontSize = 12.sp, maxLines = 6, modifier = Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(8.dp)).padding(8.dp))
++                if (asReady) Text("\u2713 Ready", color = Success, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
++                else Text(if (asStopped) "ON but stopped" else "Turn on", color = TextMain, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
++                Spacer(Modifier.height(4.dp))
++                Text(if (asReady) "Speed " + prefs.getInt("scrollspeed", 10) + " of 10. Tap for settings." else if (asStopped) "Switch it off and on in Accessibility" else "Allow it in Accessibility", color = Muted, fontSize = 12.sp)
+             }
+-            error?.let { Spacer(Modifier.height(8.dp)); Text(it, color = Err, fontSize = 13.sp) }
+-            Spacer(Modifier.height(20.dp))
+-            val p = picked
+-            if (p != null && progress == null) {
+-                Button(
+-                    onClick = { start(p) },
+-                    modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(16.dp),
+-                    colors = ButtonDefaults.buttonColors(containerColor = Violet, contentColor = OnBronze)
+-                ) { Text("Read this recording", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
+-                Spacer(Modifier.height(10.dp))
++            Tile(Modifier.weight(1f).fillMaxHeight(), onClick = startFloating) {
++                Label("FLOATING RECORDER")
++                Spacer(Modifier.height(6.dp))
++                Text(if (android.provider.Settings.canDrawOverlays(ctx)) "Start" else "Allow overlay", color = TextMain, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
++                Spacer(Modifier.height(4.dp))
++                Text("Record, Scroll capture and screenshots from the bubble.", color = Muted, fontSize = 12.sp)
+             }
+-            Button(
+-                onClick = { addVideos() },
+-                enabled = progress == null,
+-                modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(16.dp),
+-                colors = if (picked == null) ButtonDefaults.buttonColors(containerColor = Violet, contentColor = OnBronze)
+-                         else ButtonDefaults.buttonColors(containerColor = Btn2, contentColor = TextMain)
+-            ) { Text("Choose videos", fontSize = 14.sp, maxLines = 1, fontWeight = FontWeight.SemiBold) }
+         }
+-        Spacer(Modifier.height(10.dp))
+-        Button(
+-            onClick = { ctx.startActivity(android.content.Intent(ctx, SavedActivity::class.java)) },
+-            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = RoundedCornerShape(16.dp),
+-            colors = ButtonDefaults.buttonColors(containerColor = Btn2, contentColor = TextMain)
+-        ) { Text("Saved files", fontSize = 14.sp) }
+-        Spacer(Modifier.height(10.dp))
+-        val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+-        Button(
+-            onClick = {
+-                if (android.os.Build.VERSION.SDK_INT >= 33) notifLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+-                if (!android.provider.Settings.canDrawOverlays(ctx)) {
+-                    ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION, android.net.Uri.parse("package:" + ctx.packageName)))
+-                } else {
+-                    ctx.startForegroundService(android.content.Intent(ctx, app.vocr.capture.CaptureService::class.java).setAction(app.vocr.capture.CaptureService.ACTION_WIDGET))
+-                    (ctx as? android.app.Activity)?.moveTaskToBack(true)
+-                }
+-            },
+-            modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(16.dp),
+-            colors = ButtonDefaults.buttonColors(containerColor = Btn2, contentColor = TextMain)
+-        ) { Text(if (android.provider.Settings.canDrawOverlays(ctx)) "Floating recorder" else "Floating recorder (allow overlay)", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
+-        Spacer(Modifier.height(10.dp))
+-        var showSettings by remember { mutableStateOf(false) }
+-        Button(
+-            onClick = { showSettings = !showSettings },
+-            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = RoundedCornerShape(16.dp),
+-            colors = ButtonDefaults.buttonColors(containerColor = Btn2, contentColor = TextMain)
+-        ) { Text(if (showSettings) "Settings  \u25B2" else "Settings  \u25BC", fontSize = 14.sp) }
+-        if (showSettings) {
+-            Spacer(Modifier.height(10.dp))
+-            Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(20.dp)).padding(16.dp)) {
+-                val asReady = app.vocr.capture.ScrollService.instance != null
+-                val asStopped = !asReady && app.vocr.capture.ScrollService.enabledInSettings(ctx)
+-                // A status row, not a button: ready = tick, no pressed state; otherwise a link row that opens Accessibility settings.
+-                Row(
+-                    Modifier.fillMaxWidth().heightIn(min = 48.dp).then(if (asReady) Modifier else Modifier.clickable { showSettings = false; DisclosureActivity.openAccessibility(ctx) }),
+-                    verticalAlignment = Alignment.CenterVertically
+-                ) {
+-                    Text("Auto-scroll", color = TextMain, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+-                    if (asReady) Text("\u2713 Ready", color = Success, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+-                    else Text(if (asStopped) "ON but stopped - switch it off and on  \u203A" else "Turn on in Accessibility  \u203A", color = Lilac, fontSize = 13.sp)
+-                }
+-                Spacer(Modifier.height(14.dp))
+-                val view = androidx.compose.ui.platform.LocalView.current
+-                var speed by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getInt("scrollspeed", 10).toFloat()) }
+-                Row(verticalAlignment = Alignment.CenterVertically) {
+-                    Text("Auto-scroll speed", color = TextMain, fontSize = 14.sp, modifier = Modifier.weight(1f))
+-                    Text(speed.toInt().toString() + if (speed.toInt() == 10) "  (default)" else "", color = Lilac, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+-                }
+-                Slider(
+-                    modifier = Modifier.semantics { stateDescription = "${speed.toInt()} of 10" },
+-                    value = speed, onValueChange = { val n = Math.round(it).toFloat(); if (n != speed) Haptics.detent(view); speed = n },
+-                    onValueChangeFinished = { app.vocr.capture.CaptureService.prefs(ctx).edit().putInt("scrollspeed", speed.toInt()).apply() },
+-                    valueRange = 0f..10f, steps = 9,
+-                    colors = SliderDefaults.colors(thumbColor = Violet, activeTrackColor = Violet, inactiveTrackColor = TrackOff, activeTickColor = OnBronze, inactiveTickColor = TickOff)
+-                )
+-                Row { Text("0 slowest", color = Muted, fontSize = 11.sp, modifier = Modifier.weight(1f)); Text("10 = best pace", color = Muted, fontSize = 11.sp) }
+-                Spacer(Modifier.height(4.dp))
+-                Text(
+-                    "10 is the best working pace for the text reader. Lower numbers scroll slower so you can read along while it records. 1 is a very slow, smooth crawl. 0 stops the scrolling completely (the recording keeps running).",
+-                    color = Muted, fontSize = 12.sp, lineHeight = 17.sp
+-                )
+-                Spacer(Modifier.height(14.dp))
+-                var snd by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("sound", true)) }
+-                Row(Modifier.semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically) {
+-                    Switch(checked = snd, onCheckedChange = { snd = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("sound", it).apply(); app.vocr.core.Sfx.refresh(ctx) })
+-                    Spacer(Modifier.width(8.dp))
+-                    Text("Sound (auto-scroll and end cue)", color = Muted, fontSize = 13.sp)
+-                }
+-                Spacer(Modifier.height(6.dp))
+-                var dbg by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("debug_frames", false)) }
+-                Row(Modifier.semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically) {
+-                    Switch(checked = dbg, onCheckedChange = { dbg = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("debug_frames", it).apply() })
+-                    Spacer(Modifier.width(8.dp))
+-                    Text("Save every Scroll capture frame for debugging. Contains your screen content.", color = Muted, fontSize = 13.sp)
+-                }
+-                Spacer(Modifier.height(6.dp))
+-                var maxRows by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getInt("max_rows", app.vocr.capture.LongShotSession.MAX_ROWS)) }
+-                Text("Scroll capture size limit (stops at about ${maxRows / app.vocr.capture.LongShotSession.PART_H} parts)", color = Muted, fontSize = 13.sp)
+-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 4.dp)) {
+-                    listOf(40000 to "40k", 80000 to "80k", 120000 to "120k", 200000 to "200k").forEach { (v, label) ->
+-                        Button(onClick = { maxRows = v; app.vocr.capture.CaptureService.prefs(ctx).edit().putInt("max_rows", v).apply() },
+-                            colors = ButtonDefaults.buttonColors(containerColor = if (maxRows == v) Violet else Btn2, contentColor = if (maxRows == v) OnBronze else TextMain),
+-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) { Text(label, fontSize = 13.sp) }
+-                    }
+-                }
++        if (app.vocr.capture.ScrollService.instance == null && DisclosureActivity.sideloaded(ctx)) {
++            Text(DisclosureActivity.RESTRICTED_HINT, color = Muted, fontSize = 12.sp, lineHeight = 17.sp, modifier = Modifier.padding(horizontal = 6.dp))
++        }
++        // Scroll capture tile with the Shot text switch.
++        Tile(Modifier.fillMaxWidth()) {
++            Label("SCROLL CAPTURE")
++            Spacer(Modifier.height(6.dp))
++            Text("Start it from the floating bubble. ScrollRSI scrolls, captures and joins the screens into one long image.", color = Muted, fontSize = 13.sp)
++            Spacer(Modifier.height(8.dp))
++            var shotText by remember { mutableStateOf(prefs.getBoolean("shot_text", true)) }
++            Row(Modifier.semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically) {
++                Switch(checked = shotText, onCheckedChange = { shotText = it; prefs.edit().putBoolean("shot_text", it).apply() })
++                Spacer(Modifier.width(8.dp))
++                Text("Shot text: also save the text", color = TextMain, fontSize = 14.sp)
++            }
++        }
++        // Bottom rows: Saved files + Settings, then Manual + About.
++        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
++            Tile(Modifier.weight(1f).fillMaxHeight(), onClick = { openFolder(ctx) }) {
++                Label("SAVED FILES")
+                 Spacer(Modifier.height(6.dp))
+-                var light by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("lightcapture", false)) }
+-                Row(Modifier.semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically) {
+-                    Switch(checked = light, onCheckedChange = { light = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("lightcapture", it).apply() })
+-                    Spacer(Modifier.width(8.dp))
+-                    Text("Lighter capture (30 fps, 5 Mbps)", color = Muted, fontSize = 13.sp)
+-                    Spacer(Modifier.width(8.dp))
+-                    Text("Beta", color = TextMain, fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
+-                        modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(Btn2).padding(horizontal = 8.dp, vertical = 2.dp))
+-                }
++                Text("Open folder", color = TextMain, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
++                Text("Download/ScrollRSI", color = Muted, fontSize = 12.sp)
++            }
++            Tile(Modifier.weight(1f).fillMaxHeight(), onClick = { ctx.startActivity(android.content.Intent(ctx, SettingsActivity::class.java)) }) {
++                Label("SETTINGS")
+                 Spacer(Modifier.height(6.dp))
+-                var hap by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("haptics", true)) }
+-                Row(Modifier.semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically) {
+-                    Switch(checked = hap, onCheckedChange = { hap = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("haptics", it).apply() })
+-                    Spacer(Modifier.width(8.dp))
+-                    Text("Soft haptics while auto-scroll runs", color = Muted, fontSize = 13.sp)
+-                }
++                Text("Settings", color = TextMain, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
++                Text("Speed, saving, theme", color = Muted, fontSize = 12.sp)
++            }
++        }
++        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
++            Tile(Modifier.weight(1f).fillMaxHeight(), onClick = { ctx.startActivity(android.content.Intent(ctx, ManualActivity::class.java)) }) {
++                Label("MANUAL")
+                 Spacer(Modifier.height(6.dp))
+-                Text("Theme", color = Muted, fontSize = 13.sp)
+-                Spacer(Modifier.height(4.dp))
+-                ThemeSegmented(paper = Pal.paper, onPick = { Pal.set(ctx, it) }, modifier = Modifier.fillMaxWidth())
++                Text("How to use", color = TextMain, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
++            }
++            Tile(Modifier.weight(1f).fillMaxHeight(), onClick = { ctx.startActivity(android.content.Intent(ctx, AboutActivity::class.java)) }) {
++                Label("ABOUT")
+                 Spacer(Modifier.height(6.dp))
+-                if (app.vocr.capture.Cover.AVAILABLE) {   // Cover is parked for further development
+-                var cov by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("cover", false)) }
+-                Row(Modifier.semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically) {
+-                    Switch(checked = cov, onCheckedChange = { cov = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("cover", it).apply() })
+-                    Spacer(Modifier.width(8.dp))
+-                    Text("Cover: hide a region (e.g. a playing video) in recordings. Set it from the bubble: long-press, Cover", color = Muted, fontSize = 13.sp)
+-                }
+-                var covStrip by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("cover_strip", true)) }
+-                Row(Modifier.semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically) {
+-                    Switch(checked = covStrip, onCheckedChange = { covStrip = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("cover_strip", it).apply() })
+-                    Spacer(Modifier.width(8.dp))
+-                    Text("Cover also hides the status bar strip (clock, notifications)", color = Muted, fontSize = 13.sp)
+-                }
+-                }
+-                Spacer(Modifier.height(14.dp))
++                Text("About and contact", color = TextMain, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+             }
+         }
+-        Spacer(Modifier.height(10.dp))
+-        Button(
+-            onClick = { ctx.startActivity(android.content.Intent(ctx, ManualActivity::class.java)) },
+-            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = RoundedCornerShape(16.dp),
+-            colors = ButtonDefaults.buttonColors(containerColor = Btn2, contentColor = TextMain)
+-        ) { Text("User manual (how to use)", fontSize = 14.sp) }
+-        Spacer(Modifier.height(10.dp))
+-        Button(
+-            onClick = { ctx.startActivity(android.content.Intent(ctx, AboutActivity::class.java)) },
+-            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = RoundedCornerShape(16.dp),
+-            colors = ButtonDefaults.buttonColors(containerColor = Btn2, contentColor = TextMain)
+-        ) { Text("About and contact", fontSize = 14.sp) }
+-        Spacer(Modifier.height(6.dp))
+-        Text("v" + (runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: "?") + "", color = Muted, fontSize = 12.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
++        Text("v" + (runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: "?"), color = Muted, fontSize = 12.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
+     }
+ }
+ 
+diff --git a/app/src/main/java/app/vocr/SavedActivity.kt b/app/src/main/java/app/vocr/SavedActivity.kt
+index 1c5d477..6185ba9 100644
+--- a/app/src/main/java/app/vocr/SavedActivity.kt
++++ b/app/src/main/java/app/vocr/SavedActivity.kt
+@@ -17,6 +17,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
+ import androidx.compose.foundation.verticalScroll
+ import androidx.compose.material3.*
+ import androidx.compose.runtime.*
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.launch
++import kotlinx.coroutines.withContext
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.graphics.Color
+@@ -35,6 +38,15 @@ class SavedActivity : ComponentActivity() {
+     }
+ }
+ 
++private fun mimeOf(name: String): String? = when (name.substringAfterLast('.', "").lowercase()) {
++    "mp4" -> "video/mp4"; "png" -> "image/png"; "jpg", "jpeg" -> "image/jpeg"; "txt" -> null; else -> null
++}
++
++private fun readText(ctx: android.content.Context, u: Uri, size: Long): String {
++    if (size > 5_000_000L) return "This file is too large to show here (" + size / 1048576 + " MB). Use Share or the Files app."
++    return runCatching { ctx.contentResolver.openInputStream(u)?.use { s -> String(s.readBytes(), Charsets.UTF_8) } }.getOrNull() ?: "Could not read this file."
++}
++
+ private data class Item(val uri: Uri, val name: String, val size: Long, val date: Long)
+ 
+ private fun loadItems(ctx: android.content.Context): List<Item> {
+@@ -52,14 +64,15 @@ private fun loadItems(ctx: android.content.Context): List<Item> {
+ private fun SavedScreen(onExit: () -> Unit) {
+     val ctx = LocalContext.current
+     val view = androidx.compose.ui.platform.LocalView.current
++    val scope = rememberCoroutineScope()
+     var items by remember { mutableStateOf<List<Item>>(emptyList()) }
+     var loaded by remember { mutableStateOf(false) }
+     var open by remember { mutableStateOf<Item?>(null) }
+     var text by remember { mutableStateOf("") }
+     LaunchedEffect(Unit) {
+-        items = loadItems(ctx); loaded = true
++        items = withContext(Dispatchers.IO) { loadItems(ctx) }; loaded = true
+         (ctx as? android.app.Activity)?.intent?.data?.let { u ->   // opened from a "Text ready" notification
+-            text = runCatching { ctx.contentResolver.openInputStream(u)?.use { s -> String(s.readBytes(), Charsets.UTF_8) } }.getOrNull() ?: "Could not read this file."
++            text = withContext(Dispatchers.IO) { readText(ctx, u, 0L) }
+             open = items.firstOrNull { it.uri == u } ?: Item(u, "Saved text", text.length.toLong(), System.currentTimeMillis())
+         }
+     }
+@@ -77,12 +90,22 @@ private fun SavedScreen(onExit: () -> Unit) {
+             if (loaded && items.isEmpty()) Text("Nothing saved yet. Finished captures appear here.", color = Muted, modifier = Modifier.padding(20.dp))
+             LazyColumn(Modifier.weight(1f).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                 items(items) { it ->
+-                    Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(18.dp)).hapticClickable {
+-                        Haptics.secondary(view); text = runCatching { ctx.contentResolver.openInputStream(it.uri)?.use { s -> String(s.readBytes(), Charsets.UTF_8) } }.getOrNull() ?: "Could not read this file."; open = it
+-                    }.padding(16.dp)) {
+-                        Text(it.name.removeSuffix(".txt"), color = TextMain, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 2)
+-                        Spacer(Modifier.height(4.dp))
+-                        Text(fmt.format(java.util.Date(it.date)) + "  -  " + (if (it.size >= 1024) "${it.size / 1024} kB" else "${it.size} B"), color = Muted, fontSize = 12.sp)
++                    val media = mimeOf(it.name)
++                    Row(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(18.dp)).hapticClickable {
++                        Haptics.secondary(view)
++                        val mt = media ?: "text/plain"
++                        runCatching { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW).setDataAndType(it.uri, mt).addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)) }
++                            .onFailure { android.widget.Toast.makeText(ctx, "No app found to open this file. Use Share or the Files app.", android.widget.Toast.LENGTH_LONG).show() }
++                    }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
++                        Column(Modifier.weight(1f)) {
++                            Text(it.name.removeSuffix(".txt"), color = TextMain, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 2)
++                            Spacer(Modifier.height(4.dp))
++                            Text(fmt.format(java.util.Date(it.date)) + "  -  " + (if (it.size >= 1048576) "${it.size / 1048576} MB" else if (it.size >= 1024) "${it.size / 1024} kB" else "${it.size} B") + (if (media != null) "  -  tap to open" else ""), color = Muted, fontSize = 12.sp)
++                        }
++                        TextButton(onClick = {
++                            val i = android.content.Intent(android.content.Intent.ACTION_SEND).setType(media ?: "text/plain").putExtra(android.content.Intent.EXTRA_STREAM, it.uri).addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
++                            ctx.startActivity(android.content.Intent.createChooser(i, "Share file"))
++                        }) { Text("Share", color = TextMain) }
+                     }
+                 }
+             }
+@@ -97,7 +120,7 @@ private fun SavedScreen(onExit: () -> Unit) {
+             if (!cur.name.removeSuffix(".txt").endsWith("(clean)")) {
+                 Button(onClick = {
+                     val r = app.vocr.core.Saver.saveAs(ctx, cur.name.removeSuffix(".txt") + " (clean)", app.vocr.core.ReadingCopy.make(text))
+-                    if (r.uri != null) { items = loadItems(ctx); android.widget.Toast.makeText(ctx, "Clean copy saved. The original is unchanged.", android.widget.Toast.LENGTH_LONG).show() }
++                    if (r.uri != null) { scope.launch { items = withContext(Dispatchers.IO) { loadItems(ctx) } }; android.widget.Toast.makeText(ctx, "Clean copy saved. The original is unchanged.", android.widget.Toast.LENGTH_LONG).show() }
+                     else android.widget.Toast.makeText(ctx, "Could not save: " + r.error, android.widget.Toast.LENGTH_LONG).show()
+                 }, colors = ButtonDefaults.buttonColors(containerColor = sec, contentColor = TextMain),
+                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).semantics { contentDescription = "Clean copy. Saves a second, tidied file. The original stays unchanged." }) { Text("Clean copy") }
+diff --git a/app/src/main/java/app/vocr/SettingsActivity.kt b/app/src/main/java/app/vocr/SettingsActivity.kt
+new file mode 100644
+index 0000000..50670fa
+--- /dev/null
++++ b/app/src/main/java/app/vocr/SettingsActivity.kt
+@@ -0,0 +1,179 @@
++package app.vocr
++
++import androidx.activity.ComponentActivity
++import androidx.activity.compose.setContent
++import androidx.compose.foundation.background
++import androidx.compose.foundation.clickable
++import androidx.compose.foundation.layout.*
++import androidx.compose.foundation.rememberScrollState
++import androidx.compose.foundation.shape.RoundedCornerShape
++import androidx.compose.foundation.verticalScroll
++import androidx.compose.material3.*
++import androidx.compose.runtime.*
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.draw.clip
++import androidx.compose.ui.platform.LocalContext
++import androidx.compose.ui.semantics.semantics
++import androidx.compose.ui.semantics.stateDescription
++import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.unit.dp
++import androidx.compose.ui.unit.sp
++
++/** Settings as bento cards. Every control is the same one the old Settings list had, grouped by purpose. */
++class SettingsActivity : ComponentActivity() {
++    override fun onCreate(savedInstanceState: android.os.Bundle?) {
++        super.onCreate(savedInstanceState)
++        setContent { ScrollOnTheme() { SettingsBento { finish() } } }
++    }
++}
++
++@Composable
++fun Tile(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
++    Column(modifier.glassPanel(RoundedCornerShape(24.dp)).let { if (onClick != null) it.hapticClickable(onClick) else it }.padding(16.dp), content = content)
++}
++
++@Composable
++private fun SettingsBento(onBack: () -> Unit) {
++    Column(Modifier.fillMaxSize().scrollOnBackdrop().systemBarsPadding().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp),
++        verticalArrangement = Arrangement.spacedBy(12.dp)) {
++        Row(verticalAlignment = Alignment.CenterVertically) {
++            Button(onClick = onBack, colors = ButtonDefaults.buttonColors(containerColor = Btn2, contentColor = TextMain)) { Text("Back") }
++            Spacer(Modifier.width(12.dp))
++            Text("Settings", color = TextMain, fontSize = 28.sp, fontWeight = FontWeight.SemiBold, fontFamily = DisplayFont)
++        }
++        Tile(Modifier.fillMaxWidth()) { AutoScrollSettings() }
++        Tile(Modifier.fillMaxWidth()) { SavingSettings() }
++        Tile(Modifier.fillMaxWidth()) { CaptureSettings() }
++        Tile(Modifier.fillMaxWidth()) { LookSettings() }
++        Spacer(Modifier.height(8.dp))
++    }
++}
++
++@Composable
++private fun SectionTitle(t: String) { Label(t); Spacer(Modifier.height(8.dp)) }
++
++@Composable
++private fun ColumnScope.AutoScrollSettings() {
++    val ctx = LocalContext.current
++    SectionTitle("AUTO-SCROLL")
++                val asReady = app.vocr.capture.ScrollService.instance != null
++                val asStopped = !asReady && app.vocr.capture.ScrollService.enabledInSettings(ctx)
++                // A status row, not a button: ready = tick, no pressed state; otherwise a link row that opens Accessibility settings.
++                Row(
++                    Modifier.fillMaxWidth().heightIn(min = 48.dp).then(if (asReady) Modifier else Modifier.clickable { DisclosureActivity.openAccessibility(ctx) }),
++                    verticalAlignment = Alignment.CenterVertically
++                ) {
++                    Text("Auto-scroll", color = TextMain, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
++                    if (asReady) Text("\u2713 Ready", color = Success, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
++                    else Text(if (asStopped) "ON but stopped - switch it off and on  \u203A" else "Turn on in Accessibility  \u203A", color = Lilac, fontSize = 13.sp)
++                }
++                if (!asReady && DisclosureActivity.sideloaded(ctx)) Text(DisclosureActivity.RESTRICTED_HINT, color = Muted, fontSize = 12.sp, lineHeight = 17.sp)
++                Spacer(Modifier.height(14.dp))
++                val view = androidx.compose.ui.platform.LocalView.current
++                var speed by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getInt("scrollspeed", 10).toFloat()) }
++                Row(verticalAlignment = Alignment.CenterVertically) {
++                    Text("Auto-scroll speed", color = TextMain, fontSize = 14.sp, modifier = Modifier.weight(1f))
++                    Text(speed.toInt().toString() + if (speed.toInt() == 10) "  (default)" else "", color = Lilac, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
++                }
++                Slider(
++                    modifier = Modifier.semantics { stateDescription = "${speed.toInt()} of 10" },
++                    value = speed, onValueChange = { val n = Math.round(it).toFloat(); if (n != speed) Haptics.detent(view); speed = n },
++                    onValueChangeFinished = { app.vocr.capture.CaptureService.prefs(ctx).edit().putInt("scrollspeed", speed.toInt()).apply() },
++                    valueRange = 0f..10f, steps = 9,
++                    colors = SliderDefaults.colors(thumbColor = Violet, activeTrackColor = Violet, inactiveTrackColor = TrackOff, activeTickColor = OnBronze, inactiveTickColor = TickOff)
++                )
++                Row { Text("0 slowest", color = Muted, fontSize = 11.sp, modifier = Modifier.weight(1f)); Text("10 = best pace", color = Muted, fontSize = 11.sp) }
++                Spacer(Modifier.height(4.dp))
++                Text(
++                    "10 is the best working pace for the text reader. Lower numbers scroll slower so you can read along while it records. 1 is a very slow, smooth crawl. 0 stops the scrolling completely (the recording keeps running).",
++                    color = Muted, fontSize = 12.sp, lineHeight = 17.sp
++                )
++                Spacer(Modifier.height(6.dp))
++                var snd by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("sound", true)) }
++                Row(Modifier.semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically) {
++                    Switch(checked = snd, onCheckedChange = { snd = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("sound", it).apply(); app.vocr.core.Sfx.refresh(ctx) })
++                    Spacer(Modifier.width(8.dp))
++                    Text("Sound (auto-scroll and end cue)", color = Muted, fontSize = 13.sp)
++                }
++                Spacer(Modifier.height(6.dp))
++                var hap by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("haptics", true)) }
++                Row(Modifier.semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically) {
++                    Switch(checked = hap, onCheckedChange = { hap = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("haptics", it).apply() })
++                    Spacer(Modifier.width(8.dp))
++                    Text("Soft haptics while auto-scroll runs", color = Muted, fontSize = 13.sp)
++                }
++}
++
++@Composable
++private fun ColumnScope.SavingSettings() {
++    val ctx = LocalContext.current
++    SectionTitle("SAVING")
++                var saveVid by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("save_video", true)) }
++                Row(Modifier.semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically) {
++                    Switch(checked = saveVid, onCheckedChange = { saveVid = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("save_video", it).apply() })
++                    Spacer(Modifier.width(8.dp))
++                    Text("Also save the screen recording video next to its text (large files)", color = Muted, fontSize = 13.sp)
++                }
++                var dbg by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("debug_frames", false)) }
++                Row(Modifier.semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically) {
++                    Switch(checked = dbg, onCheckedChange = { dbg = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("debug_frames", it).apply() })
++                    Spacer(Modifier.width(8.dp))
++                    Text("Save every Scroll capture frame for debugging. Contains your screen content.", color = Muted, fontSize = 13.sp)
++                }
++                var maxRows by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getInt("max_rows", app.vocr.capture.LongShotSession.MAX_ROWS)) }
++                Text("Scroll capture size limit (stops at about ${maxRows / app.vocr.capture.LongShotSession.PART_H} parts)", color = Muted, fontSize = 13.sp)
++                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 4.dp)) {
++                    listOf(40000 to "40k", 80000 to "80k", 120000 to "120k", 200000 to "200k").forEach { (v, label) ->
++                        Button(onClick = { maxRows = v; app.vocr.capture.CaptureService.prefs(ctx).edit().putInt("max_rows", v).apply() },
++                            colors = ButtonDefaults.buttonColors(containerColor = if (maxRows == v) Violet else Btn2, contentColor = if (maxRows == v) OnBronze else TextMain),
++                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) { Text(label, fontSize = 13.sp) }
++                    }
++                }
++}
++
++@Composable
++private fun ColumnScope.CaptureSettings() {
++    val ctx = LocalContext.current
++    SectionTitle("CAPTURE")
++    var shotText by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("shot_text", true)) }
++    Row(Modifier.semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically) {
++        Switch(checked = shotText, onCheckedChange = { shotText = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("shot_text", it).apply() })
++        Spacer(Modifier.width(8.dp))
++        Text("Shot text: also save the text of every screenshot and Scroll capture", color = Muted, fontSize = 13.sp)
++    }
++    Spacer(Modifier.height(6.dp))
++                var light by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("lightcapture", false)) }
++                Row(Modifier.semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically) {
++                    Switch(checked = light, onCheckedChange = { light = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("lightcapture", it).apply() })
++                    Spacer(Modifier.width(8.dp))
++                    Text("Lighter capture (30 fps, 5 Mbps)", color = Muted, fontSize = 13.sp)
++                    Spacer(Modifier.width(8.dp))
++                    Text("Beta", color = TextMain, fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
++                        modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(Btn2).padding(horizontal = 8.dp, vertical = 2.dp))
++                }
++}
++
++@Composable
++private fun ColumnScope.LookSettings() {
++    val ctx = LocalContext.current
++    SectionTitle("LOOK")
++                Text("Theme", color = Muted, fontSize = 13.sp)
++                Spacer(Modifier.height(4.dp))
++                ThemeSegmented(paper = Pal.paper, onPick = { Pal.set(ctx, it) }, modifier = Modifier.fillMaxWidth())
++                Spacer(Modifier.height(6.dp))
++                if (app.vocr.capture.Cover.AVAILABLE) {   // Cover is parked for further development
++                var cov by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("cover", false)) }
++                Row(Modifier.semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically) {
++                    Switch(checked = cov, onCheckedChange = { cov = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("cover", it).apply() })
++                    Spacer(Modifier.width(8.dp))
++                    Text("Cover: hide a region (e.g. a playing video) in recordings. Set it from the bubble: long-press, Cover", color = Muted, fontSize = 13.sp)
++                }
++                var covStrip by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("cover_strip", true)) }
++                Row(Modifier.semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically) {
++                    Switch(checked = covStrip, onCheckedChange = { covStrip = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("cover_strip", it).apply() })
++                    Spacer(Modifier.width(8.dp))
++                    Text("Cover also hides the status bar strip (clock, notifications)", color = Muted, fontSize = 13.sp)
++                }
++                }
++}
+diff --git a/app/src/main/java/app/vocr/capture/CaptureService.kt b/app/src/main/java/app/vocr/capture/CaptureService.kt
+index 246c166..b651631 100644
+--- a/app/src/main/java/app/vocr/capture/CaptureService.kt
++++ b/app/src/main/java/app/vocr/capture/CaptureService.kt
+@@ -71,7 +71,7 @@ class CaptureService : Service() {
+     // FLAG_SECURE keeps our overlays out of recordings, but a secure window also blocks the user's own screenshots. So the bubble and menus
+     // are secure only while a recording starts or runs, or auto-scroll runs. When idle, screenshots work.
+     private var starting = false
+-    private fun wantSecure() = starting || recording || scrolling || readMode
++    private fun wantSecure() = starting || recording   // only for ScrollRSI's own recording: another recorder draws a secure window as a black box over the page
+     private fun secureFlag() = if (wantSecure()) WindowManager.LayoutParams.FLAG_SECURE else 0
+     private fun syncSecure() {
+         val apply = Runnable { runCatching {
+@@ -422,17 +422,17 @@ class CaptureService : Service() {
+         }
+         overlay(auto, p.x - dp(6), p.y + p.height + dp(46))
+         overlay(rd, p.x - dp(6), p.y + p.height + dp(86))
+-        fun stText() = if (prefs(this).getBoolean("shot_text", false)) "Shot text: ON" else "Shot text: off"
++        fun stText() = if (prefs(this).getBoolean("shot_text", true)) "Shot text: ON" else "Shot text: off"
+         val stChip = chip(stText(), chipC()) {}
+         fun styleSt() {
+-            val on = prefs(this).getBoolean("shot_text", false)
++            val on = prefs(this).getBoolean("shot_text", true)
+             (stChip.background as GradientDrawable).setColor(Color.parseColor(if (on) accentHex() else chipHex()))
+             stChip.setTextColor(if (on) onAccentC() else mutedC())
+         }
+         styleSt()
+         stChip.contentDescription = "Save the text of a screenshot next to the image"
+         stChip.setOnClickListener { it.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP)
+-            val a = !prefs(this).getBoolean("shot_text", false); prefs(this).edit().putBoolean("shot_text", a).apply()
++            val a = !prefs(this).getBoolean("shot_text", true); prefs(this).edit().putBoolean("shot_text", a).apply()
+             stChip.text = stText(); styleSt(); ui.removeCallbacks(hideMenuRun); ui.postDelayed(hideMenuRun, 4000)
+         }
+         overlay(stChip, p.x - dp(6), p.y + p.height + dp(126))
+@@ -542,7 +542,7 @@ class CaptureService : Service() {
+                 try {
+                     val f = java.io.File(cacheDir, "shot_${System.nanoTime()}_0.png")
+                     f.outputStream().use { bm.compress(Bitmap.CompressFormat.PNG, 100, it) }
+-                    val n = ShotSaver.save(this, base, listOf(f), prefs(this).getBoolean("shot_text", false))
++                    val n = ShotSaver.save(this, base, listOf(f), prefs(this).getBoolean("shot_text", true))
+                     firstShot = n   // no toast or pop-up now: they would end up inside the next capture
+                 } catch (e: Throwable) { toast("Could not save: " + (e.message ?: e.javaClass.simpleName)); shotSaved = false }
+             }
+@@ -588,7 +588,16 @@ class CaptureService : Service() {
+         }
+         val done = glassChip(this, "Done", chipC()).apply {
+             contentDescription = "Save the capture now"
+-            setOnClickListener { shotAuto = false; shotCause = "Stopped by you (stop button)"; ui.removeCallbacks(shotIdleRun); finishLong() }
++            var fired = false
++            // Acts on the first touch (not on release) so one tap is always enough, even while a capture is in progress; a soft tick answers it.
++            setOnTouchListener { v, e ->
++                if (e.actionMasked == MotionEvent.ACTION_DOWN && !fired) {
++                    fired = true
++                    v.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP, android.view.HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING)
++                    shotAuto = false; shotCause = "Stopped by you (stop button)"; ui.removeCallbacks(shotIdleRun); finishLong()
++                }
++                true
++            }
+         }
+         row.addView(sc); row.addView(android.widget.Space(this), android.widget.LinearLayout.LayoutParams(dp(8), 1)); row.addView(done)
+         row.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+@@ -818,7 +827,7 @@ class CaptureService : Service() {
+                 val st = stamp()
+                 val base = (if (tall) "ScrollRSI long shot " else "ScrollRSI shot ") + st
+                 writeLog(st)
+-                val n = ShotSaver.save(this, base, parts, prefs(this).getBoolean("shot_text", false))
++                val n = ShotSaver.save(this, base, parts, prefs(this).getBoolean("shot_text", true))
+                 toast("Saved to Download/ScrollRSI: ${n.names}" + (if (s.gaps > 0) ". The page could not be lined up ${s.gaps} time(s): a section may be missing between image parts" else "")); postShotDone(n, tall)
+                 firstShot = null
+             } catch (e: Throwable) { toast("Could not save: " + (e.message ?: e.javaClass.simpleName)); runCatching { s.discard() } }
+diff --git a/app/src/main/java/app/vocr/capture/Cover.kt b/app/src/main/java/app/vocr/capture/Cover.kt
+index 769c9da..1d56354 100644
+--- a/app/src/main/java/app/vocr/capture/Cover.kt
++++ b/app/src/main/java/app/vocr/capture/Cover.kt
+@@ -115,7 +115,8 @@ class Cover(private val ctx: Context, private val wm: WindowManager, private val
+         }
+         runCatching { wm.addView(root, q); main = root }
+         val done = glassChip(ctx, "Done", Color.parseColor("#D2B08A")).apply {
+-            setOnClickListener {
++            setOnClickListener { v ->
++                v.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP, android.view.HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING)
+                 save(Rect(q.x, q.y, q.x + q.width, q.y + q.height)); remove()
+                 android.widget.Toast.makeText(ctx, "Cover saved", android.widget.Toast.LENGTH_SHORT).show()
+             }
+diff --git a/app/src/main/java/app/vocr/capture/LongShot.kt b/app/src/main/java/app/vocr/capture/LongShot.kt
+index 386f8be..79291b4 100644
+--- a/app/src/main/java/app/vocr/capture/LongShot.kt
++++ b/app/src/main/java/app/vocr/capture/LongShot.kt
+@@ -206,18 +206,26 @@ object ShotSaver {
+ 
+     /** Saves the parts. A single part keeps the plain name; several parts are numbered. */
+     fun save(ctx: Context, base: String, parts: List<File>, withText: Boolean): Result {
+-        val names = ArrayList<String>(); val uris = ArrayList<android.net.Uri>()
++        val uris = ArrayList<android.net.Uri>()
++        // Images are saved first under the timestamp name (nothing is lost if reading the text is cut short), then renamed after the text gives them a title.
+         parts.forEachIndexed { i, f ->
+             val name = if (parts.size == 1) "$base.png" else "$base part ${i + 1}.png"
+             val r = app.vocr.core.Saver.saveFile(ctx, name, "image/png", f)
+             if (r.uri == null) throw java.io.IOException(r.error)
+-            names.add(name); uris.add(r.uri)
++            uris.add(r.uri)
+         }
+-        var tu: android.net.Uri? = null; var tt = ""
+-        if (withText) runCatching {
+-            val text = ocr(ctx, parts)
+-            if (text.isNotBlank()) { tu = app.vocr.core.Saver.saveAs(ctx, base, text).uri; tt = text }
++        var tt = ""
++        if (withText) runCatching { tt = ocr(ctx, parts) }
++        var title = base
++        if (tt.isNotBlank() && !app.vocr.core.Title.looksLikeList(tt)) runCatching { title = app.vocr.core.Saver.titleFor(ctx, tt, base) }   // a file list has no page title: keep the timestamp name
++        var renamed = title != base
++        if (renamed) {
++            val ok = uris.mapIndexed { i, u -> app.vocr.core.Saver.rename(ctx, u, if (parts.size == 1) "$title.png" else "$title part ${i + 1}.png") }
++            if (ok.any { !it }) { renamed = false; title = base }   // partial failure: report the names Android really holds is not possible, so keep the plain name for the text too
+         }
++        val names = parts.indices.map { i -> if (parts.size == 1) "${if (renamed) title else base}.png" else "${if (renamed) title else base} part ${i + 1}.png" }
++        var tu: android.net.Uri? = null
++        if (tt.isNotBlank()) runCatching { tu = app.vocr.core.Saver.saveAs(ctx, if (renamed) title else base, tt).uri }
+         parts.forEach { it.delete() }
+         return Result(names.joinToString(", "), uris, tu, tt)
+     }
+diff --git a/app/src/main/java/app/vocr/core/JobQueue.kt b/app/src/main/java/app/vocr/core/JobQueue.kt
+index cc09c77..4a71e44 100644
+--- a/app/src/main/java/app/vocr/core/JobQueue.kt
++++ b/app/src/main/java/app/vocr/core/JobQueue.kt
+@@ -126,6 +126,11 @@ object JobQueue {
+             val ft = RunStats.footer(res, rd).let { b -> VocrApp.takePauseNote(job.tmp)?.let { n -> b + (if (b.endsWith("\n")) "" else "\n") + n } ?: b }
+             val sv = Saver.save(app, rd.text.trimEnd() + "\n\n" + ft)
+             if (sv.uri == null) throw RuntimeException("could not save the text file to Download/ScrollRSI (" + sv.error + ")")
++            // Keep the recording next to its text (same name, .mp4). Picked videos are the user's own files and are not copied.
++            job.tmp?.takeIf { it.name.startsWith("rec-") && it.exists() && app.getSharedPreferences("vocr", Context.MODE_PRIVATE).getBoolean("save_video", true) }?.let { t ->
++                val vs = runCatching { Saver.saveFile(app, sv.title + ".mp4", "video/mp4", t) }.getOrElse { Saver.Saved(sv.title + ".mp4", null, it.message ?: it.javaClass.simpleName) }
++                if (vs.uri == null) VocrApp.note("video NOT saved: " + vs.error, null)
++            }
+             job.title = sv.title; job.result = sv.uri; job.lines = rd.mergedLines; job.secs = (rd.ms / 1000).toInt()
+             job.stage = "Done"; job.state = 2; job.frac = 1f; Haptics.saved(app)
+             postDone(app, job, rd.text)
+@@ -173,7 +178,7 @@ object JobQueue {
+             .setStyle(Notification.BigTextStyle().bigText(text.take(600))).setAutoCancel(true)
+         val uri = job.result
+         if (uri != null) {
+-            val view = Intent(c, app.vocr.SavedActivity::class.java).setData(uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)   // opens the text inside the app
++            val view = Intent(Intent.ACTION_VIEW).setDataAndType(uri, "text/plain").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)   // hands the text to the device, no in-app viewer
+             b.setContentIntent(PendingIntent.getActivity(c, 1000 + job.id, view, PendingIntent.FLAG_IMMUTABLE))
+             val share = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_STREAM, uri).putExtra(Intent.EXTRA_SUBJECT, job.title).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+             share.clipData = android.content.ClipData.newRawUri(job.title, uri)   // lets the chosen app read the file
+diff --git a/app/src/main/java/app/vocr/core/Saver.kt b/app/src/main/java/app/vocr/core/Saver.kt
+index aaef793..cd8b72a 100644
+--- a/app/src/main/java/app/vocr/core/Saver.kt
++++ b/app/src/main/java/app/vocr/core/Saver.kt
+@@ -12,7 +12,7 @@ object Saver {
+     fun save(ctx: Context, text: String): Saved {
+         val stamp = java.text.SimpleDateFormat("yyyy-MM-dd HH-mm", java.util.Locale.US).format(java.util.Date())
+         val dict = runCatching { ctx.assets.open("words.txt").use { String(it.readBytes(), Charsets.UTF_8) }.split("\n").map { it.trim().lowercase() }.filter { it.isNotEmpty() }.toHashSet() }.getOrNull()
+-        val title = Title.from(text, "ScrollRSI $stamp", dict)
++        val title = if (Title.looksLikeList(text)) "ScrollRSI recording $stamp" else Title.from(text, "ScrollRSI $stamp", dict)   // a file list has no page title
+         val cv = ContentValues().apply {
+             put(MediaStore.MediaColumns.DISPLAY_NAME, "$title.txt")
+             put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
+@@ -28,6 +28,17 @@ object Saver {
+         return Saved(title, uri, err)
+     }
+ 
++    /** The title a text would be saved under (first meaningful line, as for recordings); [fallback] when there is no reliable line. */
++    fun titleFor(ctx: Context, text: String, fallback: String): String {
++        val dict = runCatching { ctx.assets.open("words.txt").use { String(it.readBytes(), Charsets.UTF_8) }.split("\n").map { it.trim().lowercase() }.filter { it.isNotEmpty() }.toHashSet() }.getOrNull()
++        return Title.from(text, fallback, dict)
++    }
++
++    /** Renames a file this app saved in Downloads/ScrollRSI. Returns false (file keeps its name) when Android refuses. */
++    fun rename(ctx: Context, uri: android.net.Uri, newName: String): Boolean = runCatching {
++        ctx.contentResolver.update(uri, ContentValues().apply { put(MediaStore.MediaColumns.DISPLAY_NAME, newName) }, null, null) > 0
++    }.getOrDefault(false)
++
+     /** Saves text under an exact title in Downloads/ScrollRSI (used by the optional Clean copy). */
+     fun saveAs(ctx: Context, title: String, text: String): Saved {
+         val cv = ContentValues().apply {
+diff --git a/app/src/main/java/app/vocr/core/Title.kt b/app/src/main/java/app/vocr/core/Title.kt
+index fe00784..bc6992b 100644
+--- a/app/src/main/java/app/vocr/core/Title.kt
++++ b/app/src/main/java/app/vocr/core/Title.kt
+@@ -17,6 +17,16 @@ object Title {
+         return if (toks.isEmpty()) 1.0 else toks.count { it in dict }.toDouble() / toks.size
+     }
+ 
++    private val sizeRe = Regex("(?i)^\\d+([.,]\\d+)?\\s?(b|kb|mb|gb|items?|files?)$")
++    private val dateRe = Regex("(?i)^(\\d{1,2}\\s\\w{3,9}(\\s\\d{1,2}:\\d{2}(\\s?[ap]m)?)?|\\d{4}-\\d{2}-\\d{2}.*|(today|yesterday)\\b.*)$")
++    private val fileRe = Regex("(?i)^\\S+\\.(apk|pdf|png|jpe?g|mp4|txt|csv|zip|docx?|xlsx?|json|html?|pptx?|mp3)$")
++    /** True when the top of the text looks like a file or folder list (names, sizes, dates) rather than a page: a title taken from it would be a file name. */
++    fun looksLikeList(text: String): Boolean {
++        val top = text.lines().map { it.trim() }.filter { it.isNotEmpty() }.take(40)
++        val hits = top.count { sizeRe.matches(it) || dateRe.matches(it) || fileRe.matches(it) }
++        return hits >= 5
++    }
++
+     fun from(text: String, fallback: String, dict: Set<String>? = null): String {
+         val lines = text.lines().map { it.trim() }.filter { it.isNotEmpty() }.take(40)
+         fun ok(l: String, minChars: Int, minWords: Int): Boolean {
+@@ -44,6 +54,7 @@ object Title {
+                 !time.matches(l) && l.lowercase() !in chromeWords && !l.startsWith("http", true)
+         }?.let { clean(it) }?.takeIf { it.length >= 3 && !content.startsWith(it, true) }
+         val full = if (header != null) cut("$header - $content", 60) else cut(content, 60)
+-        return full.ifBlank { fallback }
++        val bare = full.replace(Regex("(?i)\\.(html?|php|aspx?|xhtml|pdf|txt|mp4|png|jpe?g)\\s*$"), "").trimEnd()
++        return bare.ifBlank { fallback }
+     }
+ }
+diff --git a/app/src/test/java/app/vocr/TitleTest.kt b/app/src/test/java/app/vocr/TitleTest.kt
+index 0857ffa..5c1d7bf 100644
+--- a/app/src/test/java/app/vocr/TitleTest.kt
++++ b/app/src/test/java/app/vocr/TitleTest.kt
+@@ -46,4 +46,15 @@ class TitleCleanTest {
+         val t = "Instinct\nNative it is. Key-gate's dead then - nothing\nto share until the app exists."
+         assertEquals("Instinct - Native it is. Key-gate's dead then - nothing", Title.from(t, "x", words))
+     }
++
++    @org.junit.Test fun pageExtensionIsDropped() {
++        val r = app.vocr.core.Title.from("release - Sphere palette - 365 days (2).html\nmore text here", "fb")
++        org.junit.Assert.assertFalse(r, r.endsWith(".html"))
++    }
++
++    @org.junit.Test fun fileListIsNotATitle() {
++        val list = "6:36\n45\nDownloads\n18.24 GB\nToday\nvocr-release-88.apk\ngithub.com\n75.12 MB\n17 Oct 6:35 am\nvocr-release-87.apk\ngithub.com\n75.12 MB\n17 Oct 5:42 am"
++        org.junit.Assert.assertTrue(app.vocr.core.Title.looksLikeList(list))
++        org.junit.Assert.assertFalse(app.vocr.core.Title.looksLikeList("If you can scroll it, you can save it\nScrollRSI turns scrolling screens into text and pictures.\nFree and private."))
++    }
+ }
