@@ -121,205 +121,105 @@ fun Home(preview: Picked? = null) {
     }
     val res = result
     if (res != null) { Strips(res, (ctx as? android.app.Activity)?.intent?.getBooleanExtra("read", false) == true) { result = null }; return }
+    val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    val startFloating: () -> Unit = {
+        if (android.os.Build.VERSION.SDK_INT >= 33) notifLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        if (!android.provider.Settings.canDrawOverlays(ctx)) {
+            ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION, android.net.Uri.parse("package:" + ctx.packageName)))
+        } else {
+            ctx.startForegroundService(android.content.Intent(ctx, app.vocr.capture.CaptureService::class.java).setAction(app.vocr.capture.CaptureService.ACTION_WIDGET))
+            (ctx as? android.app.Activity)?.moveTaskToBack(true)
+        }
+    }
+    val prefs = app.vocr.capture.CaptureService.prefs(ctx)
     Column(
-        Modifier.fillMaxSize().scrollOnBackdrop().systemBarsPadding().verticalScroll(rememberScrollState()).padding(24.dp),
-        horizontalAlignment = Alignment.Start
+        Modifier.fillMaxSize().scrollOnBackdrop().systemBarsPadding().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Spacer(Modifier.height(16.dp))
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+        // Header: chevron mark, wordmark, tagline, and the Add button.
+        Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            androidx.compose.foundation.Image(androidx.compose.ui.res.painterResource(app.vocr.R.drawable.ic_stat_chevron), contentDescription = null, colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(Violet), modifier = Modifier.size(40.dp))
+            Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                Spacer(Modifier.height(16.dp))
-                Wordmark(44.sp)
-                Text("If you can scroll it, you can save it.", color = Muted, fontSize = 16.sp)
+                Wordmark(34.sp)
+                Text("If you can scroll it, you can save it.", color = Muted, fontSize = 13.sp)
             }
             AddButton(JobQueue.activeCount()) { addVideos() }
         }
-        Spacer(Modifier.height(12.dp))
-        QueueList()
-        Spacer(Modifier.height(16.dp))
-        Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(28.dp)).padding(24.dp)) {
-            Text("\u25B6", color = Lilac, fontSize = 32.sp)
-            Spacer(Modifier.height(12.dp))
-            Text(picked?.name ?: "Pick screen recordings", color = TextMain, fontSize = 26.sp, fontWeight = FontWeight.SemiBold, fontFamily = DisplayFont)
+        // Hero tile: the main job.
+        Tile(Modifier.fillMaxWidth(), onClick = { addVideos() }) {
+            Text("\u25B6", color = Lilac, fontSize = 28.sp)
+            Spacer(Modifier.height(8.dp))
+            Text("Pick screen recordings", color = TextMain, fontSize = 24.sp, fontWeight = FontWeight.SemiBold, fontFamily = DisplayFont)
             Spacer(Modifier.height(4.dp))
-            Text(
-                picked?.let { "${it.seconds / 60}m ${it.seconds % 60}s  -  ${it.w}x${it.h}" } ?: "OCR runs on your phone. Share only when you choose.",
-                color = Muted, fontSize = 14.sp
-            )
-            val pr = progress
-            if (pr != null) {
-                Spacer(Modifier.height(16.dp))
-                LinearProgressIndicator(progress = { pr.done / pr.total.coerceAtLeast(1).toFloat() }, modifier = Modifier.fillMaxWidth(), color = Violet, trackColor = Ink)
-                Spacer(Modifier.height(6.dp))
-                val eta = if (pr.etaS >= 0) "  ~${pr.etaS / 60}m ${pr.etaS % 60}s left" else ""
-            Text("${pr.stage}  ${pr.done}/${pr.total}$eta  ${pr.lines} lines", color = Muted, fontSize = 13.sp)
-            if (pr.live.isNotEmpty()) Text(pr.live.joinToString("\n"), color = Lilac, fontSize = 12.sp, maxLines = 6, modifier = Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(8.dp)).padding(8.dp))
-            }
-            error?.let { Spacer(Modifier.height(8.dp)); Text(it, color = Err, fontSize = 13.sp) }
-            Spacer(Modifier.height(20.dp))
-            val p = picked
-            if (p != null && progress == null) {
-                Button(
-                    onClick = { start(p) },
-                    modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Violet, contentColor = OnBronze)
-                ) { Text("Read this recording", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
-                Spacer(Modifier.height(10.dp))
-            }
-            Button(
-                onClick = { addVideos() },
-                enabled = progress == null,
-                modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(16.dp),
-                colors = if (picked == null) ButtonDefaults.buttonColors(containerColor = Violet, contentColor = OnBronze)
-                         else ButtonDefaults.buttonColors(containerColor = Btn2, contentColor = TextMain)
-            ) { Text("Choose videos", fontSize = 14.sp, maxLines = 1, fontWeight = FontWeight.SemiBold) }
+            Text("OCR runs on your phone. Share only when you choose.", color = Muted, fontSize = 13.sp)
+            Spacer(Modifier.height(14.dp))
+            Button(onClick = { addVideos() }, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Violet, contentColor = OnBronze)) { Text("Choose videos", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
         }
-        Spacer(Modifier.height(10.dp))
-        Button(
-            onClick = { openFolder(ctx) },   // straight to Download/ScrollRSI in the device Files app, no in-app list
-            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = RoundedCornerShape(16.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Btn2, contentColor = TextMain)
-        ) { Text("Saved files", fontSize = 14.sp) }
-        Spacer(Modifier.height(10.dp))
-        val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
-        Button(
-            onClick = {
-                if (android.os.Build.VERSION.SDK_INT >= 33) notifLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-                if (!android.provider.Settings.canDrawOverlays(ctx)) {
-                    ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION, android.net.Uri.parse("package:" + ctx.packageName)))
-                } else {
-                    ctx.startForegroundService(android.content.Intent(ctx, app.vocr.capture.CaptureService::class.java).setAction(app.vocr.capture.CaptureService.ACTION_WIDGET))
-                    (ctx as? android.app.Activity)?.moveTaskToBack(true)
-                }
-            },
-            modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(16.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Btn2, contentColor = TextMain)
-        ) { Text(if (android.provider.Settings.canDrawOverlays(ctx)) "Floating recorder" else "Floating recorder (allow overlay)", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
-        Spacer(Modifier.height(10.dp))
-        var showSettings by remember { mutableStateOf(false) }
-        Button(
-            onClick = { showSettings = !showSettings },
-            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = RoundedCornerShape(16.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Btn2, contentColor = TextMain)
-        ) { Text(if (showSettings) "Settings  \u25B2" else "Settings  \u25BC", fontSize = 14.sp) }
-        if (showSettings) {
-            Spacer(Modifier.height(10.dp))
-            Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(20.dp)).padding(16.dp)) {
-                val asReady = app.vocr.capture.ScrollService.instance != null
-                val asStopped = !asReady && app.vocr.capture.ScrollService.enabledInSettings(ctx)
-                // A status row, not a button: ready = tick, no pressed state; otherwise a link row that opens Accessibility settings.
-                Row(
-                    Modifier.fillMaxWidth().heightIn(min = 48.dp).then(if (asReady) Modifier else Modifier.clickable { showSettings = false; DisclosureActivity.openAccessibility(ctx) }),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Auto-scroll", color = TextMain, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                    if (asReady) Text("\u2713 Ready", color = Success, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                    else Text(if (asStopped) "ON but stopped - switch it off and on  \u203A" else "Turn on in Accessibility  \u203A", color = Lilac, fontSize = 13.sp)
-                }
-                Spacer(Modifier.height(14.dp))
-                val view = androidx.compose.ui.platform.LocalView.current
-                var speed by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getInt("scrollspeed", 10).toFloat()) }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Auto-scroll speed", color = TextMain, fontSize = 14.sp, modifier = Modifier.weight(1f))
-                    Text(speed.toInt().toString() + if (speed.toInt() == 10) "  (default)" else "", color = Lilac, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                }
-                Slider(
-                    modifier = Modifier.semantics { stateDescription = "${speed.toInt()} of 10" },
-                    value = speed, onValueChange = { val n = Math.round(it).toFloat(); if (n != speed) Haptics.detent(view); speed = n },
-                    onValueChangeFinished = { app.vocr.capture.CaptureService.prefs(ctx).edit().putInt("scrollspeed", speed.toInt()).apply() },
-                    valueRange = 0f..10f, steps = 9,
-                    colors = SliderDefaults.colors(thumbColor = Violet, activeTrackColor = Violet, inactiveTrackColor = TrackOff, activeTickColor = OnBronze, inactiveTickColor = TickOff)
-                )
-                Row { Text("0 slowest", color = Muted, fontSize = 11.sp, modifier = Modifier.weight(1f)); Text("10 = best pace", color = Muted, fontSize = 11.sp) }
+        // Queue tile: running and finished jobs, or a hint with the latest saved file.
+        if (JobQueue.jobs.isNotEmpty()) QueueList()
+        // Two small tiles: Auto-scroll status and the floating recorder.
+        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            val asReady = app.vocr.capture.ScrollService.instance != null
+            val asStopped = !asReady && app.vocr.capture.ScrollService.enabledInSettings(ctx)
+            Tile(Modifier.weight(1f).fillMaxHeight(), onClick = { if (asReady) { ctx.startActivity(android.content.Intent(ctx, SettingsActivity::class.java)) } else { DisclosureActivity.openAccessibility(ctx) } }) {
+                Label("AUTO-SCROLL")
+                Spacer(Modifier.height(6.dp))
+                if (asReady) Text("\u2713 Ready", color = Success, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                else Text(if (asStopped) "ON but stopped" else "Turn on", color = TextMain, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(4.dp))
-                Text(
-                    "10 is the best working pace for the text reader. Lower numbers scroll slower so you can read along while it records. 1 is a very slow, smooth crawl. 0 stops the scrolling completely (the recording keeps running).",
-                    color = Muted, fontSize = 12.sp, lineHeight = 17.sp
-                )
-                Spacer(Modifier.height(14.dp))
-                var snd by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("sound", true)) }
-                Row(Modifier.semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically) {
-                    Switch(checked = snd, onCheckedChange = { snd = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("sound", it).apply(); app.vocr.core.Sfx.refresh(ctx) })
-                    Spacer(Modifier.width(8.dp))
-                    Text("Sound (auto-scroll and end cue)", color = Muted, fontSize = 13.sp)
-                }
+                Text(if (asReady) "Speed " + prefs.getInt("scrollspeed", 10) + " of 10. Tap for settings." else if (asStopped) "Switch it off and on in Accessibility" else "Allow it in Accessibility", color = Muted, fontSize = 12.sp)
+            }
+            Tile(Modifier.weight(1f).fillMaxHeight(), onClick = startFloating) {
+                Label("FLOATING RECORDER")
                 Spacer(Modifier.height(6.dp))
-                var saveVid by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("save_video", true)) }
-                Row(Modifier.semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically) {
-                    Switch(checked = saveVid, onCheckedChange = { saveVid = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("save_video", it).apply() })
-                    Spacer(Modifier.width(8.dp))
-                    Text("Also save the screen recording video next to its text (large files)", color = Muted, fontSize = 13.sp)
-                }
-                Spacer(Modifier.height(6.dp))
-                var dbg by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("debug_frames", false)) }
-                Row(Modifier.semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically) {
-                    Switch(checked = dbg, onCheckedChange = { dbg = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("debug_frames", it).apply() })
-                    Spacer(Modifier.width(8.dp))
-                    Text("Save every Scroll capture frame for debugging. Contains your screen content.", color = Muted, fontSize = 13.sp)
-                }
-                Spacer(Modifier.height(6.dp))
-                var maxRows by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getInt("max_rows", app.vocr.capture.LongShotSession.MAX_ROWS)) }
-                Text("Scroll capture size limit (stops at about ${maxRows / app.vocr.capture.LongShotSession.PART_H} parts)", color = Muted, fontSize = 13.sp)
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 4.dp)) {
-                    listOf(40000 to "40k", 80000 to "80k", 120000 to "120k", 200000 to "200k").forEach { (v, label) ->
-                        Button(onClick = { maxRows = v; app.vocr.capture.CaptureService.prefs(ctx).edit().putInt("max_rows", v).apply() },
-                            colors = ButtonDefaults.buttonColors(containerColor = if (maxRows == v) Violet else Btn2, contentColor = if (maxRows == v) OnBronze else TextMain),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) { Text(label, fontSize = 13.sp) }
-                    }
-                }
-                Spacer(Modifier.height(6.dp))
-                var light by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("lightcapture", false)) }
-                Row(Modifier.semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically) {
-                    Switch(checked = light, onCheckedChange = { light = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("lightcapture", it).apply() })
-                    Spacer(Modifier.width(8.dp))
-                    Text("Lighter capture (30 fps, 5 Mbps)", color = Muted, fontSize = 13.sp)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Beta", color = TextMain, fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(Btn2).padding(horizontal = 8.dp, vertical = 2.dp))
-                }
-                Spacer(Modifier.height(6.dp))
-                var hap by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("haptics", true)) }
-                Row(Modifier.semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically) {
-                    Switch(checked = hap, onCheckedChange = { hap = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("haptics", it).apply() })
-                    Spacer(Modifier.width(8.dp))
-                    Text("Soft haptics while auto-scroll runs", color = Muted, fontSize = 13.sp)
-                }
-                Spacer(Modifier.height(6.dp))
-                Text("Theme", color = Muted, fontSize = 13.sp)
+                Text(if (android.provider.Settings.canDrawOverlays(ctx)) "Start" else "Allow overlay", color = TextMain, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(4.dp))
-                ThemeSegmented(paper = Pal.paper, onPick = { Pal.set(ctx, it) }, modifier = Modifier.fillMaxWidth())
-                Spacer(Modifier.height(6.dp))
-                if (app.vocr.capture.Cover.AVAILABLE) {   // Cover is parked for further development
-                var cov by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("cover", false)) }
-                Row(Modifier.semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically) {
-                    Switch(checked = cov, onCheckedChange = { cov = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("cover", it).apply() })
-                    Spacer(Modifier.width(8.dp))
-                    Text("Cover: hide a region (e.g. a playing video) in recordings. Set it from the bubble: long-press, Cover", color = Muted, fontSize = 13.sp)
-                }
-                var covStrip by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("cover_strip", true)) }
-                Row(Modifier.semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically) {
-                    Switch(checked = covStrip, onCheckedChange = { covStrip = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("cover_strip", it).apply() })
-                    Spacer(Modifier.width(8.dp))
-                    Text("Cover also hides the status bar strip (clock, notifications)", color = Muted, fontSize = 13.sp)
-                }
-                }
-                Spacer(Modifier.height(14.dp))
+                Text("Record, Scroll capture and screenshots from the bubble.", color = Muted, fontSize = 12.sp)
             }
         }
-        Spacer(Modifier.height(10.dp))
-        Button(
-            onClick = { ctx.startActivity(android.content.Intent(ctx, ManualActivity::class.java)) },
-            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = RoundedCornerShape(16.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Btn2, contentColor = TextMain)
-        ) { Text("User manual (how to use)", fontSize = 14.sp) }
-        Spacer(Modifier.height(10.dp))
-        Button(
-            onClick = { ctx.startActivity(android.content.Intent(ctx, AboutActivity::class.java)) },
-            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = RoundedCornerShape(16.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Btn2, contentColor = TextMain)
-        ) { Text("About and contact", fontSize = 14.sp) }
-        Spacer(Modifier.height(6.dp))
-        Text("v" + (runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: "?") + "", color = Muted, fontSize = 12.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
+        // Scroll capture tile with the Shot text switch.
+        Tile(Modifier.fillMaxWidth()) {
+            Label("SCROLL CAPTURE")
+            Spacer(Modifier.height(6.dp))
+            Text("Start it from the floating bubble. ScrollRSI scrolls, captures and joins the screens into one long image.", color = Muted, fontSize = 13.sp)
+            Spacer(Modifier.height(8.dp))
+            var shotText by remember { mutableStateOf(prefs.getBoolean("shot_text", true)) }
+            Row(Modifier.semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically) {
+                Switch(checked = shotText, onCheckedChange = { shotText = it; prefs.edit().putBoolean("shot_text", it).apply() })
+                Spacer(Modifier.width(8.dp))
+                Text("Shot text: also save the text", color = TextMain, fontSize = 14.sp)
+            }
+        }
+        // Bottom rows: Saved files + Settings, then Manual + About.
+        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Tile(Modifier.weight(1f).fillMaxHeight(), onClick = { openFolder(ctx) }) {
+                Label("SAVED FILES")
+                Spacer(Modifier.height(6.dp))
+                Text("Open folder", color = TextMain, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                Text("Download/ScrollRSI", color = Muted, fontSize = 12.sp)
+            }
+            Tile(Modifier.weight(1f).fillMaxHeight(), onClick = { ctx.startActivity(android.content.Intent(ctx, SettingsActivity::class.java)) }) {
+                Label("SETTINGS")
+                Spacer(Modifier.height(6.dp))
+                Text("Settings", color = TextMain, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                Text("Speed, saving, theme", color = Muted, fontSize = 12.sp)
+            }
+        }
+        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Tile(Modifier.weight(1f).fillMaxHeight(), onClick = { ctx.startActivity(android.content.Intent(ctx, ManualActivity::class.java)) }) {
+                Label("MANUAL")
+                Spacer(Modifier.height(6.dp))
+                Text("How to use", color = TextMain, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            }
+            Tile(Modifier.weight(1f).fillMaxHeight(), onClick = { ctx.startActivity(android.content.Intent(ctx, AboutActivity::class.java)) }) {
+                Label("ABOUT")
+                Spacer(Modifier.height(6.dp))
+                Text("About and contact", color = TextMain, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+        Text("v" + (runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: "?"), color = Muted, fontSize = 12.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
     }
 }
 

@@ -64,6 +64,10 @@ jobs:
             sleep 8
             mkdir -p shots
             adb exec-out screencap -p > shots/home.png
+            adb shell am start -n app.scrollrsi/app.vocr.SettingsActivity
+            sleep 5
+            adb exec-out screencap -p > shots/settings.png || true
+            adb shell am force-stop app.scrollrsi
             adb logcat -d -b crash > shots/crash.txt || true
             adb logcat -d | grep -E 'AndroidRuntime|FATAL|vocr' | tail -80 > shots/logcat.txt || true
             adb shell am force-stop app.scrollrsi
@@ -101,6 +105,7 @@ jobs:
             align-${{ github.run_number }}.txt
             vocr-release-${{ github.run_number }}.apk
             shots/home.png
+            shots/settings.png
             shots/glass.png
             shots/strips.png
             shots/text.png

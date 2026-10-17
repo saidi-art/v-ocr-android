@@ -24,6 +24,7 @@
         </activity>
         <activity android:name=".ManualActivity" android:exported="false" />
         <activity android:name=".SavedActivity" android:exported="false" />
+        <activity android:name=".SettingsActivity" android:exported="false" />
         <activity android:name=".AboutActivity" android:exported="false" />
         <activity android:name=".DisclosureActivity" android:exported="false" android:noHistory="true" android:excludeFromRecents="true" />
         <activity android:name=".capture.ConsentActivity" android:exported="false" android:taskAffinity=""
