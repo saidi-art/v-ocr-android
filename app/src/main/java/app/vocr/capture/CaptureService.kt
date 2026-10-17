@@ -71,7 +71,7 @@ class CaptureService : Service() {
     // FLAG_SECURE keeps our overlays out of recordings, but a secure window also blocks the user's own screenshots. So the bubble and menus
     // are secure only while a recording starts or runs, or auto-scroll runs. When idle, screenshots work.
     private var starting = false
-    private fun wantSecure() = starting || recording || scrolling || readMode
+    private fun wantSecure() = starting || recording   // only for ScrollRSI's own recording: another recorder draws a secure window as a black box over the page
     private fun secureFlag() = if (wantSecure()) WindowManager.LayoutParams.FLAG_SECURE else 0
     private fun syncSecure() {
         val apply = Runnable { runCatching {
