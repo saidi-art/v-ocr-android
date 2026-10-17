@@ -178,7 +178,7 @@ object JobQueue {
             .setStyle(Notification.BigTextStyle().bigText(text.take(600))).setAutoCancel(true)
         val uri = job.result
         if (uri != null) {
-            val view = Intent(c, app.vocr.SavedActivity::class.java).setData(uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)   // opens the text inside the app
+            val view = Intent(Intent.ACTION_VIEW).setDataAndType(uri, "text/plain").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)   // hands the text to the device, no in-app viewer
             b.setContentIntent(PendingIntent.getActivity(c, 1000 + job.id, view, PendingIntent.FLAG_IMMUTABLE))
             val share = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_STREAM, uri).putExtra(Intent.EXTRA_SUBJECT, job.title).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             share.clipData = android.content.ClipData.newRawUri(job.title, uri)   // lets the chosen app read the file

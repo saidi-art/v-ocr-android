@@ -28,6 +28,17 @@ object Saver {
         return Saved(title, uri, err)
     }
 
+    /** The title a text would be saved under (first meaningful line, as for recordings); [fallback] when there is no reliable line. */
+    fun titleFor(ctx: Context, text: String, fallback: String): String {
+        val dict = runCatching { ctx.assets.open("words.txt").use { String(it.readBytes(), Charsets.UTF_8) }.split("\n").map { it.trim().lowercase() }.filter { it.isNotEmpty() }.toHashSet() }.getOrNull()
+        return Title.from(text, fallback, dict)
+    }
+
+    /** Renames a file this app saved in Downloads/ScrollRSI. Returns false (file keeps its name) when Android refuses. */
+    fun rename(ctx: Context, uri: android.net.Uri, newName: String): Boolean = runCatching {
+        ctx.contentResolver.update(uri, ContentValues().apply { put(MediaStore.MediaColumns.DISPLAY_NAME, newName) }, null, null) > 0
+    }.getOrDefault(false)
+
     /** Saves text under an exact title in Downloads/ScrollRSI (used by the optional Clean copy). */
     fun saveAs(ctx: Context, title: String, text: String): Saved {
         val cv = ContentValues().apply {

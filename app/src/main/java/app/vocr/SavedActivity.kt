@@ -93,21 +93,17 @@ private fun SavedScreen(onExit: () -> Unit) {
                     val media = mimeOf(it.name)
                     Row(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(18.dp)).hapticClickable {
                         Haptics.secondary(view)
-                        if (media != null) {
-                            runCatching { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW).setDataAndType(it.uri, media).addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)) }
-                                .onFailure { android.widget.Toast.makeText(ctx, "No app found to open this file. Use Share or the Files app.", android.widget.Toast.LENGTH_LONG).show() }
-                        } else {
-                            open = it; text = "Loading..."
-                            scope.launch { text = withContext(Dispatchers.IO) { readText(ctx, it.uri, it.size) } }
-                        }
+                        val mt = media ?: "text/plain"
+                        runCatching { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW).setDataAndType(it.uri, mt).addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)) }
+                            .onFailure { android.widget.Toast.makeText(ctx, "No app found to open this file. Use Share or the Files app.", android.widget.Toast.LENGTH_LONG).show() }
                     }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text(it.name.removeSuffix(".txt"), color = TextMain, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 2)
                             Spacer(Modifier.height(4.dp))
                             Text(fmt.format(java.util.Date(it.date)) + "  -  " + (if (it.size >= 1048576) "${it.size / 1048576} MB" else if (it.size >= 1024) "${it.size / 1024} kB" else "${it.size} B") + (if (media != null) "  -  tap to open" else ""), color = Muted, fontSize = 12.sp)
                         }
-                        if (media != null) TextButton(onClick = {
-                            val i = android.content.Intent(android.content.Intent.ACTION_SEND).setType(media).putExtra(android.content.Intent.EXTRA_STREAM, it.uri).addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        TextButton(onClick = {
+                            val i = android.content.Intent(android.content.Intent.ACTION_SEND).setType(media ?: "text/plain").putExtra(android.content.Intent.EXTRA_STREAM, it.uri).addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
                             ctx.startActivity(android.content.Intent.createChooser(i, "Share file"))
                         }) { Text("Share", color = TextMain) }
                     }

@@ -588,7 +588,16 @@ class CaptureService : Service() {
         }
         val done = glassChip(this, "Done", chipC()).apply {
             contentDescription = "Save the capture now"
-            setOnClickListener { shotAuto = false; shotCause = "Stopped by you (stop button)"; ui.removeCallbacks(shotIdleRun); finishLong() }
+            var fired = false
+            // Acts on the first touch (not on release) so one tap is always enough, even while a capture is in progress; a soft tick answers it.
+            setOnTouchListener { v, e ->
+                if (e.actionMasked == MotionEvent.ACTION_DOWN && !fired) {
+                    fired = true
+                    v.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP, android.view.HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING)
+                    shotAuto = false; shotCause = "Stopped by you (stop button)"; ui.removeCallbacks(shotIdleRun); finishLong()
+                }
+                true
+            }
         }
         row.addView(sc); row.addView(android.widget.Space(this), android.widget.LinearLayout.LayoutParams(dp(8), 1)); row.addView(done)
         row.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))

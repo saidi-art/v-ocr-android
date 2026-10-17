@@ -206,18 +206,26 @@ object ShotSaver {
 
     /** Saves the parts. A single part keeps the plain name; several parts are numbered. */
     fun save(ctx: Context, base: String, parts: List<File>, withText: Boolean): Result {
-        val names = ArrayList<String>(); val uris = ArrayList<android.net.Uri>()
+        val uris = ArrayList<android.net.Uri>()
+        // Images are saved first under the timestamp name (nothing is lost if reading the text is cut short), then renamed after the text gives them a title.
         parts.forEachIndexed { i, f ->
             val name = if (parts.size == 1) "$base.png" else "$base part ${i + 1}.png"
             val r = app.vocr.core.Saver.saveFile(ctx, name, "image/png", f)
             if (r.uri == null) throw java.io.IOException(r.error)
-            names.add(name); uris.add(r.uri)
+            uris.add(r.uri)
         }
-        var tu: android.net.Uri? = null; var tt = ""
-        if (withText) runCatching {
-            val text = ocr(ctx, parts)
-            if (text.isNotBlank()) { tu = app.vocr.core.Saver.saveAs(ctx, base, text).uri; tt = text }
+        var tt = ""
+        if (withText) runCatching { tt = ocr(ctx, parts) }
+        var title = base
+        if (tt.isNotBlank()) runCatching { title = app.vocr.core.Saver.titleFor(ctx, tt, base) }
+        var renamed = title != base
+        if (renamed) {
+            val ok = uris.mapIndexed { i, u -> app.vocr.core.Saver.rename(ctx, u, if (parts.size == 1) "$title.png" else "$title part ${i + 1}.png") }
+            if (ok.any { !it }) { renamed = false; title = base }   // partial failure: report the names Android really holds is not possible, so keep the plain name for the text too
         }
+        val names = parts.indices.map { i -> if (parts.size == 1) "${if (renamed) title else base}.png" else "${if (renamed) title else base} part ${i + 1}.png" }
+        var tu: android.net.Uri? = null
+        if (tt.isNotBlank()) runCatching { tu = app.vocr.core.Saver.saveAs(ctx, if (renamed) title else base, tt).uri }
         parts.forEach { it.delete() }
         return Result(names.joinToString(", "), uris, tu, tt)
     }

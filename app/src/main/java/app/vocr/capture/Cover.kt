@@ -115,7 +115,8 @@ class Cover(private val ctx: Context, private val wm: WindowManager, private val
         }
         runCatching { wm.addView(root, q); main = root }
         val done = glassChip(ctx, "Done", Color.parseColor("#D2B08A")).apply {
-            setOnClickListener {
+            setOnClickListener { v ->
+                v.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP, android.view.HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING)
                 save(Rect(q.x, q.y, q.x + q.width, q.y + q.height)); remove()
                 android.widget.Toast.makeText(ctx, "Cover saved", android.widget.Toast.LENGTH_SHORT).show()
             }
