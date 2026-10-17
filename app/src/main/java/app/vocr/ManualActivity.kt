@@ -40,7 +40,7 @@ private val sections: List<Pair<String, String>> = listOf(
         "Scroll only (hands-free reading): long-press the bubble and switch \"Scroll\" on, under Auto-scroll. ScrollRSI scrolls the page for you at your Auto-scroll speed without recording or saving anything. Tap the bubble to stop. It stops by itself at the bottom of the page. Needs Auto-scroll switched on in Accessibility.",
     "Auto-scroll (hands-free recording)" to
         "Auto-scroll swipes the screen for you while it records, so you only tap start.\n" +
-        "Setup, once: tap home screen > Settings > \"Auto-scroll\" (or the Auto-scroll switch on the bubble). ScrollRSI first shows a notice explaining what the permission is used for (swipes, plus tiny grey 48x96 screenshots kept only in memory to spot the bottom of the page). If you agree, Android Settings > Accessibility > Installed apps > ScrollRSI > turn on. If you just installed an update and it stops working, switch it off and on once.\n" +
+        "Setup, once: tap home screen > Settings > \"Auto-scroll\" (or the Auto-scroll switch on the bubble). ScrollRSI first shows a notice explaining what the permission is used for (swipes and screenshots: tiny grey 48x96 ones kept only in memory to spot the bottom of the page, and full-resolution ones for Screenshot and Scroll capture, saved to Download/ScrollRSI). If you agree, Android Settings > Accessibility > Installed apps > ScrollRSI > turn on. If you just installed an update and it stops working, switch it off and on once.\n" +
         "Use: long-press the bubble and tap the Auto-scroll switch. Violet means armed, grey means off. Then start a recording on the page you want. ScrollRSI scrolls down for you.\n" +
         "It stops by itself when the page stops moving (3 swipes in a row with no change) and shows \"Reached the bottom - reading now\". A 5-minute cap also stops it as a safety net. You can always tap the bubble to stop sooner.\n" +
         "Speed: home screen > Settings > Auto-scroll speed, 0 to 10. 10 (default) is the best working pace. Lower numbers scroll slower and smoothly, down to a very slow crawl at 1, so you can read along. 0 stops the scrolling completely; the recording keeps running until you stop it. You can change the speed while recording.\n" +
@@ -50,7 +50,7 @@ private val sections: List<Pair<String, String>> = listOf(
         "1. Settings > Accessibility > Installed apps > ScrollRSI. Try to switch it on. If ScrollRSI is greyed out (\"Controlled by restricted setting\"), tap it. Android shows \"App was denied access\". Tap Close.\n" +
         "2. Settings > Apps > ScrollRSI. Tap the three dots at the top right > \"Allow restricted settings\". Confirm with your PIN or fingerprint if asked.\n" +
         "3. Back to Settings > Accessibility > Installed apps > ScrollRSI. It now shows Off and is no longer greyed out. Switch it on, then tap Allow in Android's \"Allow ScrollRSI to have full control of your device?\" box.\n" +
-        "That last box uses Android's standard wording for every accessibility app. ScrollRSI only swipes and takes tiny grey screenshots, as described at the top of this section.\n" +
+        "That last box uses Android's standard wording for every accessibility app. ScrollRSI only swipes and takes screenshots for a recording or capture you start, as described above.\n" +
         "If ScrollRSI is not greyed out in step 1, you can skip step 2. Steps can differ a little between phone makers; this was checked on a Samsung Galaxy S24 Ultra.",
     "Queue and (+)" to
         "ScrollRSI reads one recording at a time and lines the rest up. You can keep recording or adding while one is being read.\n" +
@@ -65,6 +65,10 @@ private val sections: List<Pair<String, String>> = listOf(
         "\"Open ScrollRSI folder (all files)\" on the home screen opens that folder in your file manager.\n" +
         "From the text screen or a queue job you can Copy, or Share the text as an attached .txt file to any app (Mail, WhatsApp, Notes, Drive...).\n" +
         "The text screen also shows how many lines were read and how long it took.",
+    "Screenshot and Scroll capture" to
+        "Screenshot (on the floating bubble, needs Accessibility and Android 11 or newer): saves one full-resolution picture of the screen as a PNG in Download/ScrollRSI. A Scroll capture button then appears.\n" +
+        "Scroll capture: tap it to scroll and capture by itself until you tap Done, or hold it to scroll while held. ScrollRSI joins the pictures into one long image, saved in parts when it is very long. Settings > Scroll capture size limit chooses where it stops.\n" +
+        "Screenshots show whatever is on screen, including other apps. Only capture what you may keep.",
     "Settings" to
         "Fast mode (home screen, text screen, or bubble long-press): about 25% quicker, slightly less accurate. Off by default.\n" +
         "Fast or Slow: Fast is for casual captures. Play safe and use Slow when the data really matters.\n" +
@@ -77,7 +81,7 @@ private val sections: List<Pair<String, String>> = listOf(
         "Display over other apps: draws the floating bubble.\n" +
         "Screen sharing (asked by Android at every recording): lets ScrollRSI record the screen. Android 14 and later always asks; it cannot be skipped.\n" +
         "Notifications: shows recording and \"Text ready\" notices.\n" +
-        "Accessibility (optional): only for auto-scroll. It lets ScrollRSI swipe and look at the screen to detect the bottom. It is not used for anything else.\n" +
+        "Accessibility (optional): only for auto-scroll, Screenshot and Scroll capture. It lets ScrollRSI swipe the screen and take screenshots, only while you have started a recording or a capture. It does not read text or what you type. Full-resolution screenshots are held temporarily and saved to Download/ScrollRSI as the image you asked for.\n" +
         "Photos and videos picker: only for adding old recordings, through Android's own picker.",
     "Getting the best text" to
         "Scroll slowly and steadily; a fast fling can skip lines.\n" +
