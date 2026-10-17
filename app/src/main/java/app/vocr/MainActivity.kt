@@ -49,6 +49,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (intent.getBooleanExtra("glassdemo", false)) { setContent { GlassDemo() }; return }
+        if (intent.getBooleanExtra("settings", false)) startActivity(android.content.Intent(this, SettingsActivity::class.java))   // used by the CI screenshot
         setContent { ScrollOnTheme() { Home() } }
     }
 }
@@ -170,6 +171,7 @@ fun Home(preview: Picked? = null) {
                 else Text(if (asStopped) "ON but stopped" else "Turn on", color = TextMain, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(4.dp))
                 Text(if (asReady) "Speed " + prefs.getInt("scrollspeed", 10) + " of 10. Tap for settings." else if (asStopped) "Switch it off and on in Accessibility" else "Allow it in Accessibility", color = Muted, fontSize = 12.sp)
+                if (!asReady && DisclosureActivity.sideloaded(ctx)) { Spacer(Modifier.height(4.dp)); Text(DisclosureActivity.RESTRICTED_HINT, color = Muted, fontSize = 11.sp, lineHeight = 14.sp) }
             }
             Tile(Modifier.weight(1f).fillMaxHeight(), onClick = startFloating) {
                 Label("FLOATING RECORDER")

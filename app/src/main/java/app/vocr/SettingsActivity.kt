@@ -68,6 +68,7 @@ private fun ColumnScope.AutoScrollSettings() {
                     if (asReady) Text("\u2713 Ready", color = Success, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                     else Text(if (asStopped) "ON but stopped - switch it off and on  \u203A" else "Turn on in Accessibility  \u203A", color = Lilac, fontSize = 13.sp)
                 }
+                if (!asReady && DisclosureActivity.sideloaded(ctx)) Text(DisclosureActivity.RESTRICTED_HINT, color = Muted, fontSize = 12.sp, lineHeight = 17.sp)
                 Spacer(Modifier.height(14.dp))
                 val view = androidx.compose.ui.platform.LocalView.current
                 var speed by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getInt("scrollspeed", 10).toFloat()) }

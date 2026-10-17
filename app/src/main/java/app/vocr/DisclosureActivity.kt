@@ -42,6 +42,14 @@ class DisclosureActivity : ComponentActivity() {
     }
 
     companion object {
+        /** True when the app was not installed by Google Play (a downloaded APK): Android then blocks Accessibility until "Allow restricted settings" is chosen in App info. */
+        fun sideloaded(ctx: android.content.Context): Boolean = runCatching {
+            if (android.os.Build.VERSION.SDK_INT < 30) return false
+            ctx.packageManager.getInstallSourceInfo(ctx.packageName).installingPackageName != "com.android.vending"
+        }.getOrDefault(false)
+
+        const val RESTRICTED_HINT = "If Android says \"restricted setting\" or \"App was denied access\": Settings > Apps > ScrollRSI > three dots at the top right > Allow restricted settings, then try again."
+
         /** Open Accessibility settings, but only after the user has accepted the disclosure; otherwise show it first. */
         fun openAccessibility(ctx: android.content.Context) {
             val ok = ctx.getSharedPreferences("vocr", android.content.Context.MODE_PRIVATE).getBoolean("a11y_ok", false)
