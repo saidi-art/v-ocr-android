@@ -126,6 +126,11 @@ object JobQueue {
             val ft = RunStats.footer(res, rd).let { b -> VocrApp.takePauseNote(job.tmp)?.let { n -> b + (if (b.endsWith("\n")) "" else "\n") + n } ?: b }
             val sv = Saver.save(app, rd.text.trimEnd() + "\n\n" + ft)
             if (sv.uri == null) throw RuntimeException("could not save the text file to Download/ScrollRSI (" + sv.error + ")")
+            // Keep the recording next to its text (same name, .mp4). Picked videos are the user's own files and are not copied.
+            job.tmp?.takeIf { it.name.startsWith("rec-") && it.exists() && app.getSharedPreferences("vocr", Context.MODE_PRIVATE).getBoolean("save_video", true) }?.let { t ->
+                val vs = runCatching { Saver.saveFile(app, sv.title + ".mp4", "video/mp4", t) }.getOrElse { Saver.Saved(sv.title + ".mp4", null, it.message ?: it.javaClass.simpleName) }
+                if (vs.uri == null) VocrApp.note("video NOT saved: " + vs.error, null)
+            }
             job.title = sv.title; job.result = sv.uri; job.lines = rd.mergedLines; job.secs = (rd.ms / 1000).toInt()
             job.stage = "Done"; job.state = 2; job.frac = 1f; Haptics.saved(app)
             postDone(app, job, rd.text)

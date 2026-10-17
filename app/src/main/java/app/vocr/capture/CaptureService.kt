@@ -422,17 +422,17 @@ class CaptureService : Service() {
         }
         overlay(auto, p.x - dp(6), p.y + p.height + dp(46))
         overlay(rd, p.x - dp(6), p.y + p.height + dp(86))
-        fun stText() = if (prefs(this).getBoolean("shot_text", false)) "Shot text: ON" else "Shot text: off"
+        fun stText() = if (prefs(this).getBoolean("shot_text", true)) "Shot text: ON" else "Shot text: off"
         val stChip = chip(stText(), chipC()) {}
         fun styleSt() {
-            val on = prefs(this).getBoolean("shot_text", false)
+            val on = prefs(this).getBoolean("shot_text", true)
             (stChip.background as GradientDrawable).setColor(Color.parseColor(if (on) accentHex() else chipHex()))
             stChip.setTextColor(if (on) onAccentC() else mutedC())
         }
         styleSt()
         stChip.contentDescription = "Save the text of a screenshot next to the image"
         stChip.setOnClickListener { it.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP)
-            val a = !prefs(this).getBoolean("shot_text", false); prefs(this).edit().putBoolean("shot_text", a).apply()
+            val a = !prefs(this).getBoolean("shot_text", true); prefs(this).edit().putBoolean("shot_text", a).apply()
             stChip.text = stText(); styleSt(); ui.removeCallbacks(hideMenuRun); ui.postDelayed(hideMenuRun, 4000)
         }
         overlay(stChip, p.x - dp(6), p.y + p.height + dp(126))
@@ -542,7 +542,7 @@ class CaptureService : Service() {
                 try {
                     val f = java.io.File(cacheDir, "shot_${System.nanoTime()}_0.png")
                     f.outputStream().use { bm.compress(Bitmap.CompressFormat.PNG, 100, it) }
-                    val n = ShotSaver.save(this, base, listOf(f), prefs(this).getBoolean("shot_text", false))
+                    val n = ShotSaver.save(this, base, listOf(f), prefs(this).getBoolean("shot_text", true))
                     firstShot = n   // no toast or pop-up now: they would end up inside the next capture
                 } catch (e: Throwable) { toast("Could not save: " + (e.message ?: e.javaClass.simpleName)); shotSaved = false }
             }
@@ -818,7 +818,7 @@ class CaptureService : Service() {
                 val st = stamp()
                 val base = (if (tall) "ScrollRSI long shot " else "ScrollRSI shot ") + st
                 writeLog(st)
-                val n = ShotSaver.save(this, base, parts, prefs(this).getBoolean("shot_text", false))
+                val n = ShotSaver.save(this, base, parts, prefs(this).getBoolean("shot_text", true))
                 toast("Saved to Download/ScrollRSI: ${n.names}" + (if (s.gaps > 0) ". The page could not be lined up ${s.gaps} time(s): a section may be missing between image parts" else "")); postShotDone(n, tall)
                 firstShot = null
             } catch (e: Throwable) { toast("Could not save: " + (e.message ?: e.javaClass.simpleName)); runCatching { s.discard() } }

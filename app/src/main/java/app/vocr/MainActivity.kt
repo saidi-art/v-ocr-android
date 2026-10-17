@@ -244,6 +244,13 @@ fun Home(preview: Picked? = null) {
                     Text("Sound (auto-scroll and end cue)", color = Muted, fontSize = 13.sp)
                 }
                 Spacer(Modifier.height(6.dp))
+                var saveVid by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("save_video", true)) }
+                Row(Modifier.semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically) {
+                    Switch(checked = saveVid, onCheckedChange = { saveVid = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("save_video", it).apply() })
+                    Spacer(Modifier.width(8.dp))
+                    Text("Also save the screen recording video next to its text (large files)", color = Muted, fontSize = 13.sp)
+                }
+                Spacer(Modifier.height(6.dp))
                 var dbg by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("debug_frames", false)) }
                 Row(Modifier.semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically) {
                     Switch(checked = dbg, onCheckedChange = { dbg = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("debug_frames", it).apply() })
