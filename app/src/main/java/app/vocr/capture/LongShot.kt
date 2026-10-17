@@ -26,8 +26,28 @@ class LongShotSession(private val ctx: Context, first: Bitmap, private val sysTo
     private var stickyFtr = 0; private var stickyTop = 0
     private val bands = BandTracker(); private var bandSeeded = false   // a flat strip at the same screen row, seen in at least two captures of the run (it may be missing from some)
     private val maxRows = runCatching { ctx.getSharedPreferences("vocr", Context.MODE_PRIVATE).getInt("max_rows", MAX_ROWS) }.getOrDefault(MAX_ROWS).coerceIn(PART_H, 400000)
+    private val overlay = OverlayTracker(w, h, sysTop, sysBottom)
     private val writer = PartWriter(ctx, w)
     var frames = 1; private set
+    // Opt-in debug option (settings, off by default): every capture of the run is also saved as a PNG named "ScrollRSI debug <time> NN.png" so a problem can be analysed. These files contain your screen content.
+    private val debugOn = runCatching { ctx.getSharedPreferences("vocr", Context.MODE_PRIVATE).getBoolean("debug_frames", false) }.getOrDefault(false)
+    private val debugStamp = java.text.SimpleDateFormat("yyyy-MM-dd HH-mm-ss", java.util.Locale.US).format(java.util.Date())
+    private var debugN = 0
+    private fun dump(bm: Bitmap) {
+        if (!debugOn) return
+        val copy = runCatching { bm.copy(Bitmap.Config.ARGB_8888, false) }.getOrNull() ?: return
+        val n = ++debugN
+        Thread {
+            runCatching {
+                val f = File(ctx.cacheDir, "debug_${System.nanoTime()}.png")
+                f.outputStream().use { copy.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                app.vocr.core.Saver.saveFile(ctx, "ScrollRSI debug $debugStamp ${"%02d".format(n)}.png", "image/png", f)
+                f.delete()
+            }
+            copy.recycle()
+        }.start()
+    }
+    init { dump(first) }
     /** Fixed rows found at the top and bottom by the last good join (status bar, headers, other windows, composer, navigation bar). */
     var lastHdr = 0; private set
     var lastDy = 0; private set
@@ -52,6 +72,7 @@ class LongShotSession(private val ctx: Context, first: Bitmap, private val sysTo
     /** Adds the next capture (the page scrolled down by some rows). */
     fun addFrame(cur: Bitmap): Outcome {
         if (cur.width != w || cur.height != h) { note("size changed ${cur.width}x${cur.height} vs ${w}x$h"); return Outcome.MISMATCH }
+        dump(cur)
         val curLuma = luma(cur)
         // coarse offset on a 360 px wide copy (the app's existing scroll detector); ShotMatch refines it at full resolution, or finds it itself
         val s = max(1, w / Pipeline.DET_W)
@@ -60,7 +81,7 @@ class LongShotSession(private val ctx: Context, first: Bitmap, private val sysTo
             val b = Pipeline.toGray(Bitmap.createScaledBitmap(cur, w / s, h / s, true))
             StripBuilder.detectScroll(a, b)
         }.getOrDefault(0)
-        val m = ShotMatch.find(prevLuma, curLuma, w, h, if (dyS > 0) dyS * s else 0, s, sysTop, sysBottom)
+        val m = ShotMatch.find(prevLuma, curLuma, w, h, if (dyS > 0) dyS * s else 0, s, max(sysTop, overlay.header()), max(sysBottom, overlay.footer()))
         note("frame ${frames + 1}: hint=${dyS * s} dy=${m.dy} score=${"%.1f".format(m.score)} still=${"%.1f".format(m.still)} hdr=${m.hdr} ftr=${m.ftr} -> ${m.status}")
         when (m.status) {
             ShotMatch.Status.END -> return Outcome.END
@@ -75,10 +96,15 @@ class LongShotSession(private val ctx: Context, first: Bitmap, private val sysTo
         val bandCrop = if (bRow >= 0) h - bRow else 0
         if (bandCrop > 0) note("flat band at screen rows ${bnd!![0]}..${bnd[0] + bnd[1]} value ${bnd[2]} (sighting ${bands.count(bnd)}): cropped as a host strip")
         else if (bnd != null) note("flat band at screen rows ${bnd[0]}..${bnd[0] + bnd[1]} value ${bnd[2]}: first sighting, not cropped yet")
+        if (overlay.update(prevLuma, curLuma, m.dy)) {
+            val oF = overlay.footer(); val oH = overlay.header()
+            if (oF > 0 || oH > 0) note("overlay bar (stays at the same screen rows while the page moves): footer $oF rows, header $oH rows (evidence from ${overlay.pairs} pair(s))")
+        }
+        val ovF = overlay.footer(); val ovH = overlay.header()
         val hid = if (ShotMatch.HIDDEN_FOOTER) ShotMatch.hiddenFooter(prevLuma, curLuma, w, h, m.dy, m.hdr, h - m.ftr, m.score >= m.still * 0.9) else 0
         val hidCrop = if (hid in 1..(h / 4)) m.ftr + hid else 0
         if (hidCrop > 0) note("a bar at the bottom of the previous capture is gone in this one: cutting $hid rows above the footer")
-        val ftr = max(max(max(m.ftr, stickyFtr), bandCrop), hidCrop); val top = max(m.hdr, stickyTop); val best = m.dy; val bottom = h - ftr
+        val ftr = max(max(max(max(m.ftr, stickyFtr), bandCrop), hidCrop), ovF); val top = max(max(m.hdr, stickyTop), ovH); val best = m.dy; val bottom = h - ftr
         if (max(m.ftr, hidCrop) in 1..(h / 4)) stickyFtr = max(stickyFtr, max(m.ftr, hidCrop))
         if (m.hdr in 1..(h / 4)) stickyTop = max(stickyTop, m.hdr)
         lastHdr = top; lastFtr = ftr; lastDy = best
@@ -240,6 +266,78 @@ class BandTracker {
     fun count(b: IntArray?): Int = if (b == null) 0 else seen[key(b)] ?: 0
     /** Records a sighting (or none) and returns the strip's first row when it should be cropped, else -1. */
     fun see(b: IntArray?): Int { if (b == null) return -1; val c = (seen[key(b)] ?: 0) + 1; seen[key(b)] = c; return if (c >= 2) b[0] else -1 }
+}
+
+/**
+ * Finds a bar that floats over the page at the same screen rows in every capture while the page moves under it: a chat composer, a glass toolbar, a bottom sheet.
+ * Such a bar is not found by comparing two captures row by row, because a translucent bar lets the moving page show through and the match flips from pair to pair.
+ * Instead, for each pair with a clear scroll offset dy, every row is scored by how many of its edge pixels (text, borders, icons) are identical at the SAME screen position in both
+ * captures but are NOT explained by the page moving by dy. The evidence adds up over the whole run, so one clear sighting is enough and a later unlucky pair cannot undo it.
+ * The overlay is the chain of such rows that starts next to the system bar and reaches up with gaps of at most GAP rows (the bar's flat parts have no edges). Pure byte arrays, unit-tested.
+ */
+class OverlayTracker(private val w: Int, private val h: Int, private val sysTop: Int = 0, private val sysBottom: Int = 0) {
+    private val hits = IntArray(h); private val elig = IntArray(h)
+    var pairs = 0; private set
+    private val xe = w * ShotMatch.EDGE / 100
+
+    /** Adds one pair: a = previous capture, b = current capture, the page moved down by dy rows between them. Pairs with a small dy cannot tell a fixed bar from the page and are skipped. */
+    fun update(a: ByteArray, b: ByteArray, dy: Int): Boolean {
+        if (dy < MIN_DY || dy >= h) return false
+        for (y in 0 until h) {
+            // Judge each row from the capture where the page's own position of that row can be checked in the other capture: the current one for rows whose content was
+            // already visible lower down (y + dy inside the previous capture), the previous one for the rest (the same rows are higher up in the current capture).
+            val fromCur = y + dy < h
+            if (!fromCur && y - dy < 0) continue
+            val base = if (fromCur) b else a; val other = if (fromCur) a else b
+            val sy = if (fromCur) y + dy else y - dy
+            var edges = 0; var stat = 0; var x = 0
+            val ro = y * w; val so = sy * w
+            while (x + 4 < xe) {
+                val c0 = base[ro + x].toInt() and 255
+                val edge = abs(c0 - (base[ro + x + 4].toInt() and 255)) > 18 || (y + 3 < h && abs(c0 - (base[ro + 3 * w + x].toInt() and 255)) > 18)
+                if (edge) {
+                    edges++
+                    val same = abs(c0 - (other[ro + x].toInt() and 255)) <= 8
+                    val explained = abs(c0 - (other[so + x].toInt() and 255)) <= 14   // the page moved by dy and this pixel moved with it
+                    if (same && !explained) stat++
+                }
+                x += 3
+            }
+            if (edges >= 6) { elig[y]++; if (stat >= 6 && stat * 100 >= edges * 35) hits[y]++ }
+        }
+        pairs++
+        return true
+    }
+
+    private fun hit(y: Int) = hits[y] >= 1 && hits[y] * 2 >= elig[y]
+
+    /** Rows from the bottom of the screen up to the top of the overlay (0 when none). */
+    fun footer(): Int {
+        if (pairs == 0) return 0
+        val start = h - sysBottom - 1; val limit = h - h * CAP / 100
+        var last = -1; var gap = 0; var n = 0; var y = start
+        while (y >= limit) {
+            if (hit(y)) { last = y; gap = 0; n++ } else { gap++; if (gap > GAP) break }
+            y--
+        }
+        if (last < 0 || n < MIN_ROWS || start - last < MIN_SPAN) return 0
+        return h - max(0, last - MARGIN)
+    }
+
+    /** Rows from the top of the screen down to the bottom of the overlay (0 when none). */
+    fun header(): Int {
+        if (pairs == 0) return 0
+        val start = sysTop; val limit = h * CAP / 100
+        var last = -1; var gap = 0; var n = 0; var y = start
+        while (y < limit) {
+            if (hit(y)) { last = y; gap = 0; n++ } else { gap++; if (gap > GAP) break }
+            y++
+        }
+        if (last < 0 || n < MIN_ROWS || last - start < MIN_SPAN) return 0
+        return min(h, last + MARGIN + 1)
+    }
+
+    companion object { const val MIN_DY = 40; const val GAP = 110; const val MIN_ROWS = 4; const val MIN_SPAN = 20; const val MARGIN = 24; const val CAP = 35 }
 }
 
 /** Pure offset finder for two captures (grey bytes, w x h). Kept free of Android classes so it can be unit-tested. */

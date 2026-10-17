@@ -244,6 +244,13 @@ fun Home(preview: Picked? = null) {
                     Text("Sound (auto-scroll and end cue)", color = Muted, fontSize = 13.sp)
                 }
                 Spacer(Modifier.height(6.dp))
+                var dbg by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("debug_frames", false)) }
+                Row(Modifier.semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically) {
+                    Switch(checked = dbg, onCheckedChange = { dbg = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("debug_frames", it).apply() })
+                    Spacer(Modifier.width(8.dp))
+                    Text("Save every Scroll capture frame for debugging. Contains your screen content.", color = Muted, fontSize = 13.sp)
+                }
+                Spacer(Modifier.height(6.dp))
                 var maxRows by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getInt("max_rows", app.vocr.capture.LongShotSession.MAX_ROWS)) }
                 Text("Scroll capture size limit (stops at about ${maxRows / app.vocr.capture.LongShotSession.PART_H} parts)", color = Muted, fontSize = 13.sp)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 4.dp)) {
