@@ -244,6 +244,16 @@ fun Home(preview: Picked? = null) {
                     Text("Sound (auto-scroll and end cue)", color = Muted, fontSize = 13.sp)
                 }
                 Spacer(Modifier.height(6.dp))
+                var maxRows by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getInt("max_rows", app.vocr.capture.LongShotSession.MAX_ROWS)) }
+                Text("Scroll capture size limit (stops at about ${maxRows / app.vocr.capture.LongShotSession.PART_H} parts)", color = Muted, fontSize = 13.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 4.dp)) {
+                    listOf(40000 to "40k", 80000 to "80k", 120000 to "120k", 200000 to "200k").forEach { (v, label) ->
+                        Button(onClick = { maxRows = v; app.vocr.capture.CaptureService.prefs(ctx).edit().putInt("max_rows", v).apply() },
+                            colors = ButtonDefaults.buttonColors(containerColor = if (maxRows == v) Violet else Btn2, contentColor = if (maxRows == v) OnBronze else TextMain),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) { Text(label, fontSize = 13.sp) }
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
                 var light by remember { mutableStateOf(app.vocr.capture.CaptureService.prefs(ctx).getBoolean("lightcapture", false)) }
                 Row(Modifier.semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically) {
                     Switch(checked = light, onCheckedChange = { light = it; app.vocr.capture.CaptureService.prefs(ctx).edit().putBoolean("lightcapture", it).apply() })

@@ -25,6 +25,7 @@ class LongShotSession(private val ctx: Context, first: Bitmap, private val sysTo
     private var ftrPrev = -1
     private var stickyFtr = 0; private var stickyTop = 0
     private val bands = BandTracker(); private var bandSeeded = false   // a flat strip at the same screen row, seen in at least two captures of the run (it may be missing from some)
+    private val maxRows = runCatching { ctx.getSharedPreferences("vocr", Context.MODE_PRIVATE).getInt("max_rows", MAX_ROWS) }.getOrDefault(MAX_ROWS).coerceIn(PART_H, 400000)
     private val writer = PartWriter(ctx, w)
     var frames = 1; private set
     /** Fixed rows found at the top and bottom by the last good join (status bar, headers, other windows, composer, navigation bar). */
@@ -88,7 +89,7 @@ class LongShotSession(private val ctx: Context, first: Bitmap, private val sysTo
         note("seam: rows $start..$bottom of the new capture appended, image rows now ${writer.rows} (dy=$best hdr=$top ftr=$ftr, detected hdr=${m.hdr} ftr=${m.ftr})")
         ftrPrev = sm[2]   // where the written rows end, in this capture's coordinates (the footer when rows were appended)
         prev.recycle(); prev = cur; prevLuma = curLuma; frames++
-        return if (writer.rows >= MAX_ROWS) Outcome.CAP else Outcome.ADDED
+        return if (writer.rows >= maxRows) Outcome.CAP else Outcome.ADDED
     }
 
     private fun note(t: String) { log.append(java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date())).append("  ").append(t).append("\n"); runCatching { app.vocr.VocrApp.note("longshot: $t", null) } }
@@ -105,7 +106,7 @@ class LongShotSession(private val ctx: Context, first: Bitmap, private val sysTo
 
     companion object {
         const val PART_H = 8000
-        const val MAX_ROWS = 40000
+        const val MAX_ROWS = 120000   // default; the user can change it in settings ("max_rows")
 
         fun luma(bm: Bitmap): ByteArray {
             val w = bm.width; val h = bm.height
