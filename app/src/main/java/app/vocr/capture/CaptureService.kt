@@ -126,7 +126,7 @@ class CaptureService : Service() {
 
     private fun statusNote(text: String, withStop: Boolean = false, progress: Pair<Int, Int>? = null): Notification {
         channels()
-        val b = Notification.Builder(this, CH_STATUS).setSmallIcon(android.R.drawable.ic_menu_camera).setContentTitle("ScrollRSI").setContentText(text).setOngoing(true)
+        val b = Notification.Builder(this, CH_STATUS).setSmallIcon(app.vocr.R.drawable.ic_stat_chevron).setContentTitle("ScrollRSI").setContentText(text).setOngoing(true)
         if (progress != null) b.setProgress(progress.second, progress.first, false)
         if (withStop) b.addAction(act(ACTION_STOP, "Stop and read"))
         else b.addAction(act(ACTION_CLOSE, "Close recorder"))
@@ -794,7 +794,7 @@ class CaptureService : Service() {
         share.clipData = cd
         if (r.text.isNotBlank() && r.text.length < 100_000) share.putExtra(Intent.EXTRA_TEXT, r.text)
         val chooser = Intent.createChooser(share, "Share").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        val b = Notification.Builder(this, CH_DONE).setSmallIcon(android.R.drawable.stat_sys_download_done)
+        val b = Notification.Builder(this, CH_DONE).setSmallIcon(app.vocr.R.drawable.ic_stat_chevron)
             .setContentTitle(title).setContentText((if (imgs.size > 1) "${imgs.size} parts" else "1 image") + " in Download/ScrollRSI. Tap to open, or Share.")
             .setAutoCancel(true)
             .setContentIntent(PendingIntent.getActivity(this, id, view, PendingIntent.FLAG_IMMUTABLE))

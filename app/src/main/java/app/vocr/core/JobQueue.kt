@@ -159,7 +159,7 @@ object JobQueue {
         channels(c)
         val cur = current(); val waiting = jobs.count { it.state == 0 }
         val text = if (cur == null) (if (waiting > 0) "$waiting waiting" else "Finishing") else cur.label + " - " + cur.stage + (if (waiting > 0) "  (+$waiting waiting)" else "")
-        val b = Notification.Builder(c, CH_STATUS).setSmallIcon(android.R.drawable.ic_menu_camera).setContentTitle("ScrollRSI queue").setContentText(text).setOngoing(true)
+        val b = Notification.Builder(c, CH_STATUS).setSmallIcon(app.vocr.R.drawable.ic_stat_chevron).setContentTitle("ScrollRSI queue").setContentText(text).setOngoing(true)
         if (cur != null) b.setProgress(100, (cur.frac * 100).toInt().coerceIn(0, 100), false)
         return b.build()
     }
@@ -168,7 +168,7 @@ object JobQueue {
 
     private fun postDone(c: Context, job: Job, text: String) {
         channels(c)
-        val b = Notification.Builder(c, CH_DONE).setSmallIcon(android.R.drawable.stat_sys_download_done)
+        val b = Notification.Builder(c, CH_DONE).setSmallIcon(app.vocr.R.drawable.ic_stat_chevron)
             .setContentTitle(job.title).setContentText("Text ready: ${job.lines} lines in ${job.secs}s. Tap to open, or Share.")
             .setStyle(Notification.BigTextStyle().bigText(text.take(600))).setAutoCancel(true)
         val uri = job.result
