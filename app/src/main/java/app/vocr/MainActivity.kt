@@ -176,7 +176,7 @@ fun Home(preview: Picked? = null) {
         }
         Spacer(Modifier.height(10.dp))
         Button(
-            onClick = { ctx.startActivity(android.content.Intent(ctx, SavedActivity::class.java)) },
+            onClick = { openFolder(ctx) },   // straight to Download/ScrollRSI in the device Files app, no in-app list
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = RoundedCornerShape(16.dp),
             colors = ButtonDefaults.buttonColors(containerColor = Btn2, contentColor = TextMain)
         ) { Text("Saved files", fontSize = 14.sp) }

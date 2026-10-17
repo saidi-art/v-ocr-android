@@ -217,7 +217,7 @@ object ShotSaver {
         var tt = ""
         if (withText) runCatching { tt = ocr(ctx, parts) }
         var title = base
-        if (tt.isNotBlank()) runCatching { title = app.vocr.core.Saver.titleFor(ctx, tt, base) }
+        if (tt.isNotBlank() && !app.vocr.core.Title.looksLikeList(tt)) runCatching { title = app.vocr.core.Saver.titleFor(ctx, tt, base) }   // a file list has no page title: keep the timestamp name
         var renamed = title != base
         if (renamed) {
             val ok = uris.mapIndexed { i, u -> app.vocr.core.Saver.rename(ctx, u, if (parts.size == 1) "$title.png" else "$title part ${i + 1}.png") }

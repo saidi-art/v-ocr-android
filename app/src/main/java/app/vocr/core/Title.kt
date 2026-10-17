@@ -17,6 +17,16 @@ object Title {
         return if (toks.isEmpty()) 1.0 else toks.count { it in dict }.toDouble() / toks.size
     }
 
+    private val sizeRe = Regex("(?i)^\\d+([.,]\\d+)?\\s?(b|kb|mb|gb|items?|files?)$")
+    private val dateRe = Regex("(?i)^(\\d{1,2}\\s\\w{3,9}(\\s\\d{1,2}:\\d{2}(\\s?[ap]m)?)?|\\d{4}-\\d{2}-\\d{2}.*|(today|yesterday)\\b.*)$")
+    private val fileRe = Regex("(?i)^\\S+\\.(apk|pdf|png|jpe?g|mp4|txt|csv|zip|docx?|xlsx?|json|html?|pptx?|mp3)$")
+    /** True when the top of the text looks like a file or folder list (names, sizes, dates) rather than a page: a title taken from it would be a file name. */
+    fun looksLikeList(text: String): Boolean {
+        val top = text.lines().map { it.trim() }.filter { it.isNotEmpty() }.take(40)
+        val hits = top.count { sizeRe.matches(it) || dateRe.matches(it) || fileRe.matches(it) }
+        return hits >= 5
+    }
+
     fun from(text: String, fallback: String, dict: Set<String>? = null): String {
         val lines = text.lines().map { it.trim() }.filter { it.isNotEmpty() }.take(40)
         fun ok(l: String, minChars: Int, minWords: Int): Boolean {

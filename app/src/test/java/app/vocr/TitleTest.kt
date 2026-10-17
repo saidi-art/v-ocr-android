@@ -51,4 +51,10 @@ class TitleCleanTest {
         val r = app.vocr.core.Title.from("release - Sphere palette - 365 days (2).html\nmore text here", "fb")
         org.junit.Assert.assertFalse(r, r.endsWith(".html"))
     }
+
+    @org.junit.Test fun fileListIsNotATitle() {
+        val list = "6:36\n45\nDownloads\n18.24 GB\nToday\nvocr-release-88.apk\ngithub.com\n75.12 MB\n17 Oct 6:35 am\nvocr-release-87.apk\ngithub.com\n75.12 MB\n17 Oct 5:42 am"
+        org.junit.Assert.assertTrue(app.vocr.core.Title.looksLikeList(list))
+        org.junit.Assert.assertFalse(app.vocr.core.Title.looksLikeList("If you can scroll it, you can save it\nScrollRSI turns scrolling screens into text and pictures.\nFree and private."))
+    }
 }
