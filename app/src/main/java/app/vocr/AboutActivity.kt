@@ -27,7 +27,8 @@ class AboutActivity : ComponentActivity() {
     }
 }
 
-const val CONTACT_EMAIL = "__CONTACT_EMAIL__"
+const val CONTACT_EMAIL = "saidi@kubeai.info"
+const val PRIVACY_URL = "https://app.kubeai.info/scrollrsi/privacy/"
 
 @Composable
 fun About(onBack: () -> Unit) {
@@ -58,6 +59,13 @@ fun About(onBack: () -> Unit) {
                 Spacer(Modifier.height(6.dp))
                 Text(CONTACT_EMAIL, color = Lilac, fontSize = 15.sp, modifier = Modifier.hapticClickable {
                     runCatching { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_SENDTO, android.net.Uri.parse("mailto:$CONTACT_EMAIL"))) }
+                })
+            }
+            Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(20.dp)).padding(18.dp)) {
+                Label("PRIVACY POLICY")
+                Spacer(Modifier.height(6.dp))
+                Text(PRIVACY_URL, color = Lilac, fontSize = 15.sp, modifier = Modifier.hapticClickable {
+                    runCatching { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(PRIVACY_URL))) }
                 })
             }
         }

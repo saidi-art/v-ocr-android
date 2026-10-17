@@ -63,9 +63,8 @@ fun Disclosure(onAgree: () -> Unit, onDecline: () -> Unit) {
                 Text("What ScrollRSI does with this permission", color = Lilac, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "1. It performs swipe gestures on your screen to scroll the page for you while you record.\n\n" +
-                        "2. After each swipe it takes a tiny, low-resolution grey screenshot of your screen (48 x 96 pixels, no colour) and compares it with the previous one, to find out when the page stops moving and you have reached the bottom. " +
-                        "These pictures are held in memory for a moment and then discarded. They are never saved.",
+                    "1. It performs swipe gestures on your screen to scroll the page for you, only while you have started a recording or a Scroll capture.\n\n" +
+                        "2. It takes screenshots of your screen, only for the capture you start. During auto-scroll, a tiny grey screenshot (48 x 96 pixels) is compared with the previous one to find the bottom of the page and is then discarded. For Screenshot and Scroll capture, full-resolution screenshots are taken, held temporarily on your phone while the long image is built, and saved to Download/ScrollRSI as the image you asked for.",
                     color = TextMain, fontSize = 14.sp, lineHeight = 20.sp
                 )
             }
@@ -74,7 +73,7 @@ fun Disclosure(onAgree: () -> Unit, onDecline: () -> Unit) {
                 Text("What it does not do", color = Lilac, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "It does not read text, passwords or anything you type, and it does not see other apps' content. " +
+                    "It does not read text, passwords or anything you type through Accessibility, and it takes screenshots only for a capture you start. A screenshot shows whatever is on screen at that moment, including other apps. " +
                         "Nothing is sent anywhere: ScrollRSI has no internet permission and reads text on your phone only.",
                     color = TextMain, fontSize = 14.sp, lineHeight = 20.sp
                 )
