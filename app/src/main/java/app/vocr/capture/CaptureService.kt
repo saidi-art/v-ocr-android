@@ -484,7 +484,7 @@ class CaptureService : Service() {
     private var shotHolding = false
     @Volatile private var shotRunning = false
     private val shotExec = java.util.concurrent.Executors.newSingleThreadExecutor()
-    private val shotIdleRun = Runnable { finishLong() }
+    private val shotIdleRun = Runnable { if (shotCause.isEmpty()) shotCause = if (shotLoopRan) "Ended by you (hold released, saved after 2 s)" else "Saved after 7 s without a press"; finishLong() }
 
     private fun shotViews(): List<View?> = listOf<View?>(widget, pace, addChip, fbar, shotBar, shotBubble) + menu
 
@@ -537,7 +537,7 @@ class CaptureService : Service() {
         snap { bm ->
             if (bm == null) { shotRunning = false; toast("Could not take the screenshot"); return@snap }
             if (LongShotSession.blank(bm)) { shotRunning = false; bm.recycle(); toast("This app blocks screenshots (the picture is black)"); return@snap }
-            shotStamp = stamp(); shotEndReason = ""
+            shotStamp = stamp(); shotEndReason = ""; shotCause = ""; shotRec = ""; cEnd = 0; cMm = 0; cBack = 0
             val base = "ScrollRSI shot " + shotStamp
             shotSaved = save
             if (save) shotExec.execute {
@@ -590,7 +590,7 @@ class CaptureService : Service() {
         }
         val done = glassChip(this, "Done", chipC()).apply {
             contentDescription = "Save the capture now"
-            setOnClickListener { shotAuto = false; ui.removeCallbacks(shotIdleRun); finishLong() }
+            setOnClickListener { shotAuto = false; shotCause = "Stopped by you (stop button)"; ui.removeCallbacks(shotIdleRun); finishLong() }
         }
         row.addView(sc); row.addView(android.widget.Space(this), android.widget.LinearLayout.LayoutParams(dp(8), 1)); row.addView(done)
         row.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
@@ -634,11 +634,19 @@ class CaptureService : Service() {
 
     /** Numbers only (offsets, scores, row counts, statuses): no screen content. Saved next to the images so a failed capture can be explained. */
     @Volatile private var shotEndReason = ""
+    @Volatile private var shotCause = ""      // who ended a run that the loop did not end itself
+    @Volatile private var shotRec = ""        // set while a recovery step (drag back, retry drag) is the last thing that happened
+    @Volatile private var cEnd = 0; @Volatile private var cMm = 0; @Volatile private var cBack = 0
     @Volatile private var shotStamp = ""
     private fun buildLabel() = runCatching { val i = packageManager.getPackageInfo(packageName, 0); i.longVersionCode.toString() + " (" + i.versionName + ")" }.getOrDefault("unknown")
     private fun shotLogText(s: LongShotSession, reason: String): String {
         val h = resources.displayMetrics.heightPixels
-        return "ScrollRSI shot log \nbuild " + buildLabel() + "\nresult: " + (if (reason.isEmpty()) "finished normally" else reason) + "\nimages: " + s.frames + " captured, " + s.gaps + " gap(s)\nscreen " + screenW() + "x" + h + " swipe " + shotY0 + " to " + shotY1 + " probed=" + shotProbed + " sysTop=" + sysBar("status_bar_height") + " sysBottom=" + sysBar("navigation_bar_height") + "\n" + s.logText()
+        val res = (if (reason.isEmpty()) "ended (no cause recorded)" else reason) +
+            (if (s.gaps > 0) "; finished with ${s.gaps} gap(s): a section may be missing between image parts" else "") +
+            (if (shotRec.isNotEmpty()) "; ended during recovery: the last step was ${shotRec} and nothing was captured after it" else "")
+        val seams = maxOf(0, s.frames - 1 - s.gaps)
+        return "ScrollRSI shot log \nbuild " + buildLabel() + "\nresult: " + res + "\nimages: " + s.frames + " captured, " + s.gaps + " gap(s)\nscreen " + screenW() + "x" + h + " swipe " + shotY0 + " to " + shotY1 + " probed=" + shotProbed + " sysTop=" + sysBar("status_bar_height") + " sysBottom=" + sysBar("navigation_bar_height") + "\n" + s.logText() +
+            "totals: captures=${s.frames} seams=$seams gaps/re-anchors=${s.gaps} mismatches=$cMm ends=$cEnd drag-backs=$cBack\n"
     }
 
     private fun sysBar(name: String): Int = runCatching { val id = resources.getIdentifier(name, "dimen", "android"); if (id > 0) resources.getDimensionPixelSize(id) else 0 }.getOrDefault(0)
@@ -712,12 +720,13 @@ class CaptureService : Service() {
                 }
             } finally { holdHidden(false) }
             if (a == null) { reason = "A screenshot failed"; break }
-            s.logLine("capture settle tries=$tries settled=$settled after ${System.currentTimeMillis() - t0} ms")
+            s.logLine("capture settle tries=$tries settled=$settled after ${System.currentTimeMillis() - t0} ms"); shotRec = ""
             if (firstCycle && s.sameAsLast(a)) { a.recycle(); s.logLine("first capture equals the one already taken") }
             else { val wasBack = afterBack; afterBack = false; when (s.addFrame(a)) {
                 LongShotSession.Outcome.ADDED -> { ends = 0; backEnds = 0; mmRound = 0; shotSince = 0f; shotLonger = false; sizeSwipe(s) }
-                LongShotSession.Outcome.END -> { a.recycle(); if (wasBack && backEnds < 3) { backEnds++; shotLonger = true; s.logLine("same as the last accepted capture right after a drag back: the page is back where it was, not the end. Longer forward drag, try $backEnds of 3") } else if (++ends >= 3) reason = endReasonText(s.frames) }
+                LongShotSession.Outcome.END -> { cEnd++; a.recycle(); if (wasBack && backEnds < 3) { backEnds++; shotLonger = true; s.logLine("same as the last accepted capture right after a drag back: the page is back where it was, not the end. Longer forward drag, try $backEnds of 3") } else if (++ends >= 3) reason = endReasonText(s.frames) }
                 LongShotSession.Outcome.MISMATCH -> {
+                    cMm++
                     sawMm = true
                     a.recycle()
                     // a toast or a heads-up notification may have been on screen: wait for it to go, capture the same page again (up to 3 tries)
@@ -758,10 +767,11 @@ class CaptureService : Service() {
                 val hh = resources.displayMetrics.heightPixels.toFloat()
                 val dist = (shotSince * 0.5f / shotRatio).coerceIn(hh * 0.10f, hh * 0.70f)
                 shotY0 = (0.5f * hh - dist / 2f) / hh; shotY1 = (0.5f * hh + dist / 2f) / hh; shotX = ScrollService.X0
-                afterBack = true; s.logLine("drag back ${"%.2f".format(shotY0)}->${"%.2f".format(shotY1)}")
+                afterBack = true; cBack++; s.logLine("drag back ${"%.2f".format(shotY0)}->${"%.2f".format(shotY1)}")
             } else if (ends > 0 || shotLonger) { shotLonger = false; shotY0 = 0.80f; shotY1 = 0.50f; shotX = floatArrayOf(0.35f, 0.2f, 0.75f, 0.55f)[(ends + mmRound) % 4]; s.logLine("no movement yet: retry drag at x=$shotX") } else shotX = ScrollService.X0
             val sw = swipeBlocking()
             s.logLine("swipe ${"%.2f".format(shotY0)}->${"%.2f".format(shotY1)} ok=$sw")
+            if (sw) { if (shotBackMode) shotRec = "a drag back" else if (mmRound > 0) shotRec = "a retry drag (round $mmRound)" }
             if (!sw) { reason = "Scrolling failed. Check that Accessibility is on."; break }
             Thread.sleep(380)
         }
@@ -796,7 +806,7 @@ class CaptureService : Service() {
         val s = shotSession ?: return
         if (shotRunning) { ui.postDelayed(shotIdleRun, 600); return }   // a capture step is still being joined
         val endReason = shotEndReason; shotEndReason = ""
-        val logTxt = if (shotLoopRan) runCatching { shotLogText(s, if (endReason.isEmpty() && s.frames <= 1) "Ended with only one image after a scroll attempt" else endReason) }.getOrNull() else null
+        val logTxt = if (shotLoopRan) runCatching { shotLogText(s, (if (endReason.isNotEmpty()) endReason else shotCause.ifEmpty { "Ended by you" }) + (if (s.frames <= 1) " (only one image captured)" else "")) }.getOrNull() else null
         val firstStamp = shotStamp
         shotLoopRan = false
         shotSession = null; hideShotBar(); shotHolding = false

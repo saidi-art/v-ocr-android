@@ -74,7 +74,7 @@ class LongShotSession(private val ctx: Context, first: Bitmap, private val sysTo
         val bandCrop = if (bRow >= 0) h - bRow else 0
         if (bandCrop > 0) note("flat band at screen rows ${bnd!![0]}..${bnd[0] + bnd[1]} value ${bnd[2]} (sighting ${bands.count(bnd)}): cropped as a host strip")
         else if (bnd != null) note("flat band at screen rows ${bnd[0]}..${bnd[0] + bnd[1]} value ${bnd[2]}: first sighting, not cropped yet")
-        val hid = if (ShotMatch.HIDDEN_FOOTER) ShotMatch.hiddenFooter(prevLuma, curLuma, w, h, m.dy, m.hdr, h - m.ftr) else 0
+        val hid = if (ShotMatch.HIDDEN_FOOTER) ShotMatch.hiddenFooter(prevLuma, curLuma, w, h, m.dy, m.hdr, h - m.ftr, m.score >= m.still * 0.9) else 0
         val hidCrop = if (hid in 1..(h / 4)) m.ftr + hid else 0
         if (hidCrop > 0) note("a bar at the bottom of the previous capture is gone in this one: cutting $hid rows above the footer")
         val ftr = max(max(max(m.ftr, stickyFtr), bandCrop), hidCrop); val top = max(m.hdr, stickyTop); val best = m.dy; val bottom = h - ftr
@@ -245,8 +245,8 @@ class BandTracker {
 object ShotMatch {
     /** Columns right of this percentage of the width are not scored: the screen-recorder bubble, a picture-in-picture video or an edge panel often sit there and change by themselves. */
     const val EDGE = 88
-    /** Cutting a bottom bar that vanishes after the first scroll is OFF: on a list page it read an offset off by one row as a 468 row bar. Needs a lab check on an X run. */
-    const val HIDDEN_FOOTER = false
+    /** Cutting a bottom bar that vanishes or floats over the content: ON with the conservative rules of hiddenFooter (build 85). Set false to turn off. */
+    const val HIDDEN_FOOTER = true
     enum class Status { OK, END, MISMATCH }
 
     /** Where to append the new capture: [start row, bottom row, new "footer edge" distance]. The previous slice ended `ftrPrev` rows above the previous capture's bottom, which is row h - ftrPrev - dy of the new capture.
@@ -257,22 +257,38 @@ object ShotMatch {
         return intArrayOf(start, bottom, if (start > bottom) h - start else ftr)
     }
 
-    /** A bar at the bottom of the first capture that is gone in the next one (X and Chrome hide it while you scroll down). The page content under it shows up in the next capture,
-     *  so the rows of the first capture that no longer match the shifted next capture, at its bottom edge, are that bar. Returns how many rows above `bottom` to cut (0 when none). */
-    fun hiddenFooter(a: ByteArray, b: ByteArray, w: Int, h: Int, dy: Int, top: Int, bottom: Int): Int {
-        val xe = w * 90 / 100
-        val lowest = max(top + dy, bottom - h / 5)
-        var topMismatch = -1; var count = 0
-        var y = bottom - 1
-        while (y >= lowest) {
+    /** A bar at the bottom of the previous capture that is gone in the next one (X and Chrome hide it while you scroll down). Conservative: the rows of the previous capture that do not match
+     *  the shifted next capture must form ONE cluster that starts at the footer edge (within 6 rows), no taller than 10% of the screen, and the 60 rows right above the cluster must match well:
+     *  that proves the offset is right (a wrong offset on a list page makes everything mismatch). The right 15% of the width is ignored (floating buttons). A weak match (`weak`) is ignored.
+     *  Returns how many rows above `bottom` to cut (0 when none). */
+    fun hiddenFooter(a: ByteArray, b: ByteArray, w: Int, h: Int, dy: Int, top: Int, bottom: Int, weak: Boolean = false): Int {
+        if (weak) return 0
+        val xe = w * 85 / 100
+        val cap = h / 10; val zone = 60
+        fun diff(y: Int): Double {
             val yb = y - dy
-            if (yb < top) break
+            if (y < 0 || y >= h || yb < top || yb >= h) return 255.0
             var sum = 0L; var n = 0; var x = 0
             while (x < xe) { sum += abs((a[y * w + x].toInt() and 255) - (b[yb * w + x].toInt() and 255)); n++; x += 3 }
-            if (sum.toDouble() / n > 15.0) { topMismatch = y; count++ }
+            return sum.toDouble() / n
+        }
+        // the cluster must start at the footer edge
+        var y = bottom - 1
+        var firstMis = -1
+        while (y >= bottom - 6) { if (diff(y) > 15.0) { firstMis = y; break }; y-- }
+        if (firstMis < 0) return 0
+        // walk up until `zone` quiet rows in a row: the last mismatching row before them is the top of the bar
+        var topMis = firstMis; var quiet = 0; y = firstMis - 1
+        var count = 1
+        while (y >= 0 && quiet < zone) {
+            if (bottom - y > cap + zone) return 0
+            val d = diff(y)
+            if (d > 15.0) { topMis = y; quiet = 0; count++ } else if (d < 6.0) quiet++ else quiet = 0
             y--
         }
-        return if (count >= 4 && topMismatch >= 0) bottom - topMismatch else 0
+        if (quiet < zone) return 0
+        val rows = bottom - topMis
+        return if (count >= 4 && rows <= cap) rows else 0
     }
 
     /** A flat band: 6 to 20 rows in the lower 40% of the screen, one single grey value across the left 90% of the width, clearly different from the rows above and below.

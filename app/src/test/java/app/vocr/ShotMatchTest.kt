@@ -156,6 +156,23 @@ class ShotMatchTest {
         val cut = ShotMatch.hiddenFooter(a, b, W, H, 700, HDR, H - FTR)
         assertTrue("cut=$cut", cut in 140..160)
         assertEquals(0, ShotMatch.hiddenFooter(frame(500), frame(500 + 700), W, H, 700, HDR, H - FTR))
+        assertEquals(0, ShotMatch.hiddenFooter(a, b, W, H, 700, HDR, H - FTR, true))        // a weak match is ignored
+        assertEquals(0, ShotMatch.hiddenFooter(a, b, W, H, 650, HDR, H - FTR))              // a wrong offset: everything mismatches, nothing is cut
+    }
+
+    @Test fun doesNotCutAFloatingButtonOrATallArea() {
+        val a = frame(500); val b = frame(500 + 700)
+        // a 200 row area at the footer edge is taller than 10% of the screen: not cut
+        for (y in H - FTR - 200 until H - FTR) for (x in 0 until W) a[y * W + x] = (if ((x / 40 + y / 6) % 2 == 0) 235 else 20).toByte()
+        assertEquals(0, ShotMatch.hiddenFooter(a, b, W, H, 700, HDR, H - FTR))
+        // a button 100 rows tall, floating 40 rows above the footer edge (not touching it): not cut
+        val a2 = frame(500)
+        for (y in H - FTR - 140 until H - FTR - 40) for (x in 0 until W) a2[y * W + x] = (if ((x / 40 + y / 6) % 2 == 0) 235 else 20).toByte()
+        assertEquals(0, ShotMatch.hiddenFooter(a2, b, W, H, 700, HDR, H - FTR))
+        // a button only in the right 15%: ignored
+        val a3 = frame(500)
+        for (y in H - FTR - 150 until H - FTR) for (x in W * 87 / 100 until W) a3[y * W + x] = 0
+        assertEquals(0, ShotMatch.hiddenFooter(a3, b, W, H, 700, HDR, H - FTR))
     }
 
     @Test fun seamKeepsContentContinuousWhenTheFooterJumps() {
