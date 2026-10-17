@@ -30,7 +30,7 @@ class DisclosureActivity : ComponentActivity() {
                     onAgree = {
                         getSharedPreferences("vocr", MODE_PRIVATE).edit().putBoolean("a11y_ok", true).apply()
                         finish()   // close this screen first (it is noHistory + excluded from recents), then hand over to Settings
-                        startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                        openAccessibilityStack(this)
                     },
                     onDecline = {
                         Toast.makeText(this, "Auto-scroll stays off. You can still scroll by hand while recording.", Toast.LENGTH_LONG).show()
@@ -48,13 +48,24 @@ class DisclosureActivity : ComponentActivity() {
             ctx.packageManager.getInstallSourceInfo(ctx.packageName).installingPackageName != "com.android.vending"
         }.getOrDefault(false)
 
+        /** Opens Android's Accessibility page on top of the main Device Settings page, in Settings' own task. Back from Accessibility then lands on Device Settings
+         *  (where Apps > ScrollRSI > Allow restricted settings is one tap away), and one more Back returns to ScrollRSI. Falls back to the plain Accessibility page. */
+        fun openAccessibilityStack(ctx: android.content.Context) {
+            val main = Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            val acc = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+            if (runCatching { ctx.startActivities(arrayOf(main, acc)) }.isSuccess) return
+            val plain = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+            if (ctx !is android.app.Activity) plain.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            ctx.startActivity(plain)
+        }
+
         const val RESTRICTED_HINT = "If Android says \"restricted setting\" or \"App was denied access\": Settings > Apps > ScrollRSI > three dots at the top right > Allow restricted settings, then try again."
 
         /** Open Accessibility settings, but only after the user has accepted the disclosure; otherwise show it first. */
         fun openAccessibility(ctx: android.content.Context) {
             val ok = ctx.getSharedPreferences("vocr", android.content.Context.MODE_PRIVATE).getBoolean("a11y_ok", false)
-            val i = if (ok) Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS) else Intent(ctx, DisclosureActivity::class.java)
-            // from an Activity: stay in the same task so Back returns to the screen the user left; only a Service needs a new task
+            if (ok) { openAccessibilityStack(ctx); return }
+            val i = Intent(ctx, DisclosureActivity::class.java)
             if (ctx !is android.app.Activity) i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             ctx.startActivity(i)
         }

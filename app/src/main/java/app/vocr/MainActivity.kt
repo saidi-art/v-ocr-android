@@ -171,7 +171,6 @@ fun Home(preview: Picked? = null) {
                 else Text(if (asStopped) "ON but stopped" else "Turn on", color = TextMain, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(4.dp))
                 Text(if (asReady) "Speed " + prefs.getInt("scrollspeed", 10) + " of 10. Tap for settings." else if (asStopped) "Switch it off and on in Accessibility" else "Allow it in Accessibility", color = Muted, fontSize = 12.sp)
-                if (!asReady && DisclosureActivity.sideloaded(ctx)) { Spacer(Modifier.height(4.dp)); Text(DisclosureActivity.RESTRICTED_HINT, color = Muted, fontSize = 11.sp, lineHeight = 14.sp) }
             }
             Tile(Modifier.weight(1f).fillMaxHeight(), onClick = startFloating) {
                 Label("FLOATING RECORDER")
@@ -180,6 +179,9 @@ fun Home(preview: Picked? = null) {
                 Spacer(Modifier.height(4.dp))
                 Text("Record, Scroll capture and screenshots from the bubble.", color = Muted, fontSize = 12.sp)
             }
+        }
+        if (app.vocr.capture.ScrollService.instance == null && DisclosureActivity.sideloaded(ctx)) {
+            Text(DisclosureActivity.RESTRICTED_HINT, color = Muted, fontSize = 12.sp, lineHeight = 17.sp, modifier = Modifier.padding(horizontal = 6.dp))
         }
         // Scroll capture tile with the Shot text switch.
         Tile(Modifier.fillMaxWidth()) {

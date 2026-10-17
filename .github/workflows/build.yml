@@ -64,6 +64,7 @@ jobs:
             sleep 8
             mkdir -p shots
             adb exec-out screencap -p > shots/home.png
+            adb shell am force-stop app.scrollrsi
             adb shell am start -n app.scrollrsi/app.vocr.MainActivity --ez settings true || true
             sleep 5
             adb exec-out screencap -p > shots/settings.png || true
