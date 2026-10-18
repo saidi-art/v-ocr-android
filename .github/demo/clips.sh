@@ -12,7 +12,7 @@ adb shell pm list packages | grep -E "chrome|documentsui|viewer|gallery|photos" 
 adb logcat -c
 # ---- host recorder: the emulator console records its own screen to webm; chained in 170 s segments
 rec_start() { NAME=$1; touch /tmp/rec_$NAME.on; ( j=0; while [ -f /tmp/rec_$NAME.on ]; do adb shell screenrecord --bit-rate 3000000 --time-limit 120 /sdcard/dev_${NAME}_$j.mp4; j=$((j+1)); done ) > $OUT/devrec_$NAME.log 2>&1 & ( i=0; while [ -f /tmp/rec_$NAME.on ]; do adb emu screenrecord start --time-limit 170 $OUT/${NAME}_seg$i.webm; for s in $(seq 1 172); do [ -f /tmp/rec_$NAME.on ] || break; sleep 1; done; adb emu screenrecord stop; sleep 2; i=$((i+1)); done ) > $OUT/rec_$NAME.log 2>&1 & }
-rec_stop() { NAME=$1; rm -f /tmp/rec_$NAME.on; adb shell pkill -l SIGINT screenrecord; wait; sleep 3; for f in $(adb shell ls /sdcard/dev_${NAME}_*.mp4 | tr -d '\r'); do adb pull $f $OUT/$(basename $f); done; ls $OUT/${NAME}_seg*.webm 2>/dev/null | sort -V | sed "s|^|file '|;s|\$|'|" > /tmp/l_$NAME.txt; [ -s /tmp/l_$NAME.txt ] && ffmpeg -y -loglevel error -f concat -safe 0 -i /tmp/l_$NAME.txt -vf "scale=trunc(iw/2)*2:trunc(ih/2)*2" -c:v libx264 -pix_fmt yuv420p $OUT/clip-$NAME.mp4; ls -l $OUT/clip-$NAME.mp4; }
+rec_stop() { NAME=$1; rm -f /tmp/rec_$NAME.on; adb shell pkill -l SIGINT screenrecord; wait; sleep 3; for f in $(adb shell ls /sdcard/dev_${NAME}_*.mp4 | tr -d '\r'); do adb pull $f $OUT/$(basename $f); adb shell rm $f; done; ls $OUT/${NAME}_seg*.webm 2>/dev/null | sort -V | sed "s|^|file '|;s|\$|'|" > /tmp/l_$NAME.txt; [ -s /tmp/l_$NAME.txt ] && ffmpeg -y -loglevel error -f concat -safe 0 -i /tmp/l_$NAME.txt -vf "scale=trunc(iw/2)*2:trunc(ih/2)*2" -c:v libx264 -pix_fmt yuv420p $OUT/clip-$NAME.mp4; ls -l $OUT/clip-$NAME.mp4; }
 
 bubble_xy() { adb shell dumpsys window windows > $OUT/winlist_$1.txt 2>&1; python3 - "$OUT/winlist_$1.txt" <<'PY'
 import re,sys
@@ -33,7 +33,9 @@ bubble_tap() { XY=$(bubble_xy $1); echo "bubble at: $XY" | tee -a $OUT/bubble.tx
 snap() { adb exec-out screencap -p > $OUT/$1.png; ui dump $OUT/$1.xml; }
 
 # ================= clip b: media projection =================
-adb shell am start -a android.settings.DEVICE_INFO_SETTINGS; sleep 4
+python3 $A/page.py > /tmp/neutral.html; adb push /tmp/neutral.html /sdcard/neutral.html
+neutral() { adb shell am start -a android.intent.action.VIEW -d file:///sdcard/neutral.html -t text/html -n com.android.htmlviewer/.HTMLViewerActivity; }
+neutral; sleep 4
 rec_start b; sleep 6
 adb shell am start -n $PKG/app.vocr.MainActivity; sleep 5; snap b1-home
 ui tap '^Start$|Allow overlay' || true; sleep 2; adb exec-out screencap -p > $OUT/b2a-bubble.png; sleep 4; snap b2-bubble
@@ -68,7 +70,7 @@ done
 echo "done=$DONE after $((i*10)) s" > $OUT/wait-c.txt
 sleep 3; snap c6-done
 adb shell cmd statusbar expand-notifications; sleep 3; snap c7-ready-shade
-ui tap 'Text ready: ' ; sleep 5; snap c8-opened
+ui tap '^Open$' || ui tap 'Tap the floating|Text ready' ; sleep 5; snap c8-opened
 sleep 4; adb exec-out screencap -p > $OUT/c9-final.png
 rec_stop c
 adb logcat -d | grep -E "vocr|AndroidRuntime|FATAL" | tail -200 > $OUT/log-c.txt
