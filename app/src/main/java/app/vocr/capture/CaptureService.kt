@@ -546,7 +546,7 @@ class CaptureService : Service() {
                     firstShot = n   // no toast or pop-up now: they would end up inside the next capture
                 } catch (e: Throwable) { toast("Could not save: " + (e.message ?: e.javaClass.simpleName)); shotSaved = false }
             }
-            shotSession = LongShotSession(this, bm, sysBar("status_bar_height"), sysBar("navigation_bar_height")); shotY0 = 0.80f; shotY1 = 0.65f; shotProbed = false; shotLoopRan = false; shotRatio = 1.0f; shotReqPx = 0f
+            shotSession = LongShotSession(this, bm, sysBar("status_bar_height"), sysBar("navigation_bar_height")); shotY0 = 0.72f; shotY1 = 0.46f; shotProbed = false; shotLoopRan = false; shotRatio = 1.0f; shotReqPx = 0f
             shotRunning = false
             showShotBar()
             ui.removeCallbacks(shotIdleRun); ui.postDelayed(shotIdleRun, 7000)   // nothing pressed: the bar goes away
@@ -658,8 +658,8 @@ class CaptureService : Service() {
 
     private fun sysBar(name: String): Int = runCatching { val id = resources.getIdentifier(name, "dimen", "android"); if (id > 0) resources.getDimensionPixelSize(id) else 0 }.getOrDefault(0)
     // the first swipe is a short probe: it shows which rows move (a split-screen window, headers, a composer), then the swipe is sized to that moving area
-    @Volatile private var shotY0 = 0.80f
-    @Volatile private var shotY1 = 0.65f
+    @Volatile private var shotY0 = 0.72f
+    @Volatile private var shotY1 = 0.46f
     @Volatile private var shotProbed = false
     @Volatile private var shotLoopRan = false
 
@@ -683,7 +683,7 @@ class CaptureService : Service() {
         val want = band * 0.55f
         val dist = (want / shotRatio).coerceIn(band * 0.15f, band * 0.90f)
         val mid = s.lastHdr + band * 0.5f
-        shotY0 = ((mid + dist / 2f) / hPx).coerceIn(0.05f, 0.97f); shotY1 = ((mid - dist / 2f) / hPx).coerceIn(0.03f, 0.95f)
+        val z = SwipeZone.forward(mid / hPx, dist / hPx, SwipeZone.bottom(hPx, s.lastFtr)); shotY0 = z.first; shotY1 = z.second
         shotProbed = true
         s.logLine("calibrated: ratio=${"%.2f".format(shotRatio)} (moved ${s.lastDy}px for ${"%.0f".format(shotReqPx)}px asked) next drag ${"%.2f".format(shotY0)}->${"%.2f".format(shotY1)}")
     }
@@ -696,7 +696,7 @@ class CaptureService : Service() {
         val dur = (req / 0.78f).toLong().coerceIn(300L, 2500L)   // about 0.78 px per ms, the same finger speed every time
         if (shotBackMode) { shotSince = (shotSince - req * shotRatio).coerceAtLeast(0f); shotReqPx = 0f }   // a drag back is not used to calibrate the ratio
         else { shotSince += req * shotRatio; shotReqPx = req }
-        svc.swipe(screenW(), hPx, shotY0, shotY1, dur, xFrac = shotX, tailMs = 160L) { ok = it; l.countDown() }
+        svc.swipe(screenW(), hPx, shotY0, shotY1, dur, xFrac = SwipeZone.x(shotX), tailMs = 160L) { ok = it; l.countDown() }
         l.await(dur / 1000 + 6, java.util.concurrent.TimeUnit.SECONDS)
         return ok
     }
@@ -773,9 +773,9 @@ class CaptureService : Service() {
                 shotBack = false; shotBackMode = true
                 val hh = resources.displayMetrics.heightPixels.toFloat()
                 val dist = (shotSince * 0.5f / shotRatio).coerceIn(hh * 0.10f, hh * 0.70f)
-                shotY0 = (0.5f * hh - dist / 2f) / hh; shotY1 = (0.5f * hh + dist / 2f) / hh; shotX = ScrollService.X0
+                val z = SwipeZone.back(dist / hh, SwipeZone.bottom(hh, s.lastFtr)); shotY0 = z.first; shotY1 = z.second; shotX = ScrollService.X0
                 afterBack = true; cBack++; s.logLine("drag back ${"%.2f".format(shotY0)}->${"%.2f".format(shotY1)}")
-            } else if (ends > 0 || shotLonger) { shotLonger = false; shotY0 = 0.80f; shotY1 = 0.50f; shotX = floatArrayOf(0.35f, 0.2f, 0.75f, 0.55f)[(ends + mmRound) % 4]; s.logLine("no movement yet: retry drag at x=$shotX") } else shotX = ScrollService.X0
+            } else if (ends > 0 || shotLonger) { shotLonger = false; val z = SwipeZone.forward(0.51f, 0.42f, SwipeZone.bottom(resources.displayMetrics.heightPixels.toFloat(), s.lastFtr)); shotY0 = z.first; shotY1 = z.second; shotX = floatArrayOf(0.35f, 0.2f, 0.75f, 0.55f)[(ends + mmRound) % 4]; s.logLine("no movement yet: retry drag at x=$shotX") } else shotX = ScrollService.X0
             val sw = swipeBlocking()
             s.logLine("swipe ${"%.2f".format(shotY0)}->${"%.2f".format(shotY1)} ok=$sw")
             if (sw) { if (shotBackMode) shotRec = "a drag back" else if (mmRound > 0) shotRec = "a retry drag (round $mmRound)" }
