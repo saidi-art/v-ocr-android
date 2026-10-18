@@ -1,0 +1,40 @@
+name: demo-clips
+on:
+  push:
+    branches: [demo-clips]
+permissions:
+  contents: write
+jobs:
+  clips:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch the published release APK (versionCode 96)
+        run: curl -fsSL -o vocr-release.apk https://github.com/saidi-art/v-ocr-android/releases/download/build-95/vocr-release-95.apk
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+      - name: Record the clips
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          disable-animations: false
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: bash .github/demo/clips.sh
+      - name: Publish as a release (private files stay out; only the demo clips)
+        if: always()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: demo-clips-${{ github.run_number }}
+          name: demo clips ${{ github.run_number }}
+          prerelease: true
+          files: |
+            clips/*.mp4
+            clips/*.png
+            clips/*.xml
+            clips/*.txt
+            clips/*.log
