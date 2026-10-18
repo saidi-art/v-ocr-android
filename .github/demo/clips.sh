@@ -29,14 +29,20 @@ print(f"{best[1]} {best[2]}" if best else "NONE")
 PY
 }
 resumed() { adb shell dumpsys activity activities | grep -E "topResumedActivity|mResumedActivity" | head -2; }
-bubble_tap() { XY=$(bubble_xy $1); echo "bubble at: $XY" | tee -a $OUT/bubble.txt; if [ "$XY" = NONE ]; then XY="520 520"; fi; adb shell input tap $XY; }
+bubble_tap() { XY=$(bubble_xy $1); echo "bubble at: $XY" | tee -a $OUT/bubble.txt; if [ "$XY" = NONE ]; then XY="520 520"; fi; adb shell input tap $XY; sleep 0.6; XY=$(bubble_xy ${1}x); echo "bubble 2nd tap at: $XY" | tee -a $OUT/bubble.txt; if [ "$XY" = NONE ]; then XY="520 520"; fi; adb shell input tap $XY; }
 snap() { adb exec-out screencap -p > $OUT/$1.png; ui dump $OUT/$1.xml; }
 
 # ================= clip b: media projection =================
-python3 $A/page.py > /tmp/neutral.html; adb push /tmp/neutral.html /sdcard/neutral.html
-neutral() { adb shell am start -a android.intent.action.VIEW -d file:///sdcard/neutral.html -t text/html -n com.android.htmlviewer/.HTMLViewerActivity; }
-neutral; sleep 4
-rec_start b; sleep 6
+mkdir -p /tmp/web; python3 $A/page.py > /tmp/web/neutral.html; (cd /tmp/web && nohup python3 -m http.server 8099 >/dev/null 2>&1 &)
+adb root >/dev/null 2>&1; sleep 3; adb wait-for-device
+adb shell "echo '_ --disable-fre --no-first-run --disable-notifications' > /data/local/tmp/chrome-command-line"; adb shell chmod 644 /data/local/tmp/chrome-command-line
+adb shell am set-debug-app --persistent com.android.chrome
+neutral() { adb shell am start -a android.intent.action.VIEW -d http://10.0.2.2:8099/neutral.html -n com.android.chrome/com.google.android.apps.chrome.Main; }
+neutral; sleep 12; ui tap 'Accept|Got it' 1 || true; sleep 2; ui tap 'No thanks|Use without' 1 || true; sleep 2; ui tap 'No thanks' 1 || true
+adb exec-out screencap -p > $OUT/b0-chrome-prelude.png
+adb shell input keyevent KEYCODE_HOME; sleep 2
+neutral; sleep 5
+rec_start b; sleep 4
 adb shell am start -n $PKG/app.vocr.MainActivity; sleep 5; snap b1-home
 ui tap '^Start$|Allow overlay' || true; sleep 2; adb exec-out screencap -p > $OUT/b2a-bubble.png; sleep 4; snap b2-bubble
 bubble_tap b1; sleep 3; resumed | tee -a $OUT/bubble.txt
