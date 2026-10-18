@@ -24,7 +24,7 @@ for blk in re.split(r'\n  Window #', t):
     m=re.search(r'frame=\[(\d+),(\d+)\]\[(\d+),(\d+)\]', blk) or re.search(r'mFrame=\[(\d+),(\d+)\]\[(\d+),(\d+)\]', blk) or re.search(r'Rect\((\d+), (\d+) - (\d+), (\d+)\)', blk)
     if not m: continue
     l,tp,r,b=map(int,m.groups()); a=(r-l)*(b-tp)
-    if a>0 and (best is None or a<best[0]): best=(a,(l+r)//2,(tp+b)//2)
+    if 0<a<=120*120 and (best is None or a>best[0]): best=(a,(l+r)//2,(tp+b)//2)
 print(f"{best[1]} {best[2]}" if best else "NONE")
 PY
 }
@@ -58,7 +58,7 @@ adb logcat -d | grep -E "vocr|AndroidRuntime|FATAL|MediaProjection" | tail -150 
 
 # ================= clip c: media processing =================
 adb shell am force-stop $PKG; sleep 2
-unzip -oq vocr-release.apk assets/demo.mp4 -d /tmp/ex
+adb shell content delete --uri content://media/external/video/media >/dev/null 2>&1; unzip -oq vocr-release.apk assets/demo.mp4 -d /tmp/ex
 adb push /tmp/ex/assets/demo.mp4 /sdcard/Movies/ScrollDemo.mp4
 adb shell am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file:///sdcard/Movies/ScrollDemo.mp4; sleep 4
 adb logcat -c
@@ -69,7 +69,7 @@ ui tap 'ScrollDemo|Video' || ui tap 'thumbnail|icon_thumbnail'; sleep 2; snap c3
 ui tap '^Add \(\d+\)$|button_add' || true; sleep 5; snap c4-queued
 adb shell cmd statusbar expand-notifications; sleep 3; snap c5-progress-shade; adb shell cmd statusbar collapse; sleep 2
 DONE=0
-for i in $(seq 1 90); do
+for i in $(seq 1 40); do
   if adb shell dumpsys notification --noredact | grep -q "Text ready: "; then DONE=1; break; fi
   sleep 10
 done
