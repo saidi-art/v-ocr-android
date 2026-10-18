@@ -43,8 +43,11 @@ val Violet: Color get() = if (Pal.paper) Color(0xFF0C0C0C) else Color(0xFFD2B08A
 val Lilac: Color get() = if (Pal.paper) Color(0xFF0C0C0C) else Color(0xFFE3C7A2)
 val Muted: Color get() = if (Pal.paper) Color(0xD60C0C0C) else Color(0xFFA9A6A0)
 
+/** Bumped whenever the app returns to the front or the Accessibility service connects or stops, so Home re-reads permission state. */
+val homeTick = mutableIntStateOf(0)
+
 class MainActivity : ComponentActivity() {
-    override fun onResume() { super.onResume(); JobQueue.clearDoneNotifications(this) }
+    override fun onResume() { super.onResume(); homeTick.intValue++; JobQueue.clearDoneNotifications(this) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -101,6 +104,7 @@ fun describe(ctx: android.content.Context, uri: Uri): Picked {
 
 @Composable
 fun Home(preview: Picked? = null) {
+    @Suppress("UNUSED_VARIABLE") val tick = homeTick.intValue   // read here so the tiles below recompute on every resume
     val ctx = LocalContext.current
     var picked by remember { mutableStateOf(preview) }
     var progress by remember { mutableStateOf<Progress?>(null) }

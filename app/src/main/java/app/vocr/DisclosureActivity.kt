@@ -33,6 +33,7 @@ class DisclosureActivity : ComponentActivity() {
                         openAccessibilityStack(this)
                     },
                     onDecline = {
+                        app.vocr.capture.CaptureService.prefs(this).edit().putBoolean("autoscroll", false).apply()   // a declined notice leaves auto-scroll visibly off
                         Toast.makeText(this, "Auto-scroll stays off. You can still scroll by hand while recording.", Toast.LENGTH_LONG).show()
                         finish()
                     }

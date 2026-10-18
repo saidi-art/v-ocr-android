@@ -385,8 +385,8 @@ class CaptureService : Service() {
             val f = !prefs(this).getBoolean("fast", false); prefs(this).edit().putBoolean("fast", f).apply()
             mode.text = modeText(); ui.removeCallbacks(hideMenuRun); ui.postDelayed(hideMenuRun, 4000)
         }
-        fun autoText() = if (prefs(this).getBoolean("autoscroll", false)) "Auto-scroll ON" else "Auto-scroll off"
         fun autoOn() = prefs(this).getBoolean("autoscroll", false) && ScrollService.instance != null
+        fun autoText() = if (autoOn()) "Auto-scroll ON" else "Auto-scroll off"   // ON only when the Accessibility service is really running
         val auto = chip(autoText(), chipC()) {}
         fun styleAuto() {   // violet = armed, slate + dim text = off, so the state reads at a glance
             (auto.background as GradientDrawable).setColor(Color.parseColor(if (autoOn()) accentHex() else chipHex()))

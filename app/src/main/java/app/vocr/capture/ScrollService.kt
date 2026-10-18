@@ -11,8 +11,8 @@ import android.graphics.Bitmap
 class ScrollService : AccessibilityService() {
     override fun onAccessibilityEvent(e: AccessibilityEvent?) {}
     override fun onInterrupt() {}
-    override fun onServiceConnected() { super.onServiceConnected(); instance = this }
-    override fun onDestroy() { if (instance === this) instance = null; super.onDestroy() }
+    override fun onServiceConnected() { super.onServiceConnected(); instance = this; app.vocr.homeTick.intValue++ }
+    override fun onDestroy() { if (instance === this) instance = null; app.vocr.homeTick.intValue++; super.onDestroy() }
 
     /** One swipe from y0 to y1 (fractions of the screen height) at the horizontal centre, lasting durMs. */
     fun swipe(w: Int, h: Int, y0: Float, y1: Float, durMs: Long, xFrac: Float = X0, tailMs: Long = 0L, done: (Boolean) -> Unit) {
