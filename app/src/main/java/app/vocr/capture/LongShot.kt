@@ -23,6 +23,7 @@ class LongShotSession(private val ctx: Context, first: Bitmap, private val sysTo
     private var prev: Bitmap = first
     private var prevLuma: ByteArray = luma(first)
     private var ftrPrev = -1
+    private var ftrBasePrev = 0
     private var stickyFtr = 0; private var stickyTop = 0
     private val bands = BandTracker(); private var bandSeeded = false   // a flat strip at the same screen row, seen in at least two captures of the run (it may be missing from some)
     private val maxRows = runCatching { ctx.getSharedPreferences("vocr", Context.MODE_PRIVATE).getInt("max_rows", MAX_ROWS) }.getOrDefault(MAX_ROWS).coerceIn(PART_H, 400000)
@@ -108,12 +109,15 @@ class LongShotSession(private val ctx: Context, first: Bitmap, private val sysTo
         if (max(m.ftr, hidCrop) in 1..(h / 4)) stickyFtr = max(stickyFtr, max(m.ftr, hidCrop))
         if (m.hdr in 1..(h / 4)) stickyTop = max(stickyTop, m.hdr)
         lastHdr = top; lastFtr = ftr; lastDy = best
-        if (ftrPrev < 0) { writer.add(prev, 0, h - ftr); ftrPrev = ftr }   // first pair: the first capture is written up to its footer
-        val sm = ShotMatch.seam(h, ftrPrev, ftr, best, top)
-        val start = sm[0]
-        if (bottom > start) writer.add(cur, start, bottom)
-        note("seam: rows $start..$bottom of the new capture appended, image rows now ${writer.rows} (dy=$best hdr=$top ftr=$ftr, detected hdr=${m.hdr} ftr=${m.ftr})")
-        ftrPrev = sm[2]   // where the written rows end, in this capture's coordinates (the footer when rows were appended)
+        // The last FADE rows above the footer often carry a fade and a "jump to latest" button that are not page content. They are not written now: the next capture supplies the same rows clean.
+        if (ftrPrev < 0) { writer.add(prev, 0, max(0, bottom - ShotMatch.FADE)); ftrPrev = h - max(0, bottom - ShotMatch.FADE); ftrBasePrev = ftr }   // first pair
+        val sm = ShotMatch.seamFade(h, ftrPrev, ftr, best, top, ShotMatch.FADE, ftrBasePrev)
+        val start = sm[0]; val bottomW = sm[1]
+        if (sm[4] > sm[3]) { writer.add(prev, sm[3], sm[4]); note("rows ${sm[3]}..${sm[4]} of the previous capture kept (the new one does not reach back that far)") }
+        if (bottomW > start) writer.add(cur, start, bottomW)
+        note("seam: rows $start..$bottomW of the new capture appended, image rows now ${writer.rows} (dy=$best hdr=$top ftr=$ftr, detected hdr=${m.hdr} ftr=${m.ftr}, last ${ShotMatch.FADE} rows left for the next capture)")
+        ftrPrev = sm[2]   // where the written rows end, in this capture's coordinates, counted from its bottom
+        ftrBasePrev = ftr
         prev.recycle(); prev = cur; prevLuma = curLuma; frames++
         return if (writer.rows >= maxRows) Outcome.CAP else Outcome.ADDED
     }
@@ -358,6 +362,20 @@ object ShotMatch {
 
     /** Where to append the new capture: [start row, bottom row, new "footer edge" distance]. The previous slice ended `ftrPrev` rows above the previous capture's bottom, which is row h - ftrPrev - dy of the new capture.
      *  When the footer grows by more than dy between two pairs, bottom falls above that row: nothing new is appended and the written end stays at start (not bottom), so the next pair does not repeat rows. */
+    /** Rows at the bottom of the scrolling area that are left out of every append (the chat's fade and its "jump to latest" button), so the next capture's clean rows are used instead. */
+    const val FADE = 120
+
+    /** Like [seam], but the written end stays `fade` rows above the footer. Returns [start, bottomW, new ftrPrev, prevFrom, prevTo] where rows start..bottomW of the new capture are appended.
+     *  When the new capture cannot reach back to the written end (a drag of almost the whole band) rows prevFrom..prevTo of the previous capture are written first, so no row is lost. */
+    fun seamFade(h: Int, ftrPrev: Int, ftr: Int, dy: Int, top: Int, fade: Int, prevFtr: Int): IntArray {
+        val raw = h - ftrPrev - dy
+        val start = max(raw, top)
+        val bottomW = max(h - ftr - fade, 0)
+        val pFrom = h - ftrPrev
+        val pTo = if (raw < top) min(top + dy, h - prevFtr) else pFrom
+        return intArrayOf(start, bottomW, h - max(start, bottomW), pFrom, pTo)
+    }
+
     fun seam(h: Int, ftrPrev: Int, ftr: Int, dy: Int, top: Int): IntArray {
         val bottom = h - ftr
         val start = max(h - ftrPrev - dy, top)
