@@ -37,6 +37,23 @@ class OcrTest {
         assertTrue("word match $r", r >= 0.90)
     }
 
+    @Test fun rescueIsFreeWithoutMalformedTokens() {
+        val dir = File("src/main/assets/ocr")
+        assumeTrue(File(dir, "det.onnx").exists())
+        val eng = OcrEngine(File(dir, "det.onnx").readBytes(), File(dir, "rec.onnx").readBytes(), File(dir, "keys.txt").readText().split("\n"))
+        val ins = DataInputStream(GZIPInputStream(javaClass.getResourceAsStream("/st0.rgb.gz")!!))
+        val iw = ins.readInt(); val ih = ins.readInt()
+        val raw = ByteArray(iw * ih * 3); ins.readFully(raw)
+        val px = IntArray(iw * ih) { ((raw[it * 3].toInt() and 255) shl 16) or ((raw[it * 3 + 1].toInt() and 255) shl 8) or (raw[it * 3 + 2].toInt() and 255) }
+        val img = Rgb(iw, ih, px)
+        val lines = eng.recognize(img)
+        assertTrue(lines.size >= 10)
+        eng.reReads = 0
+        val out = lines.map { Tokens.repairLine(eng, img, it) }
+        assertEquals("no second-look read without a broken shaped token", 0, eng.reReads)
+        assertEquals("text unchanged", lines.map { it.text }, out.map { it.text })
+    }
+
     @Test fun stitchesOverlap() {
         val a = listOf("Hello world this is line one", "second line of text here", "third line of the page", "fourth line almost done")
         val b = listOf("third line of the page", "fourth line almost done", "fifth line brand new", "sixth line also new")

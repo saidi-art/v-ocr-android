@@ -179,31 +179,58 @@ class OcrEngine(detModel: ByteArray, recModel: ByteArray, keys: List<String>, th
         return out
     }
 
+    /** Reads one cropped line box: CTC decode, then word spaces reconstructed from pixel gaps. */
+    private fun readCrop(crop: Rgb, x0: Int, y0: Int, x1: Int, y1: Int): OcrLine? {
+        val (seq, pos, tc) = readLine(crop)
+        if (seq.isEmpty()) return null
+        val gaps = wordGaps(crop)
+        val d = IntArray(seq.size - 1) { pos[it + 1] - pos[it] }.sortedArray()
+        val medGap = if (d.isEmpty()) 1 else d[d.size / 2]
+        val sb = StringBuilder(chars[seq[0]])
+        for (i in 1 until seq.size) {
+            val a = chars[seq[i - 1]]; val c = chars[seq[i]]
+            if (a != " " && c != " " && pos[i] - pos[i - 1] >= 0 * medGap) {
+                val xa = pos[i - 1] * crop.w.toFloat() / tc.first; val xb = pos[i] * crop.w.toFloat() / tc.first
+                val narrow = a in NARROW || c in NARROW
+                val need = gapFrac * crop.h * (if (narrow) narrowBoost else 1f)
+                if (gaps.any { it.first > xa && it.first < xb && it.second >= need }) sb.append(' ')
+            }
+            sb.append(c)
+        }
+        return OcrLine(sb.toString().trim(), x0, y0, x1, y1, tc.second)
+    }
+
     fun recognize(img: Rgb): List<OcrLine> {
         val lines = ArrayList<OcrLine>()
         for (b in detect(img)) {
             val x0 = b.x0.toInt().coerceIn(0, img.w - 1); val y0 = b.y0.toInt().coerceIn(0, img.h - 1)
             val x1 = b.x1.toInt().coerceIn(x0 + 1, img.w); val y1 = b.y1.toInt().coerceIn(y0 + 1, img.h)
             if (y1 - y0 < 14 || x1 - x0 < 18) continue   // specks (wallpaper, icons) are not text lines
-            val crop = img.crop(x0, y0, x1, y1)
-            val (seq, pos, tc) = readLine(crop)
-            if (seq.isEmpty()) continue
-            val gaps = wordGaps(crop)
-            val d = IntArray(seq.size - 1) { pos[it + 1] - pos[it] }.sortedArray()
-            val medGap = if (d.isEmpty()) 1 else d[d.size / 2]
-            val sb = StringBuilder(chars[seq[0]])
-            for (i in 1 until seq.size) {
-                val a = chars[seq[i - 1]]; val c = chars[seq[i]]
-                if (a != " " && c != " " && pos[i] - pos[i - 1] >= 0 * medGap) {
-                    val xa = pos[i - 1] * crop.w.toFloat() / tc.first; val xb = pos[i] * crop.w.toFloat() / tc.first
-                    val narrow = a in NARROW || c in NARROW
-                    val need = gapFrac * crop.h * (if (narrow) narrowBoost else 1f)
-                    if (gaps.any { it.first > xa && it.first < xb && it.second >= need }) sb.append(' ')
-                }
-                sb.append(c)
-            }
-            lines.add(OcrLine(sb.toString().trim(), x0, y0, x1, y1, tc.second))
+            val ln = readCrop(img.crop(x0, y0, x1, y1), x0, y0, x1, y1) ?: continue
+            lines.add(ln)
         }
         return lines
+    }
+
+    var reReads = 0   // second-look reads done for the token rescue (cost audit)
+
+    /**
+     * Second look at one already-detected line, for the token rescue (Tokens.repairLine): the box comes from the first
+     * pass (no new detection), the crop is padded and re-rasterised at targetH (the recognizer's input height is fixed
+     * at 48, so each raster height feeds it a genuinely different sample). The returned line keeps the first pass's box.
+     */
+    fun reRead(img: Rgb, ln: OcrLine, targetH: Int = 64): OcrLine? {
+        reReads++
+        val padY = (ln.y1 - ln.y0) / 3 + 2
+        val x0 = (ln.x0 - 8).coerceAtLeast(0); val y0 = (ln.y0 - padY).coerceAtLeast(0)
+        val x1 = (ln.x1 + 8).coerceAtMost(img.w); val y1 = (ln.y1 + padY).coerceAtMost(img.h)
+        if (x1 - x0 < 16 || y1 - y0 < 14) return null
+        var crop = img.crop(x0, y0, x1, y1)
+        if (crop.h != targetH) {
+            val nw = (crop.w.toLong() * targetH / crop.h).toInt().coerceIn(16, 4096)
+            crop = crop.resize(nw, targetH)
+        }
+        val r = readCrop(crop, 0, 0, crop.w, crop.h) ?: return null
+        return OcrLine(r.text, ln.x0, ln.y0, ln.x1, ln.y1, r.conf)
     }
 }

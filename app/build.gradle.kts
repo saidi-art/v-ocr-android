@@ -11,8 +11,8 @@ android {
         minSdk = 29
         targetSdk = 36
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
-        versionCode = 99
-        versionName = "0.12.5-t1"
+        versionCode = 100
+        versionName = "0.12.6-t1"
     }
     val ksPath = System.getenv("VOCR_KS_PATH")
     signingConfigs {
@@ -37,4 +37,4 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("com.microsoft.onnxruntime:onnxruntime:1.22.0")
 }
-tasks.withType<Test> { System.getProperty("nb")?.let { systemProperty("nb", it) } }
+tasks.withType<Test> { System.getProperty("nb")?.let { systemProperty("nb", it) }; maxHeapSize = "768m" }   // the OCR tests load two ONNX models: cap the forked JVM so small dev boxes survive

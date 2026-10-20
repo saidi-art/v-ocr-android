@@ -11,6 +11,18 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
+/** Row ranges of the stitched image that are screen chrome (a fixed header or footer band), left in the picture but out of the OCR text. Pure, unit-tested. */
+object ChromeMap {
+    /** Records the parts of frame rows [y0, y1) that fall inside the header band [0, top) or the footer band [h - ftr, h), shifted to stitched rows starting at sy. */
+    fun add(out: MutableList<IntArray>, sy: Int, y0: Int, y1: Int, top: Int, ftr: Int, h: Int) {
+        if (y1 <= y0) return
+        if (top > 0 && y0 < top) out.add(intArrayOf(sy, sy + min(y1, top) - y0))
+        val fb = h - ftr
+        if (ftr > 0 && y1 > fb) out.add(intArrayOf(sy + max(y0, fb) - y0, sy + y1 - y0))
+    }
+    fun contains(ranges: List<IntArray>, y: Int): Boolean { for (r in ranges) if (y >= r[0] && y < r[1]) return true; return false }
+}
+
 /**
  * Screenshot and long (scrolling) screenshot. Every pixel is kept at the device's own resolution: no scaling, no JPEG, PNG only.
  * A long capture is written in parts of at most PART_H rows (viewers blur or refuse very tall images), with an overall cap of MAX_ROWS.
@@ -53,6 +65,10 @@ class LongShotSession(private val ctx: Context, first: Bitmap, private val sysTo
     var lastHdr = 0; private set
     var lastDy = 0; private set
     var lastFtr = 0; private set
+    private val chrome = ArrayList<IntArray>()
+    /** Stitched row ranges kept in the image but left out of the OCR text: the first capture's header band and the last capture's footer band (the bands the shot log records per pair). */
+    fun chromeRanges(): List<IntArray> = chrome
+    private fun addRows(src: Bitmap, y0: Int, y1: Int, top: Int, ftr: Int) { ChromeMap.add(chrome, writer.rows, y0, y1, top, ftr, h); writer.add(src, y0, y1) }
     private val log = StringBuilder()
     fun logText(): String = log.toString()
     fun logLine(t: String) = note(t)
@@ -110,11 +126,11 @@ class LongShotSession(private val ctx: Context, first: Bitmap, private val sysTo
         if (m.hdr in 1..(h / 4)) stickyTop = max(stickyTop, m.hdr)
         lastHdr = top; lastFtr = ftr; lastDy = best
         // The last FADE rows above the footer often carry a fade and a "jump to latest" button that are not page content. They are not written now: the next capture supplies the same rows clean.
-        if (ftrPrev < 0) { writer.add(prev, 0, max(0, bottom - ShotMatch.FADE)); ftrPrev = h - max(0, bottom - ShotMatch.FADE); ftrBasePrev = ftr }   // first pair
+        if (ftrPrev < 0) { addRows(prev, 0, max(0, bottom - ShotMatch.FADE), top, ftr); ftrPrev = h - max(0, bottom - ShotMatch.FADE); ftrBasePrev = ftr }   // first pair: the new capture's own header band is chrome
         val sm = ShotMatch.seamFade(h, ftrPrev, ftr, best, top, ShotMatch.FADE, ftrBasePrev)
         val start = sm[0]; val bottomW = sm[1]
-        if (sm[4] > sm[3]) { writer.add(prev, sm[3], sm[4]); note("rows ${sm[3]}..${sm[4]} of the previous capture kept (the new one does not reach back that far)") }
-        if (bottomW > start) writer.add(cur, start, bottomW)
+        if (sm[4] > sm[3]) { addRows(prev, sm[3], sm[4], 0, 0); note("rows ${sm[3]}..${sm[4]} of the previous capture kept (the new one does not reach back that far)") }
+        if (bottomW > start) addRows(cur, start, bottomW, top, ftr)
         note("seam: rows $start..$bottomW of the new capture appended, image rows now ${writer.rows} (dy=$best hdr=$top ftr=$ftr, detected hdr=${m.hdr} ftr=${m.ftr}, last ${ShotMatch.FADE} rows left for the next capture)")
         ftrPrev = sm[2]   // where the written rows end, in this capture's coordinates, counted from its bottom
         ftrBasePrev = ftr
@@ -126,7 +142,8 @@ class LongShotSession(private val ctx: Context, first: Bitmap, private val sysTo
 
     /** Writes the last capture's fixed footer and returns the finished part files (in the app cache). */
     fun finish(): List<File> {
-        if (frames == 1) writer.add(prev, 0, h) else writer.add(prev, h - max(ftrPrev, 0), h)
+        if (frames == 1) writer.add(prev, 0, h) else addRows(prev, h - max(ftrPrev, 0), h, 0, lastFtr)   // single capture: no pair, so no band was ever detected
+        if (chrome.isNotEmpty()) note("OCR text leaves out screen chrome (kept in the image): " + chrome.joinToString(", ") { "rows ${it[0]}..${it[1]}" })
         val f = writer.finish()
         prev.recycle()
         return f
@@ -209,7 +226,7 @@ object ShotSaver {
     class Result(val names: String, val images: List<android.net.Uri>, val textUri: android.net.Uri?, val text: String)
 
     /** Saves the parts. A single part keeps the plain name; several parts are numbered. */
-    fun save(ctx: Context, base: String, parts: List<File>, withText: Boolean): Result {
+    fun save(ctx: Context, base: String, parts: List<File>, withText: Boolean, chrome: List<IntArray> = emptyList()): Result {
         val uris = ArrayList<android.net.Uri>()
         // Images are saved first under the timestamp name (nothing is lost if reading the text is cut short), then renamed after the text gives them a title.
         parts.forEachIndexed { i, f ->
@@ -219,7 +236,7 @@ object ShotSaver {
             uris.add(r.uri)
         }
         var tt = ""
-        if (withText) runCatching { tt = ocr(ctx, parts) }
+        if (withText) runCatching { tt = ocr(ctx, parts, chrome) }
         var title = base
         if (tt.isNotBlank() && !app.vocr.core.Title.looksLikeList(tt)) runCatching { title = app.vocr.core.Saver.titleFor(ctx, tt, base) }   // a file list has no page title: keep the timestamp name
         var renamed = title != base
@@ -235,7 +252,7 @@ object ShotSaver {
     }
 
     /** OCR on native-resolution strips of about one screen with a small overlap (never on a downscaled copy), stitched like a video job. */
-    private fun ocr(ctx: Context, parts: List<File>): String {
+    private fun ocr(ctx: Context, parts: List<File>, chrome: List<IntArray>): String {
         val heights = parts.map { f -> val o = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }; android.graphics.BitmapFactory.decodeFile(f.path, o); o.outHeight }
         val w = parts.map { f -> val o = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }; android.graphics.BitmapFactory.decodeFile(f.path, o); o.outWidth }.firstOrNull() ?: return ""
         val total = heights.sum(); val strip = 3200; val ov = 160
@@ -260,12 +277,14 @@ object ShotSaver {
                 val px = IntArray(bm.width * bm.height); bm.getPixels(px, 0, bm.width, 0, 0, bm.width, bm.height)
                 for (k in px.indices) px[k] = px[k] and 0xFFFFFF
                 val img = app.vocr.core.Rgb(bm.width, bm.height, px); bm.recycle()
-                perStrip.add(eng.recognize(img).map { app.vocr.core.Line(app.vocr.core.Clean.text(it.text), (it.y0 + it.y1) / 2f / img.h) }.filter { app.vocr.core.Clean.keep(it.text) })
+                val found = eng.recognize(img)
+                val kept = if (chrome.isEmpty()) found else found.filter { ln -> !ChromeMap.contains(chrome, y0 + (ln.y0 + ln.y1) / 2) }
+                perStrip.add(kept.map { app.vocr.core.Tokens.repairLine(eng, img, it) }.map { app.vocr.core.Line(app.vocr.core.Clean.text(it.text), (it.y0 + it.y1) / 2f / img.h) }.filter { app.vocr.core.Clean.keep(it.text) })
                 if (y1 >= total) break
                 y0 = y1 - ov
             }
             val sp = app.vocr.core.Spacing.load(ctx.assets.open("words.txt").use { String(it.readBytes(), Charsets.UTF_8) }.split("\n"))
-            return app.vocr.core.Stitch.merge(perStrip.map { st -> st.map { sp.fix(it.text) } }).map { app.vocr.core.Fix.lookalikes(it) }.joinToString("\n")
+            return app.vocr.core.Stitch.merge(perStrip.map { st -> st.map { sp.fix(it.text) } }).map { app.vocr.core.Tokens.fixLine(app.vocr.core.Fix.lookalikes(it)) }.joinToString("\n")
         } finally { eng.close(); app.vocr.core.Pipeline.gate.unlock() }
     }
 }

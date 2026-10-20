@@ -118,14 +118,14 @@ object Reader {
                 val px = IntArray(bm.width * bm.height); bm.getPixels(px, 0, bm.width, 0, 0, bm.width, bm.height)
                 for (k in px.indices) px[k] = px[k] and 0xFFFFFF
                 val img = Rgb(bm.width, bm.height, px); bm.recycle()
-                val ls = eng.recognize(img).map { Line(Clean.text(it.text), (it.y0 + it.y1) / 2f / img.h) }.filter { Clean.keep(it.text) }
+                val ls = eng.recognize(img).map { Tokens.repairLine(eng, img, it) }.map { Line(Clean.text(it.text), (it.y0 + it.y1) / 2f / img.h) }.filter { Clean.keep(it.text) }
                 perStrip.add(ls); doneArea += areas[i]; liveLines += ls.size; live = ls.takeLast(6).map { it.text }
             }
             onProgress(Progress("Stitching", strips.size, strips.size))
             val raw = perStrip.sumOf { it.size }
             val cleaned = Chrome.strip(perStrip)
             val sp = Spacing.load(ctx.assets.open("words.txt").use { String(it.readBytes(), Charsets.UTF_8) }.split("\n"))
-            val merged = Stitch.merge(cleaned.map { st -> st.map { sp.fix(it.text) } }).map { Fix.lookalikes(it) }
+            val merged = Stitch.merge(cleaned.map { st -> st.map { sp.fix(it.text) } }).map { Tokens.fixLine(Fix.lookalikes(it)) }
             val ms = System.currentTimeMillis() - t0
             return ReadResult(merged.joinToString("\n"), strips.size, raw, merged.size, ms,
                 "detect ${eng.detMs}ms, recognize ${eng.recMs}ms, post ${eng.postMs}ms")
