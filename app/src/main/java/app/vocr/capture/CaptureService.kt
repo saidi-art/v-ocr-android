@@ -543,7 +543,7 @@ class CaptureService : Service() {
                 try {
                     val f = java.io.File(cacheDir, "shot_${System.nanoTime()}_0.png")
                     f.outputStream().use { bm.compress(Bitmap.CompressFormat.PNG, 100, it) }
-                    val n = ShotSaver.save(this, base, listOf(f), prefs(this).getBoolean("shot_text", true), ChromeMap.systemBars(bm.height, sTop, sBot))
+                    val n = ShotSaver.save(this, base, listOf(f), prefs(this).getBoolean("shot_text", true), ChromeMap.systemBars(bm.height, sTop, sBot), singleFrame = true)
                     firstShot = n   // no toast or pop-up now: they would end up inside the next capture
                 } catch (e: Throwable) { toast("Could not save: " + (e.message ?: e.javaClass.simpleName)); shotSaved = false }
             }
@@ -840,7 +840,7 @@ class CaptureService : Service() {
                 val st = stamp()
                 val base = (if (tall) "ScrollRSI long shot " else "ScrollRSI shot ") + st
                 writeLog(st)
-                val n = ShotSaver.save(this, base, parts, prefs(this).getBoolean("shot_text", true), chrome, s.marks())
+                val n = ShotSaver.save(this, base, parts, prefs(this).getBoolean("shot_text", true), chrome, s.marks(), singleFrame = s.frames <= 1)
                 toast("Saved to Download/ScrollRSI: ${n.names}" + (if (s.gaps > 0) ". The page could not be lined up ${s.gaps} time(s): a section may be missing between image parts" else "")); postShotDone(n, tall)
                 firstShot = null
             } catch (e: Throwable) { toast("Could not save: " + (e.message ?: e.javaClass.simpleName)); runCatching { s.discard() } }

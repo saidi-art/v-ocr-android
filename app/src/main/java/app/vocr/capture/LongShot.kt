@@ -297,7 +297,7 @@ object ShotSaver {
     class Result(val names: String, val images: List<android.net.Uri>, val textUri: android.net.Uri?, val text: String)
 
     /** Saves the parts. A single part keeps the plain name; several parts are numbered. */
-    fun save(ctx: Context, base: String, parts: List<File>, withText: Boolean, chrome: List<IntArray> = emptyList(), marks: List<Mark> = emptyList()): Result {
+    fun save(ctx: Context, base: String, parts: List<File>, withText: Boolean, chrome: List<IntArray> = emptyList(), marks: List<Mark> = emptyList(), singleFrame: Boolean = false): Result {
         val uris = ArrayList<android.net.Uri>()
         // Images are saved first under the timestamp name (nothing is lost if reading the text is cut short), then renamed after the text gives them a title.
         parts.forEachIndexed { i, f ->
@@ -307,7 +307,7 @@ object ShotSaver {
             uris.add(r.uri)
         }
         var tt = ""
-        if (withText) runCatching { tt = ocr(ctx, parts, chrome, marks) }
+        if (withText) runCatching { tt = ocr(ctx, parts, chrome, marks, singleFrame) }
         var title = base
         if (tt.isNotBlank() && !app.vocr.core.Title.looksLikeList(tt)) runCatching { title = app.vocr.core.Saver.titleFor(ctx, tt, base) }   // a file list has no page title: keep the timestamp name
         var renamed = title != base
@@ -323,7 +323,7 @@ object ShotSaver {
     }
 
     /** OCR on native-resolution strips of about one screen with a small overlap (never on a downscaled copy), stitched like a video job. */
-    private fun ocr(ctx: Context, parts: List<File>, chrome: List<IntArray>, marks: List<Mark>): String {
+    private fun ocr(ctx: Context, parts: List<File>, chrome: List<IntArray>, marks: List<Mark>, singleFrame: Boolean): String {
         val heights = parts.map { f -> val o = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }; android.graphics.BitmapFactory.decodeFile(f.path, o); o.outHeight }
         val w = parts.map { f -> val o = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }; android.graphics.BitmapFactory.decodeFile(f.path, o); o.outWidth }.firstOrNull() ?: return ""
         val total = heights.sum(); val strip = 3200; val ov = 160
@@ -355,7 +355,8 @@ object ShotSaver {
                 y0 = y1 - ov
             }
             val sp = app.vocr.core.Spacing.load(ctx.assets.open("words.txt").use { String(it.readBytes(), Charsets.UTF_8) }.split("\n"))
-            return app.vocr.core.Stitch.merge(perStrip.map { st -> st.map { sp.fix(it.text) } }).map { app.vocr.core.Tokens.fixLine(app.vocr.core.Fix.lookalikes(it)) }.joinToString("\n")
+            val merged = app.vocr.core.Stitch.merge(perStrip.map { st -> st.map { sp.fix(it.text) } }).map { app.vocr.core.Tokens.fixLine(app.vocr.core.Fix.lookalikes(it)) }
+            return app.vocr.core.Flags.apply(merged, singleFrame).joinToString("\n")
         } finally { eng.close(); app.vocr.core.Pipeline.gate.unlock() }
     }
 }
