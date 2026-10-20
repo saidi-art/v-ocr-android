@@ -22,6 +22,8 @@ class TokensTest {
 
     @Test fun fixLineRepairsMonthsOnly() {
         assertEquals("(Oct 25,2026)", Tokens.fixLine("(0ct 25,2026)"))
+        assertEquals("17 Oct.", Tokens.fixLine("17 0ct."))   // a trailing full stop hid the month shape (build 102 miss)
+        assertEquals("due Oct-2026", Tokens.fixLine("due 0ct-2026"))
         assertEquals("due Sep 1", Tokens.fixLine("due 5ep 1"))
         assertEquals("Oct", Tokens.fixLine("Oct"))
         assertEquals("release 1O stays", Tokens.fixLine("release 1O stays"))

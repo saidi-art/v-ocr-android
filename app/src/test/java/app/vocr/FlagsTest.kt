@@ -112,4 +112,40 @@ class FlagsTest {
         assertTrue(out[1].contains("'E200'"))
         assertEquals("E200 budget", out[2])
     }
+
+    @Test fun urlWrapIgnoresIntactSingleLineUrl() {
+        // The Cloud Shell false fire: a complete address on one line, ordinary words on the next - not a wrap.
+        val lines = listOf(
+            "your shell is at shell.cloud.google.com",
+            "projects and dashboards load there",
+            "visit https://github.com today",
+            "the readme lists the builds"
+        )
+        assertEquals(lines, Flags.urlWraps(lines))
+    }
+
+    @Test fun urlWrapStillCatchesDomainSplitAndTrailingPunct() {
+        val lines = listOf(
+            "the repo is at github.",
+            "com/saidi-art/v-ocr-android now"
+        )
+        val out = Flags.urlWraps(lines)
+        assertTrue(out[1].startsWith("[ScrollRSI: a link wraps"))
+    }
+
+    @Test fun addressBarEllipsisIsCutOffNotWrapped() {
+        val lines = listOf(
+            "shell.cloud.googl…",
+            "the console loaded fine"
+        )
+        val out = Flags.urlWraps(lines)
+        assertEquals(3, out.size)
+        assertTrue(out[1].contains("cut off"))
+        assertFalse(out[1].contains("wraps"))
+    }
+
+    @Test fun proseEllipsisStaysQuiet() {
+        val lines = listOf("and then he said...", "nothing more")
+        assertEquals(lines, Flags.urlWraps(lines))
+    }
 }

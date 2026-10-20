@@ -27,7 +27,7 @@ object Tokens {
     /** Raster heights for the second-look reads: the recognizer input height is fixed, so each phase feeds it a genuinely different raster. */
     private val PHASES = intArrayOf(56, 72, 88)
     private const val LEAD = "([{<'\""
-    private const val TAIL = ")]}>!?:;,'\""
+    private const val TAIL = ")]}>!?:;,'\"."
 
     private class Core(val pre: String, val core: String, val post: String)
     /** Splits surrounding punctuation off a token so the shape test sees "0ct" in "(0ct" and "github.com" in "github.com,". */
@@ -59,7 +59,14 @@ object Tokens {
     /** Deterministic pass over a finished line: month names only, the one closed shape where a digit can never be intended. */
     fun fixLine(line: String): String = line.split(' ').joinToString(" ") { t ->
         val p = split(t)
-        if (p.core.length >= 3) monthSwap(p.core)?.let { return@joinToString p.pre + it + p.post }
+        if (p.core.length >= 3) {
+            monthSwap(p.core)?.let { return@joinToString p.pre + it + p.post }
+            if ('-' in p.core) {   // a month glued to the rest of a date by a hyphen ("0ct-2026") still fixes part by part
+                val parts = p.core.split('-')
+                val fixed = parts.map { if (it.length >= 3) monthSwap(it) ?: it else it }
+                if (fixed != parts) return@joinToString p.pre + fixed.joinToString("-") + p.post
+            }
+        }
         t
     }
 

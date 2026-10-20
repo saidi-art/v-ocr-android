@@ -9,9 +9,10 @@ package app.vocr.core
 object Flags {
 
     /** Appended once to the text of a single-frame capture: what one still screenshot can hide. */
-    const val COMPOSER_NOTE = "[ScrollRSI: text behind the on-screen composer or chat box may be missing from this screenshot]"
+    const val COMPOSER_NOTE = "[ScrollRSI: anything hidden behind a bottom bar (composer, keyboard, toolbar) may be missing from this screenshot]"
 
     private const val URL_WRAP_NOTE = "[ScrollRSI: a link wraps across this line break - characters may be missing where it joins]"
+    private const val URL_CUT_NOTE = "[ScrollRSI: a link is cut off here (shortened by the address bar) - the full address is not in the capture]"
 
     private fun isMark(l: String) = l.startsWith("[ScrollRSI:")
 
@@ -58,7 +59,23 @@ object Flags {
     private val urlShape = Regex("^(?:https?://|www\\.)|(?i:[a-z0-9-]+\\.(?:com|org|net|io|ai|app|dev|co|me|info|xyz|tv|gov|edu|jp|uk|de|fr|au|ca|nz|kr|cn|in)(?:[/._~%?=&+#-]|$))")
     private val urlPunct = Regex("[./_%~?=&-]")
 
-    /** A link split by a line break: the left token ends mid-address and the right one continues it. */
+    private val endPunct = Regex("[/._~%?=&#+-]$")
+    private val ellipsisEnd = Regex("(?:…|\\.\\.+)$")
+
+    /** A link that ends in an ellipsis at the end of its line: shortened by a bar (the address bar above all), not wrapped. */
+    private fun cutOff(a: String): Boolean {
+        if (isMark(a)) return false
+        val ta = a.trimEnd().substringAfterLast(' ')
+        if (!ellipsisEnd.containsMatchIn(ta)) return false
+        val stem = ta.replace(ellipsisEnd, "")
+        return stem.length >= 3 && (urlPunct.containsMatchIn(stem) || urlShape.containsMatchIn(stem))
+    }
+
+    /**
+     * A link genuinely split by a line break: the break must cut the address, so either the left token ends on
+     * continuation punctuation (/ . - _ etc.) or the address only completes once the two sides join. An intact
+     * single-line address (shell.cloud.google.com) followed by an ordinary word is NOT a wrap.
+     */
     private fun wraps(a: String, b: String): Boolean {
         if (isMark(a) || isMark(b)) return false
         val ta = a.trimEnd().substringAfterLast(' ')
@@ -66,14 +83,15 @@ object Flags {
         if (ta.length < 3 || tb.isEmpty()) return false
         if (!ta.matches(urlChar) || !tb.matches(urlChar)) return false
         if (!urlShape.containsMatchIn(ta + tb)) return false
-        return urlPunct.containsMatchIn(ta) || urlPunct.containsMatchIn(tb)
+        return endPunct.containsMatchIn(ta) || !urlShape.containsMatchIn(ta)
     }
 
-    /** Marks every line break that cuts through a link: wrapped characters (underscores above all) are easy to lose at the join. */
+    /** Marks every line break that cuts through a link, and every link a bar shortened to an ellipsis. */
     fun urlWraps(lines: List<String>): List<String> {
         val out = ArrayList<String>(lines.size + 2)
         for (i in lines.indices) {
             out.add(lines[i])
+            if (cutOff(lines[i])) { out.add(URL_CUT_NOTE); continue }
             if (i + 1 < lines.size && wraps(lines[i], lines[i + 1])) out.add(URL_WRAP_NOTE)
         }
         return out
