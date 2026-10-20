@@ -79,6 +79,18 @@ class ChromeMapTest {
         ChromeMap.add(out, 0, 0, 2340, 130, 260, 2340)   // a whole frame written whole (should not happen, but stays correct)
         assertEquals(2, out.size); assertArrayEquals(intArrayOf(0, 130), out[0]); assertArrayEquals(intArrayOf(2080, 2340), out[1])
     }
+    @Test fun systemBarsOfOneFrame() {
+        val r = ChromeMap.systemBars(2340, 97, 135)   // the S24 screenshot: status bar 97, navigation bar 135
+        assertEquals(2, r.size); assertArrayEquals(intArrayOf(0, 97), r[0]); assertArrayEquals(intArrayOf(2205, 2340), r[1])
+        assertTrue(ChromeMap.contains(r, 60)); assertFalse(ChromeMap.contains(r, 97))
+        assertTrue(ChromeMap.contains(r, 2205)); assertTrue(ChromeMap.contains(r, 2339)); assertFalse(ChromeMap.contains(r, 2204))
+    }
+    @Test fun systemBarsSkipsMissingAndInsane() {
+        assertTrue(ChromeMap.systemBars(2340, 0, 0).isEmpty())   // no system bar heights known: nothing trimmed
+        assertTrue(ChromeMap.systemBars(2340, 700, 0).isEmpty())   // taller than a quarter of the screen is not a bar
+        val r = ChromeMap.systemBars(2340, 0, 135)
+        assertEquals(1, r.size); assertArrayEquals(intArrayOf(2205, 2340), r[0])
+    }
     @Test fun containsFindsRanges() {
         val r = listOf(intArrayOf(0, 130), intArrayOf(6080, 6340))
         assertTrue(ChromeMap.contains(r, 0)); assertTrue(ChromeMap.contains(r, 129)); assertTrue(ChromeMap.contains(r, 6339))

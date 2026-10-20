@@ -537,16 +537,17 @@ class CaptureService : Service() {
             if (LongShotSession.blank(bm)) { shotRunning = false; bm.recycle(); toast("This app blocks screenshots (the picture is black)"); return@snap }
             shotStamp = stamp(); shotEndReason = ""; shotCause = ""; shotRec = ""; cEnd = 0; cMm = 0; cBack = 0
             val base = "ScrollRSI shot " + shotStamp
+            val sTop = sysBar("status_bar_height"); val sBot = sysBar("navigation_bar_height")
             shotSaved = save
             if (save) shotExec.execute {
                 try {
                     val f = java.io.File(cacheDir, "shot_${System.nanoTime()}_0.png")
                     f.outputStream().use { bm.compress(Bitmap.CompressFormat.PNG, 100, it) }
-                    val n = ShotSaver.save(this, base, listOf(f), prefs(this).getBoolean("shot_text", true))
+                    val n = ShotSaver.save(this, base, listOf(f), prefs(this).getBoolean("shot_text", true), ChromeMap.systemBars(bm.height, sTop, sBot))
                     firstShot = n   // no toast or pop-up now: they would end up inside the next capture
                 } catch (e: Throwable) { toast("Could not save: " + (e.message ?: e.javaClass.simpleName)); shotSaved = false }
             }
-            shotSession = LongShotSession(this, bm, sysBar("status_bar_height"), sysBar("navigation_bar_height")); shotY0 = 0.72f; shotY1 = 0.46f; shotProbed = false; shotLoopRan = false; shotRatio = 1.0f; shotReqPx = 0f
+            shotSession = LongShotSession(this, bm, sTop, sBot); shotY0 = 0.72f; shotY1 = 0.46f; shotProbed = false; shotLoopRan = false; shotRatio = 1.0f; shotReqPx = 0f
             shotRunning = false
             showShotBar()
             ui.removeCallbacks(shotIdleRun); ui.postDelayed(shotIdleRun, 7000)   // nothing pressed: the bar goes away
@@ -737,6 +738,8 @@ class CaptureService : Service() {
                     sawMm = true
                     a.recycle()
                     // a toast or a heads-up notification may have been on screen: wait for it to go, capture the same page again (up to 3 tries)
+                    val tryDys = ArrayList<Int>()   // the offsets the recaptures keep measuring: position evidence when pixels cannot prove the seam
+                    if (s.lastTryDy > 0) tryDys.add(s.lastTryDy)
                     var tries2 = 0; var ok = false
                     while (tries2 < 3 && !ok && reason.isEmpty()) {
                         tries2++; Thread.sleep(2000)
@@ -745,7 +748,16 @@ class CaptureService : Service() {
                             LongShotSession.Outcome.ADDED -> { ok = true; mmRound = 0; shotSince = 0f; shotLonger = false; sizeSwipe(s) }
                             LongShotSession.Outcome.END -> { c.recycle(); ok = true; if (wasBack && backEnds < 3) { backEnds++; shotLonger = true; s.logLine("same as the last accepted capture right after a drag back: not the end, try $backEnds of 3") } else if (++ends >= 3) reason = endReasonText(s.frames) }
                             LongShotSession.Outcome.CAP -> { ok = true; reason = "Reached the size limit" }
-                            else -> c.recycle()
+                            else -> {
+                                if (s.lastTryDy > 0) tryDys.add(s.lastTryDy)
+                                // A live page that changed while scrolling never matches; when 3 recaptures agree on the offset, seam there and mark the join.
+                                val med = if (tries2 >= 3) SeamTrust.positionOnlyDy(tryDys, shotRatio) else -1
+                                if (med > 0) when (s.forceSeamAt(c, med)) {
+                                    LongShotSession.Outcome.ADDED -> { ok = true; mmRound = 0; shotSince = 0f; shotLonger = false; sizeSwipe(s) }
+                                    LongShotSession.Outcome.CAP -> { ok = true; reason = "Reached the size limit" }
+                                    else -> c.recycle()
+                                } else c.recycle()
+                            }
                         }
                     }
                     if (!ok) {
@@ -755,7 +767,7 @@ class CaptureService : Service() {
                         else if (mmRound < 2) { mmRound++; shotLonger = true; s.logLine("recovery: the page has hardly moved, longer drag, round $mmRound") }
                         else if (s.gaps < 3) {
                             val c = snapBlocking()
-                            if (c != null && s.reanchor(c)) { mmRound = 0; shotSince = 0f; shotBack = false; shotLonger = false }
+                            if (c != null && s.reanchor(c, shotSince.toInt())) { mmRound = 0; shotSince = 0f; shotBack = false; shotLonger = false }
                             else { c?.recycle(); reason = "Stopped: could not line up this page (video or animation on screen?). Saved what was captured" }
                         }
                         else reason = "Stopped: could not line up this page (video or animation on screen?). Saved what was captured"
@@ -823,12 +835,12 @@ class CaptureService : Service() {
                 fun writeLog(st: String) { logTxt?.let { l -> runCatching { app.vocr.core.Saver.saveAs(this, "ScrollRSI shot log $st", l.replaceFirst("ScrollRSI shot log ", "ScrollRSI shot log $st")) } } }
                 if (s.frames == 1 && alreadySaved) { writeLog(if (firstStamp.isNotEmpty()) firstStamp else stamp()); s.discard(); firstShot?.let { toast("Saved to Download/ScrollRSI: ${it.names}"); postShotDone(it, false) }; firstShot = null; return@execute }
                 val parts = s.finish()
-                val chrome = s.chromeRanges()
+                val chrome = if (s.frames > 1) s.chromeRanges() else s.systemChrome()   // one capture, no pair: only the system bars are provable chrome
                 val tall = s.frames > 1
                 val st = stamp()
                 val base = (if (tall) "ScrollRSI long shot " else "ScrollRSI shot ") + st
                 writeLog(st)
-                val n = ShotSaver.save(this, base, parts, prefs(this).getBoolean("shot_text", true), chrome)
+                val n = ShotSaver.save(this, base, parts, prefs(this).getBoolean("shot_text", true), chrome, s.marks())
                 toast("Saved to Download/ScrollRSI: ${n.names}" + (if (s.gaps > 0) ". The page could not be lined up ${s.gaps} time(s): a section may be missing between image parts" else "")); postShotDone(n, tall)
                 firstShot = null
             } catch (e: Throwable) { toast("Could not save: " + (e.message ?: e.javaClass.simpleName)); runCatching { s.discard() } }

@@ -21,6 +21,14 @@ object ChromeMap {
         if (ftr > 0 && y1 > fb) out.add(intArrayOf(sy + max(y0, fb) - y0, sy + y1 - y0))
     }
     fun contains(ranges: List<IntArray>, y: Int): Boolean { for (r in ranges) if (y >= r[0] && y < r[1]) return true; return false }
+
+    /** The status bar and navigation bar bands of one full-screen capture: the only chrome a lone frame proves (app bars need a moving pair). */
+    fun systemBars(h: Int, sysTop: Int, sysBottom: Int): List<IntArray> {
+        val out = ArrayList<IntArray>(2); val cap = h / 4
+        if (sysTop in 1..cap) out.add(intArrayOf(0, sysTop))
+        if (sysBottom in 1..cap) out.add(intArrayOf(h - sysBottom, h))
+        return out
+    }
 }
 
 /**
@@ -65,9 +73,16 @@ class LongShotSession(private val ctx: Context, first: Bitmap, private val sysTo
     var lastHdr = 0; private set
     var lastDy = 0; private set
     var lastFtr = 0; private set
+    /** The scroll offset measured for the most recent addFrame attempt, also when it failed to match (-1 = none). */
+    var lastTryDy = -1; private set
     private val chrome = ArrayList<IntArray>()
+    private val marks = ArrayList<Mark>()
+    /** Text notes for the OCR output (gap at a re-anchor, mixed versions at a position-only seam), in stitched rows. */
+    fun marks(): List<Mark> = marks
     /** Stitched row ranges kept in the image but left out of the OCR text: the first capture's header band and the last capture's footer band (the bands the shot log records per pair). */
     fun chromeRanges(): List<IntArray> = chrome
+    /** One capture, no pair seen: only the system bars are provable chrome (status bar top, navigation bar bottom). */
+    fun systemChrome(): List<IntArray> = ChromeMap.systemBars(h, sysTop, sysBottom)
     private fun addRows(src: Bitmap, y0: Int, y1: Int, top: Int, ftr: Int) { ChromeMap.add(chrome, writer.rows, y0, y1, top, ftr, h); writer.add(src, y0, y1) }
     private val log = StringBuilder()
     fun logText(): String = log.toString()
@@ -75,9 +90,10 @@ class LongShotSession(private val ctx: Context, first: Bitmap, private val sysTo
     fun sameAsLast(cur: Bitmap): Boolean = same(prev, cur)
     var gaps = 0; private set
     /** The page could not be lined up with the last accepted capture. Close the current image part and continue from this capture; a section between the two may be missing (told to the user at the end). */
-    fun reanchor(cur: Bitmap): Boolean {
+    fun reanchor(cur: Bitmap, estMissing: Int = -1): Boolean {
         if (cur.width != w || cur.height != h) return false
         writer.breakPart()
+        if (estMissing > 0) marks.add(Mark(writer.rows, "[ScrollRSI: possible gap - up to ~$estMissing px of content may be missing here]"))
         val old = prev
         prev = cur; prevLuma = luma(cur); ftrPrev = -1; frames++; gaps++
         runCatching { old.recycle() }
@@ -88,6 +104,7 @@ class LongShotSession(private val ctx: Context, first: Bitmap, private val sysTo
 
     /** Adds the next capture (the page scrolled down by some rows). */
     fun addFrame(cur: Bitmap): Outcome {
+        lastTryDy = -1
         if (cur.width != w || cur.height != h) { note("size changed ${cur.width}x${cur.height} vs ${w}x$h"); return Outcome.MISMATCH }
         dump(cur)
         val curLuma = luma(cur)
@@ -99,12 +116,32 @@ class LongShotSession(private val ctx: Context, first: Bitmap, private val sysTo
             StripBuilder.detectScroll(a, b)
         }.getOrDefault(0)
         val m = ShotMatch.find(prevLuma, curLuma, w, h, if (dyS > 0) dyS * s else 0, s, max(sysTop, overlay.header()), max(sysBottom, overlay.footer()))
+        lastTryDy = m.dy
         note("frame ${frames + 1}: hint=${dyS * s} dy=${m.dy} score=${"%.1f".format(m.score)} still=${"%.1f".format(m.still)} hdr=${m.hdr} ftr=${m.ftr} -> ${m.status}")
         when (m.status) {
             ShotMatch.Status.END -> return Outcome.END
             ShotMatch.Status.MISMATCH -> return Outcome.MISMATCH
             else -> {}
         }
+        return applySeam(cur, curLuma, m.dy, m.hdr, m.ftr, m.score >= m.still * 0.9, false)
+    }
+
+    /**
+     * The pixel match cannot prove this seam (a live page changed while scrolling), but the retry captures kept agreeing on the offset, so the seam is
+     * accepted on position only and the join is marked in the text ("may mix versions"). Same bands and seam math as a proven match, without the hidden-footer cut.
+     */
+    fun forceSeamAt(cur: Bitmap, dy: Int): Outcome {
+        if (cur.width != w || cur.height != h) { note("size changed ${cur.width}x${cur.height} vs ${w}x$h"); return Outcome.MISMATCH }
+        if (dy <= 0 || dy >= h) return Outcome.MISMATCH
+        dump(cur)
+        val curLuma = luma(cur)
+        // This pair's own fixedRows is not evidence here: a static region fakes a footer up to the 45% cap (would cut real content), a changed bar fakes
+        // none. Only the offset is trusted, plus the system bars and the bands the run already accumulated from proven pairs.
+        note("frame ${frames + 1}: seam accepted on position only: dy=$dy (system bars hdr=$sysTop ftr=$sysBottom), seam-trust=position-only")
+        return applySeam(cur, curLuma, dy, sysTop, sysBottom, false, true)
+    }
+
+    private fun applySeam(cur: Bitmap, curLuma: ByteArray, dy: Int, mHdr: Int, mFtr: Int, matchTrusted: Boolean, positionOnly: Boolean): Outcome {
         // A bar that slides away while scrolling and back on a scroll up (X, Chrome) is only 'fixed' in the pairs where it is visible in both captures.
         // In another pair it looks like content and would be written into the middle of the image. Keep the largest bar seen so far, as long as it is a sane size.
         if (!bandSeeded) { bandSeeded = true; bands.see(ShotMatch.flatBand(prevLuma, w, h)) }   // the first capture counts as a sighting too
@@ -113,25 +150,26 @@ class LongShotSession(private val ctx: Context, first: Bitmap, private val sysTo
         val bandCrop = if (bRow >= 0) h - bRow else 0
         if (bandCrop > 0) note("flat band at screen rows ${bnd!![0]}..${bnd[0] + bnd[1]} value ${bnd[2]} (sighting ${bands.count(bnd)}): cropped as a host strip")
         else if (bnd != null) note("flat band at screen rows ${bnd[0]}..${bnd[0] + bnd[1]} value ${bnd[2]}: first sighting, not cropped yet")
-        if (overlay.update(prevLuma, curLuma, m.dy)) {
+        if (!positionOnly && overlay.update(prevLuma, curLuma, dy)) {   // an unproven pair must not feed the overlay evidence
             val oF = overlay.footer(); val oH = overlay.header()
             if (oF > 0 || oH > 0) note("overlay bar (stays at the same screen rows while the page moves): footer $oF rows, header $oH rows (evidence from ${overlay.pairs} pair(s))")
         }
         val ovF = overlay.footer(); val ovH = overlay.header()
-        val hid = if (ShotMatch.HIDDEN_FOOTER) ShotMatch.hiddenFooter(prevLuma, curLuma, w, h, m.dy, m.hdr, h - m.ftr, m.score >= m.still * 0.9) else 0
-        val hidCrop = if (hid in 1..(h / 4)) m.ftr + hid else 0
+        val hid = if (ShotMatch.HIDDEN_FOOTER) ShotMatch.hiddenFooter(prevLuma, curLuma, w, h, dy, mHdr, h - mFtr, !matchTrusted) else 0
+        val hidCrop = if (hid in 1..(h / 4)) mFtr + hid else 0
         if (hidCrop > 0) note("a bar at the bottom of the previous capture is gone in this one: cutting $hid rows above the footer")
-        val ftr = max(max(max(max(m.ftr, stickyFtr), bandCrop), hidCrop), ovF); val top = max(max(m.hdr, stickyTop), ovH); val best = m.dy; val bottom = h - ftr
-        if (max(m.ftr, hidCrop) in 1..(h / 4)) stickyFtr = max(stickyFtr, max(m.ftr, hidCrop))
-        if (m.hdr in 1..(h / 4)) stickyTop = max(stickyTop, m.hdr)
+        val ftr = max(max(max(max(mFtr, stickyFtr), bandCrop), hidCrop), ovF); val top = max(max(mHdr, stickyTop), ovH); val best = dy; val bottom = h - ftr
+        if (max(mFtr, hidCrop) in 1..(h / 4)) stickyFtr = max(stickyFtr, max(mFtr, hidCrop))
+        if (mHdr in 1..(h / 4)) stickyTop = max(stickyTop, mHdr)
         lastHdr = top; lastFtr = ftr; lastDy = best
         // The last FADE rows above the footer often carry a fade and a "jump to latest" button that are not page content. They are not written now: the next capture supplies the same rows clean.
         if (ftrPrev < 0) { addRows(prev, 0, max(0, bottom - ShotMatch.FADE), top, ftr); ftrPrev = h - max(0, bottom - ShotMatch.FADE); ftrBasePrev = ftr }   // first pair: the new capture's own header band is chrome
         val sm = ShotMatch.seamFade(h, ftrPrev, ftr, best, top, ShotMatch.FADE, ftrBasePrev)
         val start = sm[0]; val bottomW = sm[1]
         if (sm[4] > sm[3]) { addRows(prev, sm[3], sm[4], 0, 0); note("rows ${sm[3]}..${sm[4]} of the previous capture kept (the new one does not reach back that far)") }
+        if (positionOnly) marks.add(Mark(writer.rows, "[ScrollRSI: page changed during capture - text around this line may mix versions]"))
         if (bottomW > start) addRows(cur, start, bottomW, top, ftr)
-        note("seam: rows $start..$bottomW of the new capture appended, image rows now ${writer.rows} (dy=$best hdr=$top ftr=$ftr, detected hdr=${m.hdr} ftr=${m.ftr}, last ${ShotMatch.FADE} rows left for the next capture)")
+        note("seam: rows $start..$bottomW of the new capture appended, image rows now ${writer.rows} (dy=$best hdr=$top ftr=$ftr, detected hdr=$mHdr ftr=$mFtr, last ${ShotMatch.FADE} rows left for the next capture)")
         ftrPrev = sm[2]   // where the written rows end, in this capture's coordinates, counted from its bottom
         ftrBasePrev = ftr
         prev.recycle(); prev = cur; prevLuma = curLuma; frames++
@@ -144,6 +182,7 @@ class LongShotSession(private val ctx: Context, first: Bitmap, private val sysTo
     fun finish(): List<File> {
         if (frames == 1) writer.add(prev, 0, h) else addRows(prev, h - max(ftrPrev, 0), h, 0, lastFtr)   // single capture: no pair, so no band was ever detected
         if (chrome.isNotEmpty()) note("OCR text leaves out screen chrome (kept in the image): " + chrome.joinToString(", ") { "rows ${it[0]}..${it[1]}" })
+        if (marks.isNotEmpty()) note("OCR text carries ${marks.size} marker(s) at stitched rows: " + marks.joinToString(", ") { "${it.row}" })
         val f = writer.finish()
         prev.recycle()
         return f
@@ -187,6 +226,38 @@ class LongShotSession(private val ctx: Context, first: Bitmap, private val sysTo
     }
 }
 
+/** A note spliced into the OCR text at a stitched row: the capture is honest where the text may not be a clean read of one page state. */
+class Mark(val row: Int, val text: String) {
+    companion object {
+        /** The strip starting at stitched row y0 (stripH tall) gets the markers whose row falls inside it, placed by line position. Pure, unit-tested. */
+        fun inject(lines: List<app.vocr.core.Line>, marks: List<Mark>, y0: Int, stripH: Int): List<app.vocr.core.Line> {
+            val here = marks.filter { it.row in y0 until y0 + stripH }
+            if (here.isEmpty()) return lines
+            val out = lines.toMutableList()
+            for (mk in here.sortedBy { it.row }) {
+                val frac = (mk.row - y0).toFloat() / stripH
+                val idx = out.indexOfFirst { it.yFrac > frac }.let { if (it < 0) out.size else it }
+                out.add(idx, app.vocr.core.Line(mk.text, frac))
+            }
+            return out
+        }
+    }
+}
+
+/** When the pixel match cannot prove a seam (a live page changed while scrolling), the offset can still be trusted if the retry captures keep agreeing on it. */
+object SeamTrust {
+    /**
+     * Median of the last 3 recapture offsets when they agree within 8 px and the swipe calibration is sane (ratio 0.95..1.05); -1 = no position-only seam.
+     * Costs nothing on clean captures: it only runs after 3 recaptures already failed to match.
+     */
+    fun positionOnlyDy(dys: List<Int>, ratio: Float): Int {
+        if (ratio < 0.95f || ratio > 1.05f || dys.size < 3) return -1
+        val last3 = dys.takeLast(3).sorted()
+        if (last3[2] - last3[0] > 8) return -1
+        return last3[1]
+    }
+}
+
 /** Writes rows into PNG parts of at most PART_H rows, in the app cache, so memory stays flat however long the capture is. */
 class PartWriter(private val ctx: Context, private val w: Int) {
     private var cur: Bitmap? = null
@@ -226,7 +297,7 @@ object ShotSaver {
     class Result(val names: String, val images: List<android.net.Uri>, val textUri: android.net.Uri?, val text: String)
 
     /** Saves the parts. A single part keeps the plain name; several parts are numbered. */
-    fun save(ctx: Context, base: String, parts: List<File>, withText: Boolean, chrome: List<IntArray> = emptyList()): Result {
+    fun save(ctx: Context, base: String, parts: List<File>, withText: Boolean, chrome: List<IntArray> = emptyList(), marks: List<Mark> = emptyList()): Result {
         val uris = ArrayList<android.net.Uri>()
         // Images are saved first under the timestamp name (nothing is lost if reading the text is cut short), then renamed after the text gives them a title.
         parts.forEachIndexed { i, f ->
@@ -236,7 +307,7 @@ object ShotSaver {
             uris.add(r.uri)
         }
         var tt = ""
-        if (withText) runCatching { tt = ocr(ctx, parts, chrome) }
+        if (withText) runCatching { tt = ocr(ctx, parts, chrome, marks) }
         var title = base
         if (tt.isNotBlank() && !app.vocr.core.Title.looksLikeList(tt)) runCatching { title = app.vocr.core.Saver.titleFor(ctx, tt, base) }   // a file list has no page title: keep the timestamp name
         var renamed = title != base
@@ -252,7 +323,7 @@ object ShotSaver {
     }
 
     /** OCR on native-resolution strips of about one screen with a small overlap (never on a downscaled copy), stitched like a video job. */
-    private fun ocr(ctx: Context, parts: List<File>, chrome: List<IntArray>): String {
+    private fun ocr(ctx: Context, parts: List<File>, chrome: List<IntArray>, marks: List<Mark>): String {
         val heights = parts.map { f -> val o = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }; android.graphics.BitmapFactory.decodeFile(f.path, o); o.outHeight }
         val w = parts.map { f -> val o = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }; android.graphics.BitmapFactory.decodeFile(f.path, o); o.outWidth }.firstOrNull() ?: return ""
         val total = heights.sum(); val strip = 3200; val ov = 160
@@ -279,7 +350,7 @@ object ShotSaver {
                 val img = app.vocr.core.Rgb(bm.width, bm.height, px); bm.recycle()
                 val found = eng.recognize(img)
                 val kept = if (chrome.isEmpty()) found else found.filter { ln -> !ChromeMap.contains(chrome, y0 + (ln.y0 + ln.y1) / 2) }
-                perStrip.add(kept.map { app.vocr.core.Tokens.repairLine(eng, img, it) }.map { app.vocr.core.Line(app.vocr.core.Clean.text(it.text), (it.y0 + it.y1) / 2f / img.h) }.filter { app.vocr.core.Clean.keep(it.text) })
+                perStrip.add(Mark.inject(kept.map { app.vocr.core.Tokens.repairLine(eng, img, it) }.map { app.vocr.core.Line(app.vocr.core.Clean.text(it.text), (it.y0 + it.y1) / 2f / img.h) }.filter { app.vocr.core.Clean.keep(it.text) }, marks, y0, y1 - y0))
                 if (y1 >= total) break
                 y0 = y1 - ov
             }
