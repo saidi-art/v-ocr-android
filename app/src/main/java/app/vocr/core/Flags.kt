@@ -71,10 +71,14 @@ object Flags {
         return stem.length >= 3 && (urlPunct.containsMatchIn(stem) || urlShape.containsMatchIn(stem))
     }
 
+    private val dotSlash = Regex("[./]")   // dot or slash inside the left token: partial-address evidence ("shell.cloud")
+    private val tldStart = Regex("^\\.[a-z]{2,}([/._~%?=&+#-]|$)", RegexOption.IGNORE_CASE)   // right side opens with the dotted ending (".com/...")
+
     /**
-     * A link genuinely split by a line break: the break must cut the address, so either the left token ends on
-     * continuation punctuation (/ . - _ etc.) or the address only completes once the two sides join. An intact
-     * single-line address (shell.cloud.google.com) followed by an ordinary word is NOT a wrap.
+     * A link genuinely split by a line break: the break must cut the address, so the left side must carry real
+     * address evidence - it ends on continuation punctuation (/ . - _ etc.), it is a dotted/slashed fragment that
+     * is not a complete address yet ("shell.cloud"), or the right side starts with the dotted ending (".com/...").
+     * A complete address or a plain word followed by more text is NOT a wrap ("intelligence" then "github.com/x").
      */
     private fun wraps(a: String, b: String): Boolean {
         if (isMark(a) || isMark(b)) return false
@@ -83,7 +87,7 @@ object Flags {
         if (ta.length < 3 || tb.isEmpty()) return false
         if (!ta.matches(urlChar) || !tb.matches(urlChar)) return false
         if (!urlShape.containsMatchIn(ta + tb)) return false
-        return endPunct.containsMatchIn(ta) || !urlShape.containsMatchIn(ta)
+        return endPunct.containsMatchIn(ta) || tldStart.containsMatchIn(tb) || (dotSlash.containsMatchIn(ta) && !urlShape.containsMatchIn(ta))
     }
 
     /** Marks every line break that cuts through a link, and every link a bar shortened to an ellipsis. */

@@ -102,7 +102,7 @@ object Reader {
     private fun readAllLocked(ctx: Context, strips: List<StripInfo>, fast: Boolean, cancelled: () -> Boolean, onProgress: (Progress) -> Unit): ReadResult {
         val t0 = System.currentTimeMillis()
         val eng = load(ctx)
-        if (fast) { eng.recH = 42; eng.maxSide = 704; eng.adaptive = false }   // ~25% faster, ~2-3 points less accurate on dense text
+        if (fast) { eng.recH = 42; eng.maxSide = 704; eng.adaptive = false; eng.denseRescue = false }   // ~25% faster, ~2-3 points less accurate on dense text
         // strip areas give the time estimate (recognition cost follows the amount of text, which follows area)
         val areas = strips.map { s -> val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }; BitmapFactory.decodeFile(s.file.path, o); (o.outWidth.toLong() * o.outHeight).coerceAtLeast(1L) }
         val totalArea = areas.sum().coerceAtLeast(1L); var doneArea = 0L; var liveLines = 0; var live: List<String> = emptyList()

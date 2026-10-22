@@ -133,6 +133,32 @@ class FlagsTest {
         assertTrue(out[1].startsWith("[ScrollRSI: a link wraps"))
     }
 
+    @Test fun urlWrapIgnoresWordBeforeIntactUrl() {
+        // The GitHub-topics false fire on build 102/103: OCR of "intelligence" right before an intact one-line address.
+        val lines = listOf(
+            "intlieneess",
+            "github.com/topics/agentic-ai",
+            "generatnndalwradla"
+        )
+        assertEquals(lines, Flags.urlWraps(lines))
+    }
+
+    @Test fun urlWrapIgnoresHyphenatedWordBeforeUrl() {
+        val lines = listOf(
+            "Significant-Gravitas",
+            "github.com/topics/agentic-ai"
+        )
+        assertEquals(lines, Flags.urlWraps(lines))
+    }
+
+    @Test fun urlWrapCatchesDottedFragmentAndLeadingDot() {
+        // domain completes only when the sides join, and the left side carries dotted evidence
+        val out = Flags.urlWraps(listOf("your shell is at shell.cloud", "google.com dashboards"))
+        assertTrue(out[1].startsWith("[ScrollRSI: a link wraps"))
+        val out2 = Flags.urlWraps(listOf("your shell is at shell.cloud", ".google.com dashboards"))
+        assertTrue(out2[1].startsWith("[ScrollRSI: a link wraps"))
+    }
+
     @Test fun addressBarEllipsisIsCutOffNotWrapped() {
         val lines = listOf(
             "shell.cloud.googl…",

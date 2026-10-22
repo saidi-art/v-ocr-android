@@ -2,6 +2,7 @@ package app.vocr
 
 import app.vocr.core.Title
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -57,4 +58,14 @@ class TitleCleanTest {
         org.junit.Assert.assertTrue(app.vocr.core.Title.looksLikeList(list))
         org.junit.Assert.assertFalse(app.vocr.core.Title.looksLikeList("If you can scroll it, you can save it\nScrollRSI turns scrolling screens into text and pictures.\nFree and private."))
     }
+    @Test fun markerLinesNeverBecomeTitle() {
+        val t = "github.com/topics/agen\n[ScrollRSI: a link wraps across this line break - characters may be missing where it joins]\ngithub.com/topics/agentic-ai\nHere are 29,785 public repositories matching this topic..."
+        val s = Title.from(t, "x")
+        assertFalse(s.contains("ScrollRSI"))
+        assertTrue(s.contains("Here are 29,785"))
+    }
+    @Test fun markerOnlyTextFallsBack() {
+        assertEquals("fb", Title.from("[ScrollRSI: anything hidden behind a bottom bar (composer, keyboard, toolbar) may be missing from this screenshot]", "fb"))
+    }
 }
+

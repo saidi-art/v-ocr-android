@@ -2,6 +2,7 @@ package app.vocr.core
 
 /** File name for the extracted text: "<context header> - <first meaningful line>". */
 object Title {
+    private const val MARK = "[ScrollRSI:"   // our own bracketed notes are metadata, never title material
     private val bad = Regex("[\\\\/:*?\"<>|\\u0000-\\u001f]")
     private val time = Regex("^\\d{1,2}[:.]\\d{2}(\\s?[ap]m)?$", RegexOption.IGNORE_CASE)
     private val chromeWords = setOf("tools", "message", "search", "back", "menu", "home", "share", "copy", "more", "you", "today", "yesterday")
@@ -22,13 +23,13 @@ object Title {
     private val fileRe = Regex("(?i)^\\S+\\.(apk|pdf|png|jpe?g|mp4|txt|csv|zip|docx?|xlsx?|json|html?|pptx?|mp3)$")
     /** True when the top of the text looks like a file or folder list (names, sizes, dates) rather than a page: a title taken from it would be a file name. */
     fun looksLikeList(text: String): Boolean {
-        val top = text.lines().map { it.trim() }.filter { it.isNotEmpty() }.take(40)
+        val top = text.lines().map { it.trim() }.filter { it.isNotEmpty() && !it.startsWith(MARK) }.take(40)
         val hits = top.count { sizeRe.matches(it) || dateRe.matches(it) || fileRe.matches(it) }
         return hits >= 5
     }
 
     fun from(text: String, fallback: String, dict: Set<String>? = null): String {
-        val lines = text.lines().map { it.trim() }.filter { it.isNotEmpty() }.take(40)
+        val lines = text.lines().map { it.trim() }.filter { it.isNotEmpty() && !it.startsWith(MARK) }.take(40)
         fun ok(l: String, minChars: Int, minWords: Int): Boolean {
             if (l.startsWith("http", true) || time.matches(l)) return false
             val letters = l.count { it.isLetter() }
