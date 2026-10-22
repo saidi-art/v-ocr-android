@@ -36,7 +36,7 @@ object ChromeMap {
  * A long capture is written in parts of at most PART_H rows (viewers blur or refuse very tall images), with an overall cap of MAX_ROWS.
  */
 class LongShotSession(private val ctx: Context, first: Bitmap, private val sysTop: Int = 0, private val sysBottom: Int = 0) {
-    enum class Outcome { ADDED, END, MISMATCH, CAP, CONTESTED }
+    enum class Outcome { ADDED, END, MISMATCH, CAP }
 
     private val w = first.width
     private val h = first.height
@@ -75,8 +75,6 @@ class LongShotSession(private val ctx: Context, first: Bitmap, private val sysTo
     var lastFtr = 0; private set
     /** The scroll offset measured for the most recent addFrame attempt, also when it failed to match (-1 = none). */
     var lastTryDy = -1; private set
-    /** The pixels' dissenting offset on a contested seam (CONTESTED returned); -1 once arbitrated. */
-    var contestPixDy = -1; private set
     private val chrome = ArrayList<IntArray>()
     private val marks = ArrayList<Mark>()
     /** Text notes for the OCR output (gap at a re-anchor, mixed versions at a position-only seam), in stitched rows. */
@@ -141,47 +139,16 @@ class LongShotSession(private val ctx: Context, first: Bitmap, private val sysTo
         if (phoneDy >= 40) {
             // Pixels cannot prove this seam (uniform text, a live page) but the phone measured the movement: seam at its distance.
             // Below 40 px the phone's nudge may be real yet tiny; there pixels decide.
-            if (m.status != ShotMatch.Status.OK) {
-                note("frame ${frames + 1}: pixels cannot prove this seam (${m.status} dy=${m.dy}); the phone measured ${phoneDy}px: seam placed by the phone")
-                lastTryDy = phoneDy
-                return applySeam(cur, curLuma, phoneDy, m.hdr, m.ftr, false, false)
-            }
-            // Pixels insist on a different offset than the phone beyond tolerance: one of them under-reads (the phone can miss
-            // a fling tail; the matcher can over-read uniform text). Do not guess: settle, re-capture, arbitrate.
-            contestPixDy = m.dy
-            note("frame ${frames + 1}: pixels found dy=${m.dy} but the phone measured ${phoneDy}px (beyond tolerance): contested, re-capturing to arbitrate")
-            lastTryDy = m.dy
-            return Outcome.CONTESTED
+            if (m.status != ShotMatch.Status.OK) note("frame ${frames + 1}: pixels cannot prove this seam (${m.status} dy=${m.dy}); the phone measured ${phoneDy}px: seam placed by the phone")
+            else note("frame ${frames + 1}: pixels found dy=${m.dy} but the phone measured ${phoneDy}px (beyond tolerance): seam placed by the phone")
+            lastTryDy = phoneDy
+            return applySeam(cur, curLuma, phoneDy, m.hdr, m.ftr, false, false)
         }
         return when (m.status) {
             ShotMatch.Status.END -> Outcome.END
             ShotMatch.Status.MISMATCH -> Outcome.MISMATCH
             else -> Outcome.MISMATCH
         }
-    }
-
-    /**
-     * The second look at a contested seam: the page has had a second to settle, so pixels get a clean retry. Two independent
-     * pixel measures that agree with each other but not the phone beat the phone; otherwise the phone's measure stands.
-     * Costs one extra screenshot, only on contested seams.
-     */
-    fun arbitrate(cur: Bitmap, phoneDy: Int): Outcome {
-        if (cur.width != w || cur.height != h) { note("size changed ${cur.width}x${cur.height} vs ${w}x$h"); return Outcome.MISMATCH }
-        dump(cur)
-        val curLuma = luma(cur)
-        val s = max(1, w / Pipeline.DET_W)
-        val dyS = runCatching {
-            val a = Pipeline.toGray(Bitmap.createScaledBitmap(prev, w / s, h / s, true))
-            val b = Pipeline.toGray(Bitmap.createScaledBitmap(cur, w / s, h / s, true))
-            StripBuilder.detectScroll(a, b)
-        }.getOrDefault(0)
-        val m = ShotMatch.find(prevLuma, curLuma, w, h, if (dyS > 0) dyS * s else 0, s, max(sysTop, overlay.header()), max(sysBottom, overlay.footer()))
-        val first = contestPixDy; contestPixDy = -1
-        val v = SeamArbiter.decide(phoneDy, first, if (m.status == ShotMatch.Status.OK) m.dy else -1)
-        note("arbitration: phone=${phoneDy}px, pixels first=${first}px, settled re-capture dy=${m.dy} (${m.status}) -> ${v.who}: dy=${v.dy}")
-        lastTryDy = v.dy
-        if (v.dy <= 11) { prev.recycle(); prev = cur; prevLuma = curLuma; return Outcome.END }
-        return applySeam(cur, curLuma, v.dy, m.hdr, m.ftr, m.status == ShotMatch.Status.OK && m.dy == v.dy && m.score >= m.still * 0.9, false)
     }
 
     /**
@@ -240,17 +207,7 @@ class LongShotSession(private val ctx: Context, first: Bitmap, private val sysTo
 
     /** Writes the last capture's fixed footer and returns the finished part files (in the app cache). */
     fun finish(): List<File> {
-        if (frames == 1) writer.add(prev, 0, h)   // single capture: no pair, so no band was ever detected
-        else {
-            // Every seam cropped the learned composer bar; the final capture used to keep it (visible on manual stops). Cut it too.
-            val learnedFtr = if (overlay.pairs >= 3) maxOf(overlay.footer(), stickyFtr) else 0
-            val tail = tailRange(h, maxOf(ftrPrev, 0), learnedFtr)
-            if (tail == null) addRows(prev, h - max(ftrPrev, 0), h, 0, lastFtr)
-            else {
-                if (h - maxOf(ftrPrev, 0) > tail[1] - tail[0]) note("last capture: the learned bottom bar (${learnedFtr} rows) is cropped from the tail, like on every other capture")
-                addRows(prev, tail[0], tail[1], 0, learnedFtr)
-            }
-        }
+        if (frames == 1) writer.add(prev, 0, h) else addRows(prev, h - max(ftrPrev, 0), h, 0, lastFtr)   // single capture: no pair, so no band was ever detected
         if (chrome.isNotEmpty()) note("OCR text leaves out screen chrome (kept in the image): " + chrome.joinToString(", ") { "rows ${it[0]}..${it[1]}" })
         if (marks.isNotEmpty()) note("OCR text carries ${marks.size} marker(s) at stitched rows: " + marks.joinToString(", ") { "${it.row}" })
         val f = writer.finish()
@@ -263,14 +220,6 @@ class LongShotSession(private val ctx: Context, first: Bitmap, private val sysTo
     companion object {
         const val PART_H = 8000
         const val MAX_ROWS = 120000   // default; the user can change it in settings ("max_rows")
-
-        /** Rows of the final capture still worth writing once the learned bottom bar is cut like on every other capture; null = no proven bar, write everything. */
-        fun tailRange(h: Int, written: Int, learnedFtr: Int): IntArray? {
-            if (learnedFtr !in 1..h / 4) return null
-            val y1 = h - learnedFtr
-            val y0 = (h - written).coerceAtMost(y1)
-            return intArrayOf(y0, y1)
-        }
 
         fun luma(bm: Bitmap): ByteArray {
             val w = bm.width; val h = bm.height
@@ -319,20 +268,6 @@ class Mark(val row: Int, val text: String) {
             }
             return out
         }
-    }
-}
-
-/** Who is right when the phone and the pixels disagree on a seam beyond tolerance: a settled re-capture arbitrates. Pure, unit-tested. */
-object SeamArbiter {
-    class Verdict(val dy: Int, val who: String)
-    fun tol(v: Int) = maxOf(24, v / 10)
-    /** phoneDy: the phone's measure for the swipe; pix1: the first pixel offset (-1 none); pix2: the settled re-capture offset (-1 none). */
-    fun decide(phoneDy: Int, pix1: Int, pix2: Int): Verdict {
-        if (pix2 > 0 && pix1 > 0 && kotlin.math.abs(pix2 - pix1) <= tol(pix1) && kotlin.math.abs(pix2 - phoneDy) > tol(phoneDy))
-            return Verdict(pix2, "pixels: two independent pixel measures agree against the phone")
-        if (pix2 > 0 && kotlin.math.abs(pix2 - phoneDy) <= tol(phoneDy))
-            return Verdict(pix2, "pixels agree with the phone after settling")
-        return Verdict(phoneDy, "the phone: pixels could not settle the dispute")
     }
 }
 

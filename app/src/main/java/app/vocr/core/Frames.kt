@@ -8,9 +8,9 @@ import android.net.Uri
 import java.io.File
 import kotlin.math.min
 
-data class StripInfo(val file: File, val t: Double, val kind: String, val srcTop: Int = 0, val srcH: Int = 0)
+data class StripInfo(val file: File, val t: Double, val kind: String)
 data class Progress(val stage: String, val done: Int, val total: Int, val etaS: Int = -1, val live: List<String> = emptyList(), val lines: Int = 0, val frac: Float = -1f)
-data class Result(val strips: List<StripInfo>, val framesTotal: Int, val dup: Int, val full: Int, val cropped: Int, val seconds: Int, val ms: Long, val timing: String = "", val wholeSkips: Int = 0, val regionSkips: Int = 0, val fpsInfo: String = "", val topBandDet: Int = 0, val bottomBandDet: Int = 0, val detH: Int = 0)
+data class Result(val strips: List<StripInfo>, val framesTotal: Int, val dup: Int, val full: Int, val cropped: Int, val seconds: Int, val ms: Long, val timing: String = "", val wholeSkips: Int = 0, val regionSkips: Int = 0, val fpsInfo: String = "")
 
 /** Per-run stats block (frame side from the Result, reading side from the ReadResult). Appended to the saved text and shown on the result screen. */
 object RunStats {
@@ -55,23 +55,23 @@ object Pipeline {
         return File(ctx.cacheDir, "job-" + System.nanoTime()).apply { mkdirs() }
     }
 
-    fun run(ctx: Context, uri: Uri?, onProgress: (Progress) -> Unit, cancelled: () -> Boolean = { false }, scrollTrace: ScrollTrace? = null): Result {
+    fun run(ctx: Context, uri: Uri?, onProgress: (Progress) -> Unit, cancelled: () -> Boolean = { false }): Result {
         gate.lock()
-        try { return runLocked(ctx, uri, onProgress, cancelled, scrollTrace) } finally { gate.unlock() }
+        try { return runLocked(ctx, uri, onProgress, cancelled) } finally { gate.unlock() }
     }
 
-    private fun runLocked(ctx: Context, uri: Uri?, onProgress: (Progress) -> Unit, cancelled: () -> Boolean, scrollTrace: ScrollTrace?): Result {
+    private fun runLocked(ctx: Context, uri: Uri?, onProgress: (Progress) -> Unit, cancelled: () -> Boolean): Result {
         app.vocr.VocrApp.clearNote()   // the footer carries this job's diagnostic note, not a stale one
         val info = runCatching { Decoder.probe(ctx, uri) }.getOrNull()
         if (info != null && info.rotation == 0) {
-            val r = runDecoded(ctx, uri, info, onProgress, cancelled, scrollTrace)
+            val r = runDecoded(ctx, uri, info, onProgress, cancelled)
             if (r != null) return r
         }
         return runRetriever(ctx, uri, onProgress, cancelled)
     }
 
     /** Sequential MediaCodec path: one decode pass, luma-only analysis, RGB only for kept strips. */
-    private fun runDecoded(ctx: Context, uri: Uri?, info: Decoder.Info, onProgress: (Progress) -> Unit, cancelled: () -> Boolean, scrollTrace: ScrollTrace?): Result? {
+    private fun runDecoded(ctx: Context, uri: Uri?, info: Decoder.Info, onProgress: (Progress) -> Unit, cancelled: () -> Boolean): Result? {
         val t0 = System.currentTimeMillis()
         val dir = newJobDir(ctx)
         val fw = min(FRAME_W, info.width); val fh = (info.height.toLong() * fw / info.width).toInt()
@@ -85,7 +85,7 @@ object Pipeline {
         val slots = java.util.concurrent.Semaphore(4)
         fun save(f: YuvFrame, top: Int, bot: Int, t: Double, kind: String) {
             val file = File(dir, "s%04d_%s.jpg".format(strips.size, kind))
-            strips.add(StripInfo(file, t, kind, top, fh))
+            strips.add(StripInfo(file, t, kind))
             slots.acquireUninterruptibly()
             pool.execute {
                 try {
@@ -98,8 +98,6 @@ object Pipeline {
             }
         }
         val rate = RateCtl(fps)
-        val bands = ScrollBands(dw, dh)   // fixed top/bottom furniture (chat header, composer), proven by traced movement
-        var lastG: Gray? = null; var lastGT = 0.0; var dyTraced = 0; val diag = ArrayList<String>()
         var fuzzySkips = 0; val recentFulls = ArrayList<Long>()   // hashes of the last few kept whole frames: near-identical repeats are dropped
         // End-of-page rule: no matched scroll for endStopSec seconds of video (after real scrolling happened) = the page ended.
         // Frames after that are only the same last screen (tooltips, blinking UI) and would be OCR'd as duplicates.
@@ -116,11 +114,7 @@ object Pipeline {
             val t1 = System.nanoTime()
             val hh = Hash.phash(YuvFrame.shrink(g, 32, 32))
             val t2 = System.nanoTime()
-            val dyDet = if (scrollTrace == null || lastG == null) -1 else scrollTrace.pxBetween((lastGT * 1000).toLong(), (t * 1000).toLong()).let { if (it < 0) -1 else it * dh / scrollTrace.screenH }
-            val dec = if (scrollTrace != null) sb.pushTraced(hh, g, dyDet) else sb.push(hh, g)
-            if (scrollTrace != null && dec !is Decision.Skip && diag.size < 48) diag.add("t=%.1f %s dy=%d".format(t, if (dec is Decision.Full) "full" else "crop", dyDet))
-            if (dyDet >= ScrollBands.MIN_DY) bands.update(lastG!!, g, dyDet)
-            lastG = g; lastGT = t
+            val dec = sb.push(hh, g)
             grayN += t1 - tp; hashN += t2 - t1; matchN += System.nanoTime() - t2
             val tb = System.nanoTime(); analysisMs += (tb - ta) / 1_000_000
             when (dec) {
@@ -138,7 +132,6 @@ object Pipeline {
                 is Decision.Crop -> {
                     val sc = fh.toFloat() / dh
                     val top = (dec.top * sc).toInt().coerceIn(0, fh - 1); val bot = (dec.bottom * sc).toInt().coerceIn(top + 1, fh)
-                    if (dyDet > 0) dyTraced++
                     save(f, top, bot, t, "crop")
                 }
             }
@@ -170,18 +163,10 @@ object Pipeline {
         for (df in droppedFiles) df.delete()
         onProgress(Progress("Done", 100, 100))
         val total = System.currentTimeMillis() - t0
-        val bandTop = bands.topBand(); val bandBot = bands.bottomBand()
-        val traceNote = if (scrollTrace == null) "" else " Phone trace: ${scrollTrace.events()} events" +
-            (if (dyTraced > 0) ", $dyTraced strip(s) placed by it" else "") +
-            (if (sb.trVerified + sb.trMismatch + sb.trUnverifiable > 0) ", seam verify: ${sb.trVerified} ok, ${sb.trMismatch} mismatched, ${sb.trUnverifiable} unverifiable (both kept whole)" else "") +
-            (if (bandTop > 0 || bandBot > 0) ", fixed bands top=$bandTop bottom=$bandBot det rows (${bands.pairs} pairs)" else "") + "."
         return Result(strips, sb.total, sb.dup, sb.full, sb.cropped, seconds, total, "analysis ${analysisMs}ms (progress cb ${progN/1_000_000}, gray ${grayN/1_000_000}, hash ${hashN/1_000_000}, match ${matchN/1_000_000}), save queue ${saveMs}ms + final wait ${waitMs}ms, decode+other ${total - analysisMs - saveMs - waitMs}ms",
             sb.wholeSkips, sb.regionSkips,
-            "base %.1f fps, max %.1f, mean %.1f, frames sampled above 1.5x base: %d. Trace (sec:fps): %s".format(fps, fpsMax, if (got > 0) fpsSum / got else fps, fpsHigh, trace.toString().trim()) + " Fuzzy-dropped $fuzzySkips repeated full strip(s)." + traceNote +
-            (if (stoppedAt >= 0) " End of page: no scroll matched for ${endStopSec}s, stopped reading at %.0fs of %ds, dropped ${droppedFiles.size} tail strips.".format(stoppedAt, seconds) else ""),
-            bandTop, bandBot, dh).let { r ->
-            if (diag.isEmpty()) r else r.copy(fpsInfo = r.fpsInfo + " Kept: " + diag.joinToString(", "))
-        }
+            "base %.1f fps, max %.1f, mean %.1f, frames sampled above 1.5x base: %d. Trace (sec:fps): %s".format(fps, fpsMax, if (got > 0) fpsSum / got else fps, fpsHigh, trace.toString().trim()) + " Fuzzy-dropped $fuzzySkips repeated full strip(s)." +
+            (if (stoppedAt >= 0) " End of page: no scroll matched for ${endStopSec}s, stopped reading at %.0fs of %ds, dropped ${droppedFiles.size} tail strips.".format(stoppedAt, seconds) else ""))
     }
 
     private fun runRetriever(ctx: Context, uri: Uri?, onProgress: (Progress) -> Unit, cancelled: () -> Boolean): Result {
@@ -209,7 +194,7 @@ object Pipeline {
         fun save(bm: Bitmap, t: Double, kind: String) {
             val f = File(dir, "s%04d_%s.jpg".format(strips.size, kind))
             f.outputStream().use { bm.compress(Bitmap.CompressFormat.JPEG, 80, it) }
-            strips.add(StripInfo(f, t, kind, 0, bm.height))
+            strips.add(StripInfo(f, t, kind))
         }
         for (i in 0 until n) {
             if (cancelled()) break

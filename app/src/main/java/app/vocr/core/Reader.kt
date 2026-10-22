@@ -1,7 +1,6 @@
 package app.vocr.core
 
 import android.content.Context
-import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 
 data class Line(val text: String, val yFrac: Float)
@@ -93,14 +92,14 @@ object Reader {
         return OcrEngine(det, rec, keys, threads, provider)
     }
 
-    fun readAll(ctx: Context, strips: List<StripInfo>, fast: Boolean = false, cancelled: () -> Boolean = { false }, bandTopDet: Int = 0, bandBottomDet: Int = 0, bandDetH: Int = 0, onProgress: (Progress) -> Unit): ReadResult {
+    fun readAll(ctx: Context, strips: List<StripInfo>, fast: Boolean = false, cancelled: () -> Boolean = { false }, onProgress: (Progress) -> Unit): ReadResult {
         Pipeline.gate.lock()
-        try { return readAllLocked(ctx, strips, fast, cancelled, bandTopDet, bandBottomDet, bandDetH, onProgress) } finally { Pipeline.gate.unlock() }
+        try { return readAllLocked(ctx, strips, fast, cancelled, onProgress) } finally { Pipeline.gate.unlock() }
     }
 
     /** Lab data (151 strips): area-weighted ETA ran 5-19% short late in a job; strip count alone ran 16-38% short. */
     private const val ETA_BIAS = 1.10
-    private fun readAllLocked(ctx: Context, strips: List<StripInfo>, fast: Boolean, cancelled: () -> Boolean, bandTopDet: Int, bandBottomDet: Int, bandDetH: Int, onProgress: (Progress) -> Unit): ReadResult {
+    private fun readAllLocked(ctx: Context, strips: List<StripInfo>, fast: Boolean, cancelled: () -> Boolean, onProgress: (Progress) -> Unit): ReadResult {
         val t0 = System.currentTimeMillis()
         val eng = load(ctx)
         if (fast) { eng.recH = 42; eng.maxSide = 704; eng.adaptive = false; eng.denseRescue = false }   // ~25% faster, ~2-3 points less accurate on dense text
@@ -115,16 +114,7 @@ object Reader {
                 val el = System.currentTimeMillis() - tRead
                 val eta = if (doneArea > 0) ((el.toDouble() / doneArea * (totalArea - doneArea) * ETA_BIAS) / 1000).toInt() else -1
                 onProgress(Progress("Reading text", i, strips.size, eta, live, liveLines, doneArea.toFloat() / totalArea))
-                val raw = BitmapFactory.decodeFile(s.file.path) ?: continue
-                // The trace-proven fixed bands (chat header, composer) repeat on every strip: read the content rows only.
-                // Never the first or last strip: those frames are kept whole so nothing visible anywhere is lost.
-                val bm = run {
-                    if ((bandTopDet <= 0 && bandBottomDet <= 0) || bandDetH <= 0 || s.srcH <= 0 || i == 0 || i == strips.size - 1) return@run raw
-                    val sc = s.srcH.toFloat() / bandDetH
-                    val cT = ((bandTopDet * sc).toInt() - s.srcTop).coerceIn(0, raw.height / 4)
-                    val cB = ((s.srcTop + raw.height) - (s.srcH - (bandBottomDet * sc).toInt())).coerceIn(0, raw.height / 4)
-                    if (cT + cB > 0 && raw.height - cT - cB > raw.height / 3) Bitmap.createBitmap(raw, 0, cT, raw.width, raw.height - cT - cB).also { raw.recycle() } else raw
-                }
+                val bm = BitmapFactory.decodeFile(s.file.path) ?: continue
                 val px = IntArray(bm.width * bm.height); bm.getPixels(px, 0, bm.width, 0, 0, bm.width, bm.height)
                 for (k in px.indices) px[k] = px[k] and 0xFFFFFF
                 val img = Rgb(bm.width, bm.height, px); bm.recycle()

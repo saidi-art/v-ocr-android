@@ -96,20 +96,17 @@ object JobQueue {
         var stripDir: File? = null
         try {
             val src: Uri? = job.uri ?: job.tmp?.let { Uri.fromFile(it) }   // null = built-in demo video
-            // our own takes carry a sidecar scroll trace (the phone's scroll distance): strip overlap is proven, not guessed
-            val trace = job.tmp?.let { f -> runCatching { File(f.absolutePath + ".trace").takeIf { it.exists() }?.readText()?.let { ScrollTrace.parse(it) } }.getOrNull() }
             val res = Pipeline.run(app, src, { pr ->
                 job.frac = pr.done / pr.total.coerceAtLeast(1).toFloat()
                 listener?.invoke()
-            }, { job.cancel }, trace)
+            }, { job.cancel })
             stripDir = res.strips.firstOrNull()?.file?.parentFile
-            // the .trace sidecar stays next to the recording: it is the receipt when a traced read goes wrong
             if (job.cancel) { job.state = 4; job.stage = "Cancelled"; return }
             job.stage = "Reading"; job.frac = 0f; job.ringLabel = "0%"; listener?.invoke()
             val fast = app.getSharedPreferences("vocr", Context.MODE_PRIVATE).getBoolean("fast", false)
             val readT0 = System.currentTimeMillis()
             var cueDone = false
-            val rd = Reader.readAll(app, res.strips, fast, { job.cancel }, res.topBandDet, res.bottomBandDet, res.detH) { pr ->
+            val rd = Reader.readAll(app, res.strips, fast, { job.cancel }) { pr ->
                 // End cue: the sound is 22 s long, so start it when the job should have ~21 s left (1 s for stitching and saving).
                 // Skipped for jobs whose whole reading takes under 8 s. Started at once when the first estimate is already under 21 s.
                 if (!cueDone && !job.cancel && pr.etaS >= 0 && pr.etaS <= CUE_LEAD_S) {
