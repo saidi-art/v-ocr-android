@@ -67,3 +67,85 @@ class TraceDedupTest {
         assertEquals(ref.scrollMatches, sb.scrollMatches)
     }
 }
+
+/** Seam verification: the trace proposes, pixels verify. A confident-but-wrong trace (the Gemini slow-scroll miss) must never skip rows. */
+class TraceVerifyTest {
+    private val W = 360; private val H = 800; private val FOOT = 40
+    private val rng = java.util.Random(7)
+    private val page = FloatArray(W * 6000).also { for (y in 0 until 6000) { val dark = rng.nextInt(3) == 0; for (x in 0 until W) it[y * W + x] = if ((x / 6 + y / 10) % 2 == 0 && dark || rng.nextInt(9) == 0) 30f else 225f } }
+    private fun frame(offset: Int): Gray {
+        val d = FloatArray(W * H)
+        for (y in 0 until H - FOOT) for (x in 0 until W) d[y * W + x] = page[(offset + y) * W + x]
+        for (y in H - FOOT until H) for (x in 0 until W) d[y * W + x] = 128f
+        return Gray(W, H, d)
+    }
+    private fun hash(g: Gray): Long {
+        val s = FloatArray(32 * 32)
+        for (y in 0 until 32) for (x in 0 until 32) {
+            var a = 0f; var n = 0
+            for (yy in y * H / 32 until (y + 1) * H / 32) for (xx in x * W / 32 until (x + 1) * W / 32) { a += g.d[yy * W + xx]; n++ }
+            s[y * 32 + x] = a / n
+        }
+        return Hash.phash(Gray(32, 32, s))
+    }
+
+    @Test fun seamCheckVerifiesHonestMovement() {
+        val sb = StripBuilder()
+        assertEquals(StripBuilder.Verify.VERIFIED, sb.seamCheck(frame(0), frame(20), 20))
+        assertEquals(StripBuilder.Verify.MISMATCH, sb.seamCheck(frame(0), frame(60), 20))   // really 60, claimed 20: the Gemini miss
+        assertEquals(StripBuilder.Verify.UNVERIFIABLE, sb.seamCheck(frame(0), frame(60), 500))
+    }
+
+    @Test fun underMeasuredTraceKeepsEveryRow() {
+        // real scroll step 60, trace claims 20: without verification the crops would silently drop 2/3 of the rows
+        val sb = StripBuilder(overlapPx = 18)
+        var off = 0; val seen = BooleanArray(6000); val step = 60
+        while (off + H <= 5000) {
+            val g = frame(off)
+            when (val dec = sb.pushTraced(hash(g), g, 20)) {
+                is Decision.Full -> for (y in 0 until H - FOOT) seen[off + y] = true
+                is Decision.Crop -> for (y in dec.top until dec.bottom) if (y < H - FOOT) seen[off + y] = true
+                else -> {}
+            }
+            off += step
+        }
+        val fin = sb.flush()
+        if (fin is Decision.Crop) for (y in fin.top until fin.bottom) if (y < H - FOOT) seen[off - step + y] = true
+        val last = off - step + H - FOOT
+        for (y in 0 until last) assertTrue("row $y never kept - the wrong trace skipped content", seen[y])
+        assertTrue("mismatch counter should have fired", sb.trMismatch > 0)
+    }
+
+    @Test fun correctTraceVerifiesAndCrops() {
+        val sb = StripBuilder(overlapPx = 18)
+        var off = 0; var crops = 0
+        while (off + H <= 2000) {
+            val g = frame(off)
+            if (sb.pushTraced(hash(g), g, 20) is Decision.Crop) crops++
+            off += 20
+        }
+        assertTrue(crops > 0)
+        assertTrue(sb.trVerified > 0)
+        assertEquals(0, sb.trMismatch)
+    }
+
+    @Test fun uniformPageCannotVerifyAndFallsBack() {
+        val sb = StripBuilder()
+        val blank = Gray(W, H, FloatArray(W * H) { 225f })
+        val blank2 = Gray(W, H, FloatArray(W * H) { 235f })   // changed, but ink-free: nothing to prove movement with
+        assertTrue(sb.pushTraced(hash(blank), blank, 0) is Decision.Full)
+        val d = sb.pushTraced(hash(blank2), blank2, 20)
+        assertEquals(1, sb.trUnverifiable)
+        assertTrue(d is Decision.Full)   // the pixel path cannot match blank either: whole frame, never a guess
+    }
+
+    @Test fun overOneFrameOfAccumulatedMovementKeepsWhole() {
+        val sb = StripBuilder(overlapPx = 18)
+        var off = 0
+        assertTrue(sb.pushTraced(hash(frame(0)), frame(0), 0) is Decision.Full)
+        // a single honest but huge jump: no crop can cover it
+        val d = sb.pushTraced(hash(frame(900)), frame(900), 900)
+        assertTrue(d is Decision.Full || d is Decision.Skip)
+        if (d is Decision.Full) assertTrue(sb.trUnverifiable > 0)
+    }
+}

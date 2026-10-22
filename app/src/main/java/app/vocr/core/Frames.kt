@@ -99,7 +99,7 @@ object Pipeline {
         }
         val rate = RateCtl(fps)
         val bands = ScrollBands(dw, dh)   // fixed top/bottom furniture (chat header, composer), proven by traced movement
-        var lastG: Gray? = null; var lastGT = 0.0; var dyTraced = 0
+        var lastG: Gray? = null; var lastGT = 0.0; var dyTraced = 0; val diag = ArrayList<String>()
         var fuzzySkips = 0; val recentFulls = ArrayList<Long>()   // hashes of the last few kept whole frames: near-identical repeats are dropped
         // End-of-page rule: no matched scroll for endStopSec seconds of video (after real scrolling happened) = the page ended.
         // Frames after that are only the same last screen (tooltips, blinking UI) and would be OCR'd as duplicates.
@@ -118,6 +118,7 @@ object Pipeline {
             val t2 = System.nanoTime()
             val dyDet = if (scrollTrace == null || lastG == null) -1 else scrollTrace.pxBetween((lastGT * 1000).toLong(), (t * 1000).toLong()).let { if (it < 0) -1 else it * dh / scrollTrace.screenH }
             val dec = if (scrollTrace != null) sb.pushTraced(hh, g, dyDet) else sb.push(hh, g)
+            if (scrollTrace != null && dec !is Decision.Skip && diag.size < 48) diag.add("t=%.1f %s dy=%d".format(t, if (dec is Decision.Full) "full" else "crop", dyDet))
             if (dyDet >= ScrollBands.MIN_DY) bands.update(lastG!!, g, dyDet)
             lastG = g; lastGT = t
             grayN += t1 - tp; hashN += t2 - t1; matchN += System.nanoTime() - t2
@@ -172,12 +173,15 @@ object Pipeline {
         val bandTop = bands.topBand(); val bandBot = bands.bottomBand()
         val traceNote = if (scrollTrace == null) "" else " Phone trace: ${scrollTrace.events()} events" +
             (if (dyTraced > 0) ", $dyTraced strip(s) placed by it" else "") +
+            (if (sb.trVerified + sb.trMismatch + sb.trUnverifiable > 0) ", seam verify: ${sb.trVerified} ok, ${sb.trMismatch} mismatched, ${sb.trUnverifiable} unverifiable (both kept whole)" else "") +
             (if (bandTop > 0 || bandBot > 0) ", fixed bands top=$bandTop bottom=$bandBot det rows (${bands.pairs} pairs)" else "") + "."
         return Result(strips, sb.total, sb.dup, sb.full, sb.cropped, seconds, total, "analysis ${analysisMs}ms (progress cb ${progN/1_000_000}, gray ${grayN/1_000_000}, hash ${hashN/1_000_000}, match ${matchN/1_000_000}), save queue ${saveMs}ms + final wait ${waitMs}ms, decode+other ${total - analysisMs - saveMs - waitMs}ms",
             sb.wholeSkips, sb.regionSkips,
             "base %.1f fps, max %.1f, mean %.1f, frames sampled above 1.5x base: %d. Trace (sec:fps): %s".format(fps, fpsMax, if (got > 0) fpsSum / got else fps, fpsHigh, trace.toString().trim()) + " Fuzzy-dropped $fuzzySkips repeated full strip(s)." + traceNote +
             (if (stoppedAt >= 0) " End of page: no scroll matched for ${endStopSec}s, stopped reading at %.0fs of %ds, dropped ${droppedFiles.size} tail strips.".format(stoppedAt, seconds) else ""),
-            bandTop, bandBot, dh)
+            bandTop, bandBot, dh).let { r ->
+            if (diag.isEmpty()) r else r.copy(fpsInfo = r.fpsInfo + " Kept: " + diag.joinToString(", "))
+        }
     }
 
     private fun runRetriever(ctx: Context, uri: Uri?, onProgress: (Progress) -> Unit, cancelled: () -> Boolean): Result {

@@ -103,7 +103,7 @@ object JobQueue {
                 listener?.invoke()
             }, { job.cancel }, trace)
             stripDir = res.strips.firstOrNull()?.file?.parentFile
-            job.tmp?.let { f -> runCatching { File(f.absolutePath + ".trace").delete() } }
+            // the .trace sidecar stays next to the recording: it is the receipt when a traced read goes wrong
             if (job.cancel) { job.state = 4; job.stage = "Cancelled"; return }
             job.stage = "Reading"; job.frac = 0f; job.ringLabel = "0%"; listener?.invoke()
             val fast = app.getSharedPreferences("vocr", Context.MODE_PRIVATE).getBoolean("fast", false)

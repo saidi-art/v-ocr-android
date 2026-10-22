@@ -165,9 +165,52 @@ class StripBuilder(
      * movement accumulates and only the new band is kept. dyDet == 0 with a changed screen means live content
      * without scrolling (a new message, typing): the whole frame is kept - new content is never skipped.
      */
+    enum class Verify { VERIFIED, MISMATCH, UNVERIFIABLE }
+
+    /**
+     * Does the page content between two frames actually sit dy rows apart? Samples informative rows (rows with
+     * ink) in the middle band - away from any fixed bars - and asks whether the current frame's rows match the
+     * previous frame's rows shifted by dy. Uniform pages carry no proof either way: UNVERIFIABLE, and the caller
+     * falls back to whole strips (the owner's rule: doubt costs repeats, never rows).
+     */
+    fun seamCheck(a: Gray, b: Gray, dy: Int): Verify {
+        if (dy <= 0 || dy >= b.h / 2) return Verify.UNVERIFIABLE
+        val top = (b.h / 6).coerceAtLeast(1); val bot = (b.h - b.h / 6 - dy).coerceAtLeast(top + 8)
+        var informative = 0; var matching = 0
+        var y = top
+        while (y < bot) {
+            var lo = 255f; var hi = 0f; var same = 0; var n = 0
+            var x = 2
+            while (x < b.w - 2) {
+                val cb = b.d[y * b.w + x]; val ca = a.d[(y + dy) * a.w + x]
+                if (cb < lo) lo = cb; if (cb > hi) hi = cb
+                if (kotlin.math.abs(cb - ca) <= 12f) same++
+                n++; x += 6
+            }
+            if (n >= 8 && hi - lo > 40f) { informative++; if (same * 100 >= 70 * n) matching++ }
+            y += 6
+        }
+        if (informative < 6) return Verify.UNVERIFIABLE
+        return if (matching * 100 >= 80 * informative) Verify.VERIFIED else Verify.MISMATCH
+    }
+
+    // trace verification counters (footers): a confident-but-wrong trace must fall back, never skip rows
+    var trVerified = 0; var trMismatch = 0; var trUnverifiable = 0
+
     fun pushTraced(hash: Long, g: Gray, dyDet: Int): Decision {
         if (dyDet < 0) return push(hash, g)   // doubt: the pixel path decides
         total++
+        val pv = prev
+        if (dyDet > 0 && pv != null) {
+            // The trace PROPOSES, pixels VERIFY: the movement between this frame pair must be visible in the
+            // pixels. A confident-but-wrong distance (the Gemini slow-scroll miss) fails here and the frame
+            // drops to the pixel path, which keeps whole frames when it cannot prove a seam - repeats, never omissions.
+            when (seamCheck(pv, g, dyDet)) {
+                Verify.VERIFIED -> trVerified++
+                Verify.MISMATCH -> { trMismatch++; val d = push(hash, g); if (d is Decision.Full || d is Decision.Crop) acc = 0; return d }
+                Verify.UNVERIFIABLE -> { trUnverifiable++; val d = push(hash, g); if (d is Decision.Full || d is Decision.Crop) acc = 0; return d }
+            }
+        }
         lastFailed = false
         val p = prev
         val ph = prevHash
@@ -187,6 +230,10 @@ class StripBuilder(
             scrollMatches++; lastDy = dyDet; lastSpan = (g.h - headerRows(p, g) - footerRows(p, g)).coerceAtLeast(1)
             vb = g.h - footerRows(p, g)
             acc += dyDet
+            if (acc >= vb) {   // more than a frame of unkept movement: the in-between rows live in frames we skipped - keep this one whole
+                trUnverifiable++
+                val d = push(hash, g); if (d is Decision.Full || d is Decision.Crop) acc = 0; return d
+            }
             if (acc >= minStripFrac * g.h) {
                 out = Decision.Crop(maxOf(0, vb - acc - overlapPx), vb)
                 cropped++; acc = 0
