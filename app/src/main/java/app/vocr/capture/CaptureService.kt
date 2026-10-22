@@ -645,7 +645,7 @@ class CaptureService : Service() {
     @Volatile private var shotEndReason = ""
     @Volatile private var shotCause = ""      // who ended a run that the loop did not end itself
     @Volatile private var shotRec = ""        // set while a recovery step (drag back, retry drag) is the last thing that happened
-    @Volatile private var cEnd = 0; @Volatile private var cMm = 0; @Volatile private var cBack = 0
+    @Volatile private var cEnd = 0; @Volatile private var cMm = 0; @Volatile private var cBack = 0; @Volatile private var cCon = 0
     @Volatile private var shotStamp = ""
     private fun buildLabel() = runCatching { val i = packageManager.getPackageInfo(packageName, 0); i.longVersionCode.toString() + " (" + i.versionName + ")" }.getOrDefault("unknown")
     private fun shotLogText(s: LongShotSession, reason: String): String {
@@ -655,7 +655,7 @@ class CaptureService : Service() {
             (if (shotRec.isNotEmpty()) "; ended during recovery: the last step was ${shotRec} and nothing was captured after it" else "")
         val seams = maxOf(0, s.frames - 1 - s.gaps)
         return "ScrollRSI shot log \nbuild " + buildLabel() + "\nresult: " + res + "\nimages: " + s.frames + " captured, " + s.gaps + " gap(s)\nscreen " + screenW() + "x" + h + " swipe " + shotY0 + " to " + shotY1 + " probed=" + shotProbed + " sysTop=" + sysBar("status_bar_height") + " sysBottom=" + sysBar("navigation_bar_height") + "\n" + s.logText() +
-            "totals: captures=${s.frames} seams=$seams gaps/re-anchors=${s.gaps} mismatches=$cMm ends=$cEnd drag-backs=$cBack\n"
+            "totals: captures=${s.frames} seams=$seams gaps/re-anchors=${s.gaps} mismatches=$cMm ends=$cEnd drag-backs=$cBack contested=$cCon\n"
     }
 
     private fun sysBar(name: String): Int = runCatching { val id = resources.getIdentifier(name, "dimen", "android"); if (id > 0) resources.getDimensionPixelSize(id) else 0 }.getOrDefault(0)
@@ -775,6 +775,20 @@ class CaptureService : Service() {
                     }
                 }
                 LongShotSession.Outcome.CAP -> reason = "Reached the size limit"
+                LongShotSession.Outcome.CONTESTED -> {
+                    cCon++
+                    a.recycle()
+                    s.logLine("contested seam: settling 1s, then a fresh capture arbitrates phone vs pixels")
+                    Thread.sleep(1000)
+                    val c2 = snapBlocking()
+                    if (c2 == null) reason = "A screenshot failed"
+                    else when (s.arbitrate(c2, lastPhoneDy)) {
+                        LongShotSession.Outcome.ADDED -> { ends = 0; backEnds = 0; mmRound = 0; shotSince = 0f; shotLonger = false; sizeSwipe(s) }
+                        LongShotSession.Outcome.END -> { cEnd++; if (++ends >= 3) reason = endReasonText(s.frames) }
+                        LongShotSession.Outcome.CAP -> reason = "Reached the size limit"
+                        else -> { }   // arbitrate resolves to one of the three above
+                    }
+                }
             } }
             firstCycle = false
             if (reason.isNotEmpty()) break
@@ -913,6 +927,46 @@ class CaptureService : Service() {
         else startActivity(Intent(this, ConsentActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
 
+    // ---- recording scroll trace (the phone's own scroll distance during a take; proves each strip's overlap when the take is read) ----
+    @Volatile private var recTrace: app.vocr.core.ScrollTrace? = null
+    @Volatile private var traceStop = false
+    private var traceThread: Thread? = null
+
+    private fun startTrace(devH: Int) {
+        val svc = ScrollService.instance ?: return
+        val tr = app.vocr.core.ScrollTrace(devH)
+        svc.signal.arm(devH)
+        traceStop = false
+        recTrace = tr
+        traceThread = Thread {
+            val t0 = System.currentTimeMillis()
+            var pauseBase = 0L; var pauseAt = -1L; var lastEvents = 0
+            while (!traceStop) {
+                val now = System.currentTimeMillis()
+                if (paused) { if (pauseAt < 0L) pauseAt = now }
+                else {
+                    if (pauseAt >= 0L) { pauseBase += now - pauseAt; pauseAt = -1L }
+                    val t = now - t0 - pauseBase   // video time: the recorder leaves paused spans out of the file
+                    val r = svc.signal.read()
+                    if (r.events > lastEvents) { tr.event(t); lastEvents = r.events }
+                    if (!r.reliable && r.events > 0) { tr.reanchor(t); svc.signal.arm(devH); lastEvents = 0 }
+                    else tr.add(t, if (r.reliable) r.px else 0)
+                }
+                try { Thread.sleep(100) } catch (_: InterruptedException) { }
+            }
+        }.apply { isDaemon = true; name = "vocr-trace"; start() }
+    }
+
+    private fun stopTrace(f: File?) {
+        traceStop = true
+        runCatching { traceThread?.join(400) }
+        traceThread = null
+        val tr = recTrace; recTrace = null
+        if (f == null || tr == null) return
+        val side = File(f.absolutePath + ".trace")
+        runCatching { if (tr.events() >= app.vocr.core.ScrollTrace.MIN_EVENTS) side.writeText(tr.serialize()) else side.delete() }
+    }
+
     // ---- recording ------------------------------------------------------------------------------------------------
     private fun beginRecording(intent: Intent) {
         starting = true; syncSecure()   // secure before the projection exists, so the first frames never show the bubble
@@ -945,6 +999,7 @@ class CaptureService : Service() {
                 try {
                     r.start()
                     recording = true; starting = false; paused = false; pauseCount = 0; pauseMs = 0L; app.vocr.Haptics.recStart(this)
+                    startTrace(m.heightPixels)
                     setWidgetRecording()
                     showFloatBar()   // speed bar + Pause stay on screen during a take too (folds to the edge handle like in Scroll on)
                     if (prefs(this).getBoolean("autoscroll", false) && ScrollService.instance != null) startAutoScroll()
@@ -1121,6 +1176,7 @@ class CaptureService : Service() {
         val f = recFile
         app.vocr.VocrApp.setPauseNote(f, pauseCount, pauseMs); pauseCount = 0; pauseMs = 0L
         val ok = runCatching { recorder?.stop() }.isSuccess
+        stopTrace(f)
         releaseRecording()
         setWidgetIdle()
         if (!ok || f == null || !f.exists() || f.length() < 1000) { fgIdle("Tap the floating button to record"); toast("Recording was too short"); return }

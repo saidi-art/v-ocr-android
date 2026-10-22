@@ -158,6 +158,44 @@ class StripBuilder(
         return out
     }
 
+    /**
+     * Traced variant for our own recordings: dyDet is the page movement since the previous sampled frame in
+     * detection rows, proven by the phone's scroll events; -1 = unknown (pixels decide, exactly like push).
+     * With a proven distance a failed pixel match is no longer a reason to keep whole overlapping frames:
+     * movement accumulates and only the new band is kept. dyDet == 0 with a changed screen means live content
+     * without scrolling (a new message, typing): the whole frame is kept - new content is never skipped.
+     */
+    fun pushTraced(hash: Long, g: Gray, dyDet: Int): Decision {
+        if (dyDet < 0) return push(hash, g)   // doubt: the pixel path decides
+        total++
+        lastFailed = false
+        val p = prev
+        val ph = prevHash
+        if (p != null && ph != null && Hash.similarity(hash, ph) > simThreshold && meanAbsDiff(g, p) < 2.0f) {
+            dup++; wholeSkips++; return Decision.Skip
+        }
+        if (p != null && topBlockOnly(p, g)) {
+            topStreak++
+            if (topStreak >= 2) { dup++; regionSkips++; return Decision.Skip }
+        } else topStreak = 0
+        var out: Decision
+        if (p == null) {
+            full++; out = Decision.Full
+        } else if (dyDet == 0) {
+            full++; out = Decision.Full   // page still but the screen changed: live region - keep everything
+        } else {
+            scrollMatches++; lastDy = dyDet; lastSpan = (g.h - headerRows(p, g) - footerRows(p, g)).coerceAtLeast(1)
+            vb = g.h - footerRows(p, g)
+            acc += dyDet
+            if (acc >= minStripFrac * g.h) {
+                out = Decision.Crop(maxOf(0, vb - acc - overlapPx), vb)
+                cropped++; acc = 0
+            } else { dup++; out = Decision.Skip }
+        }
+        prevHash = hash; prev = g
+        return out
+    }
+
     /** Call at the end: returns a final crop for unseen area still accumulated. */
     fun flush(): Decision {
         val p = prev ?: return Decision.Skip
