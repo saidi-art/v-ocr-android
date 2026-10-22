@@ -84,7 +84,8 @@ fun Disclosure(onAgree: () -> Unit, onDecline: () -> Unit) {
                 Spacer(Modifier.height(8.dp))
                 Text(
                     "1. It performs swipe gestures on your screen to scroll the page for you, only while you have started a recording or a Scroll capture.\n\n" +
-                        "2. It takes screenshots of your screen, only for the capture you start. During auto-scroll, a tiny grey screenshot (48 x 96 pixels) is compared with the previous one to find the bottom of the page and is then discarded. For Screenshot and Scroll capture, full-resolution screenshots are taken, held temporarily on your phone while the long image is built, and saved to Download/ScrollRSI as the image you asked for.",
+                        "2. It takes screenshots of your screen, only for the capture you start. During auto-scroll, a tiny grey screenshot (48 x 96 pixels) is compared with the previous one to find the bottom of the page and is then discarded. For Screenshot and Scroll capture, full-resolution screenshots are taken, held temporarily on your phone while the long image is built, and saved to Download/ScrollRSI as the image you asked for.\n\n" +
+                        "3. During a Scroll capture it notices that the page scrolled and by how far (scroll events carry numbers only, never content), so the parts of the long image line up.",
                     color = TextMain, fontSize = 14.sp, lineHeight = 20.sp
                 )
             }

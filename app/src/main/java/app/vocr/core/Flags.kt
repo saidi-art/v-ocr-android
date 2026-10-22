@@ -101,16 +101,58 @@ object Flags {
         return out
     }
 
-    /** Drops a line that repeats the one right before it (a seam/overlap echo). Word-sized repeats stay: people do write "ha" twice. */
+    /** Drops a line that repeats the one right before it (a seam/overlap echo). Word-sized repeats stay: people do write "ha" twice - but a short fragment ending in punctuation ("of." x6) is a seam ghost, not speech. */
     fun dedupe(lines: List<String>): List<String> {
         val out = ArrayList<String>(lines.size)
-        for (l in lines) if (l.length < 8 || out.lastOrNull() != l) out.add(l)
+        for (l in lines) {
+            val ghost = out.lastOrNull() == l && (l.length >= 8 || (l.length >= 2 && l.last() in ".,;:~"))
+            if (!ghost) out.add(l)
+        }
+        return out
+    }
+
+    private fun normTokens(s: String) = s.lowercase().split(Regex("[^a-z0-9]+")).filter { it.isNotEmpty() }
+
+    /**
+     * A sliced line at a seam ("TTPS works.") next to its intact copy ("HTTPS works."): the fragment goes, the full line stays.
+     * The cut must be mid-word: the fragment's text appears inside the longer line starting or ending in the middle of a word.
+     * A complete shorter line next to a longer one that merely continues ("See you" / "See you soon") is real text and stays.
+     */
+    fun seamFragments(lines: List<String>): List<String> {
+        class N(val join: String, val bounds: Set<Int>)   // bounds: where each word ends inside join
+        val norm = lines.map { l ->
+            val toks = normTokens(l); val b = HashSet<Int>(); var p = 0
+            for (t in toks) { p += t.length; b.add(p) }
+            N(toks.joinToString(""), b)
+        }
+        val out = ArrayList<String>(lines.size)
+        for (i in lines.indices) {
+            val a = norm[i]
+            var drop = false
+            if (a.join.length in 4..40 && !isMark(lines[i])) {
+                var j = Integer.max(0, i - 3)
+                while (j <= Integer.min(lines.size - 1, i + 3) && !drop) {
+                    if (j != i && norm[j].join.length > a.join.length) {
+                        val b = norm[j]; val k = b.join.indexOf(a.join)
+                        if (k >= 0) {
+                            val leftCut = k > 0 && k !in b.bounds && b.join[k - 1].isLetterOrDigit()
+                            val end = k + a.join.length
+                            val rightCut = end < b.join.length && end !in b.bounds && b.join[end].isLetterOrDigit()
+                            if (leftCut || rightCut) drop = true
+                        }
+                    }
+                    j++
+                }
+            }
+            if (!drop) out.add(lines[i])
+        }
         return out
     }
 
     /** The flags applied to the finished text of one save, in reading order. */
     fun apply(lines: List<String>, singleFrame: Boolean): List<String> {
         var out = dedupe(lines)
+        out = seamFragments(out)
         out = currency(out)
         out = urlWraps(out)
         if (singleFrame && out.isNotEmpty()) out = out + COMPOSER_NOTE

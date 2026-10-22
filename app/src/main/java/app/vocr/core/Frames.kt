@@ -28,7 +28,7 @@ object RunStats {
             append("OCR: %.1fs for $ocr strips (%.2f strips/s). Lines read ${rd.rawLines}, after overlap removal ${rd.mergedLines}.\n".format(rs, if (rs > 0) ocr / rs else 0.0))
             if (res.fpsInfo.isNotEmpty()) append("Sampling: ${res.fpsInfo}\n")
             app.vocr.VocrApp.lastStop()?.let { append("Last auto-scroll stop: $it") }
-            app.vocr.VocrApp.lastError()?.let { append("Last app error on this device (for diagnosis):\n$it\n") }
+            app.vocr.VocrApp.lastError()?.let { append("Last diagnostic note on this device:\n$it\n") }
         }
     }
 }
@@ -61,6 +61,7 @@ object Pipeline {
     }
 
     private fun runLocked(ctx: Context, uri: Uri?, onProgress: (Progress) -> Unit, cancelled: () -> Boolean): Result {
+        app.vocr.VocrApp.clearNote()   // the footer carries this job's diagnostic note, not a stale one
         val info = runCatching { Decoder.probe(ctx, uri) }.getOrNull()
         if (info != null && info.rotation == 0) {
             val r = runDecoded(ctx, uri, info, onProgress, cancelled)
@@ -97,6 +98,7 @@ object Pipeline {
             }
         }
         val rate = RateCtl(fps)
+        var fuzzySkips = 0; val recentFulls = ArrayList<Long>()   // hashes of the last few kept whole frames: near-identical repeats are dropped
         // End-of-page rule: no matched scroll for endStopSec seconds of video (after real scrolling happened) = the page ended.
         // Frames after that are only the same last screen (tooltips, blinking UI) and would be OCR'd as duplicates.
         val endStopSec = app.vocr.capture.CaptureService.prefs(ctx).getInt("endstopsec", 30)
@@ -118,9 +120,14 @@ object Pipeline {
             when (dec) {
                 is Decision.Skip -> {}
                 is Decision.Full -> {
-                    // trim the fixed header/footer (seen consistently) so the OCR spends time on the scrolling band only
-                    val bt = sb.bandTop; val bf = sb.bandFooter; val sc = fh.toFloat() / dh
-                    if (bt >= 0 && bf >= 0 && dh - bt - bf > dh / 3) save(f, (bt * sc).toInt(), fh - (bf * sc).toInt(), t, "full") else save(f, 0, fh, t, "full")
+                    // the scroll match failed but the screen barely changed: same region again - keep one copy, skip the echo
+                    if (recentFulls.any { Hash.similarity(hh, it) >= 0.965 }) fuzzySkips++
+                    else {
+                        // trim the fixed header/footer (seen consistently) so the OCR spends time on the scrolling band only
+                        val bt = sb.bandTop; val bf = sb.bandFooter; val sc = fh.toFloat() / dh
+                        if (bt >= 0 && bf >= 0 && dh - bt - bf > dh / 3) save(f, (bt * sc).toInt(), fh - (bf * sc).toInt(), t, "full") else save(f, 0, fh, t, "full")
+                        recentFulls.add(hh); if (recentFulls.size > 8) recentFulls.removeAt(0)
+                    }
                 }
                 is Decision.Crop -> {
                     val sc = fh.toFloat() / dh
@@ -158,7 +165,7 @@ object Pipeline {
         val total = System.currentTimeMillis() - t0
         return Result(strips, sb.total, sb.dup, sb.full, sb.cropped, seconds, total, "analysis ${analysisMs}ms (progress cb ${progN/1_000_000}, gray ${grayN/1_000_000}, hash ${hashN/1_000_000}, match ${matchN/1_000_000}), save queue ${saveMs}ms + final wait ${waitMs}ms, decode+other ${total - analysisMs - saveMs - waitMs}ms",
             sb.wholeSkips, sb.regionSkips,
-            "base %.1f fps, max %.1f, mean %.1f, frames sampled above 1.5x base: %d. Trace (sec:fps): %s".format(fps, fpsMax, if (got > 0) fpsSum / got else fps, fpsHigh, trace.toString().trim()) +
+            "base %.1f fps, max %.1f, mean %.1f, frames sampled above 1.5x base: %d. Trace (sec:fps): %s".format(fps, fpsMax, if (got > 0) fpsSum / got else fps, fpsHigh, trace.toString().trim()) + " Fuzzy-dropped $fuzzySkips repeated full strip(s)." +
             (if (stoppedAt >= 0) " End of page: no scroll matched for ${endStopSec}s, stopped reading at %.0fs of %ds, dropped ${droppedFiles.size} tail strips.".format(stoppedAt, seconds) else ""))
     }
 
@@ -181,6 +188,7 @@ object Pipeline {
         val n = (seconds * fps).toInt().coerceAtLeast(1)
         val sb = StripBuilder(overlapPx = (36 * dw / 720.0).toInt().coerceAtLeast(12))
         val strips = ArrayList<StripInfo>()
+        val recentFulls = ArrayList<Long>()
         var lastFrame: Bitmap? = null
         var lastT = 0.0
         fun save(bm: Bitmap, t: Double, kind: String) {
@@ -199,7 +207,11 @@ object Pipeline {
             val hash = Hash.phash(toGray(small)); small.recycle()
             when (val dec = sb.push(hash, g)) {
                 is Decision.Skip -> { lastFrame?.recycle(); lastFrame = frame }
-                is Decision.Full -> { save(frame, t, "full"); lastFrame?.recycle(); lastFrame = frame }
+                is Decision.Full -> {
+                    if (recentFulls.any { Hash.similarity(hash, it) >= 0.965 }) { frame.recycle() }   // same screen region again: keep one copy
+                    else { save(frame, t, "full"); recentFulls.add(hash); if (recentFulls.size > 8) recentFulls.removeAt(0) }
+                    lastFrame?.recycle(); lastFrame = frame
+                }
                 is Decision.Crop -> {
                     val sc = frame.height.toFloat() / dh
                     val top = (dec.top * sc).toInt().coerceIn(0, frame.height - 1)

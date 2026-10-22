@@ -7,9 +7,14 @@ import android.view.Display
 import android.view.accessibility.AccessibilityEvent
 import android.graphics.Bitmap
 
-/** Gesture-only accessibility service: swipes the foreground app up (scrolls down) at a set pace. Reads no text or window content. For the bottom-of-page check it takes a tiny in-memory grey screenshot after each swipe (see thumb). */
+/** Gesture accessibility service: swipes the foreground app up (scrolls down) at a set pace, and watches scroll events so a capture knows how far the page really moved (their delta/position numbers, never text or window content). For the bottom-of-page check it takes a tiny in-memory grey screenshot after each swipe (see thumb). */
 class ScrollService : AccessibilityService() {
-    override fun onAccessibilityEvent(e: AccessibilityEvent?) {}
+    /** How far the page really moved during the current swipe (scroll-event numbers only, never content). Armed per swipe by the capture loop. */
+    val signal = ScrollSignal()
+    override fun onAccessibilityEvent(e: AccessibilityEvent?) {
+        if (e == null || e.eventType != AccessibilityEvent.TYPE_VIEW_SCROLLED) return
+        signal.onScroll(e.packageName?.toString(), e.scrollDeltaY, e.scrollY)
+    }
     override fun onInterrupt() {}
     override fun onServiceConnected() { super.onServiceConnected(); instance = this; app.vocr.homeTick.intValue++ }
     override fun onDestroy() { if (instance === this) instance = null; app.vocr.homeTick.intValue++; super.onDestroy() }

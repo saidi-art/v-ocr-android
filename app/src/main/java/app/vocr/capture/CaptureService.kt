@@ -535,6 +535,7 @@ class CaptureService : Service() {
         snap { bm ->
             if (bm == null) { shotRunning = false; toast("Could not take the screenshot"); return@snap }
             if (LongShotSession.blank(bm)) { shotRunning = false; bm.recycle(); toast("This app blocks screenshots (the picture is black)"); return@snap }
+            app.vocr.VocrApp.clearNote()   // this run's diagnostics only
             shotStamp = stamp(); shotEndReason = ""; shotCause = ""; shotRec = ""; cEnd = 0; cMm = 0; cBack = 0
             val base = "ScrollRSI shot " + shotStamp
             val sTop = sysBar("status_bar_height"); val sBot = sysBar("navigation_bar_height")
@@ -697,6 +698,7 @@ class CaptureService : Service() {
         val dur = (req / 0.78f).toLong().coerceIn(300L, 2500L)   // about 0.78 px per ms, the same finger speed every time
         if (shotBackMode) { shotSince = (shotSince - req * shotRatio).coerceAtLeast(0f); shotReqPx = 0f }   // a drag back is not used to calibrate the ratio
         else { shotSince += req * shotRatio; shotReqPx = req }
+        svc.signal.arm(hPx)   // the phone measures how far this swipe really moves the page
         svc.swipe(screenW(), hPx, shotY0, shotY1, dur, xFrac = SwipeZone.x(shotX), tailMs = 160L) { ok = it; l.countDown() }
         l.await(dur / 1000 + 6, java.util.concurrent.TimeUnit.SECONDS)
         return ok
@@ -710,6 +712,7 @@ class CaptureService : Service() {
         val s = shotSession ?: return
         var ends = 0; var mmRound = 0; var reason = ""; var first = true; var firstCycle = true
         var afterBack = false; var backEnds = 0; var sawMm = false
+        var lastPhoneDy = -1; var lastSwipeBack = false; var phoneSilent = false   // the phone's own measurement of the latest swipe (-1: none/ignored)
         fun endReasonText(frames: Int) = if (frames > 1) "End of the page" else if (sawMm) "Stopped: the page changed but could not be lined up, and then stopped moving. Saved what was captured" else "Stopped: the page did not scroll (swipe ignored or a fixed screen?)"
         while ((first || shotHolding || shotQueued || shotAuto) && reason.isEmpty()) {
             first = false; shotQueued = false
@@ -718,9 +721,11 @@ class CaptureService : Service() {
             // ---- 1) screenshot, blink while it is taken
             holdHidden(true)
             var a: Bitmap? = null; var tries = 0; var settled = false
+            // the phone says the page did not move after the last forward drag: no fling to wait out, one capture is enough
+            val phoneStill = lastPhoneDy in 0..11 && !lastSwipeBack
             try {
                 a = snapBlocking()
-                if (a != null) while (tries < 8) {   // wait until two captures in a row match: no fling still moving
+                if (a != null && !phoneStill) while (tries < 8) {   // wait until two captures in a row match: no fling still moving
                     Thread.sleep(220)
                     val b = snapBlocking() ?: break
                     if (LongShotSession.same(a!!, b)) { a.recycle(); a = b; settled = true; break }
@@ -730,7 +735,7 @@ class CaptureService : Service() {
             if (a == null) { reason = "A screenshot failed"; break }
             s.logLine("capture settle tries=$tries settled=$settled after ${System.currentTimeMillis() - t0} ms"); shotRec = ""
             if (firstCycle && s.sameAsLast(a)) { a.recycle(); s.logLine("first capture equals the one already taken") }
-            else { val wasBack = afterBack; afterBack = false; when (s.addFrame(a)) {
+            else { val wasBack = afterBack; afterBack = false; when (s.addFrame(a, lastPhoneDy)) {
                 LongShotSession.Outcome.ADDED -> { ends = 0; backEnds = 0; mmRound = 0; shotSince = 0f; shotLonger = false; sizeSwipe(s) }
                 LongShotSession.Outcome.END -> { cEnd++; a.recycle(); if (wasBack && backEnds < 3) { backEnds++; shotLonger = true; s.logLine("same as the last accepted capture right after a drag back: the page is back where it was, not the end. Longer forward drag, try $backEnds of 3") } else if (++ends >= 3) reason = endReasonText(s.frames) }
                 LongShotSession.Outcome.MISMATCH -> {
@@ -744,14 +749,15 @@ class CaptureService : Service() {
                     while (tries2 < 3 && !ok && reason.isEmpty()) {
                         tries2++; Thread.sleep(2000)
                         val c = snapBlocking() ?: continue
-                        when (s.addFrame(c)) {
+                        when (s.addFrame(c, lastPhoneDy)) {
                             LongShotSession.Outcome.ADDED -> { ok = true; mmRound = 0; shotSince = 0f; shotLonger = false; sizeSwipe(s) }
                             LongShotSession.Outcome.END -> { c.recycle(); ok = true; if (wasBack && backEnds < 3) { backEnds++; shotLonger = true; s.logLine("same as the last accepted capture right after a drag back: not the end, try $backEnds of 3") } else if (++ends >= 3) reason = endReasonText(s.frames) }
                             LongShotSession.Outcome.CAP -> { ok = true; reason = "Reached the size limit" }
                             else -> {
                                 if (s.lastTryDy > 0) tryDys.add(s.lastTryDy)
                                 // A live page that changed while scrolling never matches; when 3 recaptures agree on the offset, seam there and mark the join.
-                                val med = if (tries2 >= 3) SeamTrust.positionOnlyDy(tryDys, shotRatio) else -1
+                                // Never after a drag-back: an unverified join there once stitched a whole screen twice - stop instead.
+                                val med = if (tries2 >= 3 && !wasBack) SeamTrust.positionOnlyDy(tryDys, shotRatio) else -1
                                 if (med > 0) when (s.forceSeamAt(c, med)) {
                                     LongShotSession.Outcome.ADDED -> { ok = true; mmRound = 0; shotSince = 0f; shotLonger = false; sizeSwipe(s) }
                                     LongShotSession.Outcome.CAP -> { ok = true; reason = "Reached the size limit" }
@@ -765,12 +771,7 @@ class CaptureService : Service() {
                         s.logLine("no match after 3 captures: estimated displacement since the last accepted capture ${"%.0f".format(shotSince)}px of ${hh}px, ratio ${"%.2f".format(shotRatio)}, round $mmRound")
                         if (mmRound < 2 && shotSince >= hh * 0.08f) { mmRound++; shotBack = true; s.logLine("recovery: drag back to restore the overlap, round $mmRound") }
                         else if (mmRound < 2) { mmRound++; shotLonger = true; s.logLine("recovery: the page has hardly moved, longer drag, round $mmRound") }
-                        else if (s.gaps < 3) {
-                            val c = snapBlocking()
-                            if (c != null && s.reanchor(c, shotSince.toInt())) { mmRound = 0; shotSince = 0f; shotBack = false; shotLonger = false }
-                            else { c?.recycle(); reason = "Stopped: could not line up this page (video or animation on screen?). Saved what was captured" }
-                        }
-                        else reason = "Stopped: could not line up this page (video or animation on screen?). Saved what was captured"
+                        else reason = "Stopped: lost the page - it could not be lined up again after two recovery drags, so the capture stops here rather than guess. Saved what was captured"
                     }
                 }
                 LongShotSession.Outcome.CAP -> reason = "Reached the size limit"
@@ -793,6 +794,18 @@ class CaptureService : Service() {
             if (sw) { if (shotBackMode) shotRec = "a drag back" else if (mmRound > 0) shotRec = "a retry drag (round $mmRound)" }
             if (!sw) { reason = "Scrolling failed. Check that Accessibility is on."; break }
             Thread.sleep(380)
+            run {
+                val sig = ScrollService.instance?.signal?.read()
+                lastSwipeBack = shotBackMode
+                if (sig == null || sig.events == 0) {
+                    lastPhoneDy = -1
+                    if (!phoneSilent) { phoneSilent = true; s.logLine("phone: no scroll events from this app (some apps send none) - pixel mode") }
+                } else {
+                    phoneSilent = false
+                    lastPhoneDy = if (sig.reliable) sig.px else -1
+                    s.logLine("phone: the page moved ${sig.px}px by the phone's own measure (${sig.events} events, ${sig.kind})" + if (sig.reliable) "" else " - position jumped mid-swipe (re-anchor), reading ignored")
+                }
+            }
         }
         if (reason.isNotEmpty()) { app.vocr.VocrApp.note("longshot: loop ended: $reason", null); shotEndReason = reason; shotHolding = false; shotAuto = false; ui.post { toast(reason); ui.removeCallbacks(shotIdleRun); finishLong(); ui.postDelayed({ if (shotSession == null && !shotRunning) showAgainBar() }, 1200) } }
     }

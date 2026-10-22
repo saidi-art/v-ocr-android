@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="scroll_service_desc">ScrollRSI auto-scroll and long screenshots: swipes the screen up for you and takes screenshots, only while you have started a recording or Scroll capture. It does not read text or what you type, and nothing leaves your phone.</string>
+    <string name="scroll_service_desc">ScrollRSI auto-scroll and long screenshots: swipes the screen up for you and takes screenshots, only while you have started a recording or Scroll capture. It also sees that the page moved and by how far (never what is on it) so long screenshots line up. It does not read text or what you type, and nothing leaves your phone.</string>
 </resources>

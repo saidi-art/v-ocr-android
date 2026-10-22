@@ -2,6 +2,7 @@
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:description="@string/scroll_service_desc"
     android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityEventTypes="typeViewScrolled"
     android:canPerformGestures="true"
     android:canRetrieveWindowContent="false"
     android:canTakeScreenshot="true"

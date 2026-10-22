@@ -175,3 +175,43 @@ class FlagsTest {
         assertEquals(lines, Flags.urlWraps(lines))
     }
 }
+
+class FlagsSeamTest {
+    @Test fun `adjacent short punctuated repeats collapse - the of x6 ghost`() {
+        val out = Flags.dedupe(listOf("the page", "of.", "of.", "of.", "of.", "of.", "of.", "next line here"))
+        assertEquals(listOf("the page", "of.", "next line here"), out)
+    }
+
+    @Test fun `word-sized repeats stay - people write ok twice`() {
+        val out = Flags.dedupe(listOf("ok", "ok", "ha", "ha"))
+        assertEquals(listOf("ok", "ok", "ha", "ha"), out)
+    }
+
+    @Test fun `a sliced line next to its intact copy is dropped`() {
+        val out = Flags.seamFragments(listOf("First paragraph of the answer stands here", "TTPS works.", "HTTPS works.", "another complete sentence follows"))
+        assertEquals(listOf("First paragraph of the answer stands here", "HTTPS works.", "another complete sentence follows"), out)
+    }
+
+    @Test fun `a shorter line that a longer one merely continues is kept`() {
+        val inList = listOf("See you", "See you soon!", "Read more", "Read more about our services")
+        assertEquals(inList, Flags.seamFragments(inList))
+    }
+
+    @Test fun `genuine short lines are kept`() {
+        val inList = listOf("Thanks!", "See you tomorrow at nine", "No", "Sounds good to me")
+        assertEquals(inList, Flags.seamFragments(inList))
+    }
+
+    @Test fun `list siblings that merely resemble each other are kept`() {
+        val inList = listOf("1. First item of the list", "2. Second item of the list", "3. Third item of the list")
+        assertEquals(inList, Flags.seamFragments(inList))
+    }
+
+    @Test fun `markers are never dropped`() {
+        val inList = listOf(
+            "[ScrollRSI: page changed during capture - text around this line may mix versions]",
+            "x page changed during capture y text around this line may mix z"
+        )
+        assertEquals(2, Flags.seamFragments(inList).size)
+    }
+}

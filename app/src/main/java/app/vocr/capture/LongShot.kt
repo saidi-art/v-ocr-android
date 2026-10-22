@@ -102,28 +102,53 @@ class LongShotSession(private val ctx: Context, first: Bitmap, private val sysTo
     }
     val rows: Int get() = writer.rows
 
-    /** Adds the next capture (the page scrolled down by some rows). */
-    fun addFrame(cur: Bitmap): Outcome {
+    /**
+     * Adds the next capture (the page scrolled down by some rows). phoneDy is the distance the phone itself measured
+     * for the swipe (accessibility scroll events; -1 = no usable reading). It outranks pixel guessing: on uniform chat
+     * text the pixel matcher fails about half the time while the phone's number stays exact.
+     */
+    fun addFrame(cur: Bitmap, phoneDy: Int = -1): Outcome {
         lastTryDy = -1
         if (cur.width != w || cur.height != h) { note("size changed ${cur.width}x${cur.height} vs ${w}x$h"); return Outcome.MISMATCH }
+        // The phone says the page barely moved after a full drag: this is the end, whatever pixels make of it.
+        if (phoneDy in 0..11) { note("frame ${frames + 1}: phone measured only ${phoneDy}px of movement: the page has ended"); return Outcome.END }
         dump(cur)
         val curLuma = luma(cur)
-        // coarse offset on a 360 px wide copy (the app's existing scroll detector); ShotMatch refines it at full resolution, or finds it itself
         val s = max(1, w / Pipeline.DET_W)
-        val dyS = runCatching {
-            val a = Pipeline.toGray(Bitmap.createScaledBitmap(prev, w / s, h / s, true))
-            val b = Pipeline.toGray(Bitmap.createScaledBitmap(cur, w / s, h / s, true))
-            StripBuilder.detectScroll(a, b)
-        }.getOrDefault(0)
-        val m = ShotMatch.find(prevLuma, curLuma, w, h, if (dyS > 0) dyS * s else 0, s, max(sysTop, overlay.header()), max(sysBottom, overlay.footer()))
-        lastTryDy = m.dy
-        note("frame ${frames + 1}: hint=${dyS * s} dy=${m.dy} score=${"%.1f".format(m.score)} still=${"%.1f".format(m.still)} hdr=${m.hdr} ftr=${m.ftr} -> ${m.status}")
-        when (m.status) {
-            ShotMatch.Status.END -> return Outcome.END
-            ShotMatch.Status.MISMATCH -> return Outcome.MISMATCH
-            else -> {}
+        val m: ShotMatch.Match
+        var hintUsed = 0
+        if (phoneDy > 0) {
+            // search around the phone's distance (agreement is within a few percent when pixels work at all)
+            m = ShotMatch.find(prevLuma, curLuma, w, h, phoneDy, max(s, phoneDy / 12 + 6), max(sysTop, overlay.header()), max(sysBottom, overlay.footer()))
+            hintUsed = phoneDy
+        } else {
+            // coarse offset on a 360 px wide copy (the app's existing scroll detector); ShotMatch refines it at full resolution, or finds it itself
+            val dyS = runCatching {
+                val a = Pipeline.toGray(Bitmap.createScaledBitmap(prev, w / s, h / s, true))
+                val b = Pipeline.toGray(Bitmap.createScaledBitmap(cur, w / s, h / s, true))
+                StripBuilder.detectScroll(a, b)
+            }.getOrDefault(0)
+            m = ShotMatch.find(prevLuma, curLuma, w, h, if (dyS > 0) dyS * s else 0, s, max(sysTop, overlay.header()), max(sysBottom, overlay.footer()))
+            hintUsed = if (dyS > 0) dyS * s else 0
         }
-        return applySeam(cur, curLuma, m.dy, m.hdr, m.ftr, m.score >= m.still * 0.9, false)
+        lastTryDy = m.dy
+        note("frame ${frames + 1}: hint=$hintUsed dy=${m.dy} score=${"%.1f".format(m.score)} still=${"%.1f".format(m.still)} hdr=${m.hdr} ftr=${m.ftr} phone=$phoneDy -> ${m.status}")
+        val agree = m.status == ShotMatch.Status.OK && phoneDy > 0 && abs(m.dy - phoneDy) <= max(24, phoneDy / 10)
+        if (m.status == ShotMatch.Status.OK && (phoneDy <= 0 || agree))
+            return applySeam(cur, curLuma, m.dy, m.hdr, m.ftr, m.score >= m.still * 0.9, false)
+        if (phoneDy >= 40) {
+            // Pixels cannot prove this seam (uniform text, a live page) but the phone measured the movement: seam at its distance.
+            // Below 40 px the phone's nudge may be real yet tiny; there pixels decide.
+            if (m.status != ShotMatch.Status.OK) note("frame ${frames + 1}: pixels cannot prove this seam (${m.status} dy=${m.dy}); the phone measured ${phoneDy}px: seam placed by the phone")
+            else note("frame ${frames + 1}: pixels found dy=${m.dy} but the phone measured ${phoneDy}px (beyond tolerance): seam placed by the phone")
+            lastTryDy = phoneDy
+            return applySeam(cur, curLuma, phoneDy, m.hdr, m.ftr, false, false)
+        }
+        return when (m.status) {
+            ShotMatch.Status.END -> Outcome.END
+            ShotMatch.Status.MISMATCH -> Outcome.MISMATCH
+            else -> Outcome.MISMATCH
+        }
     }
 
     /**
@@ -150,7 +175,9 @@ class LongShotSession(private val ctx: Context, first: Bitmap, private val sysTo
         val bandCrop = if (bRow >= 0) h - bRow else 0
         if (bandCrop > 0) note("flat band at screen rows ${bnd!![0]}..${bnd[0] + bnd[1]} value ${bnd[2]} (sighting ${bands.count(bnd)}): cropped as a host strip")
         else if (bnd != null) note("flat band at screen rows ${bnd[0]}..${bnd[0] + bnd[1]} value ${bnd[2]}: first sighting, not cropped yet")
-        if (!positionOnly && overlay.update(prevLuma, curLuma, dy)) {   // an unproven pair must not feed the overlay evidence
+        // Every accepted seam has a trusted dy (a match, the phone's measurement, or recaptures that kept agreeing), so every
+        // seam feeds the overlay evidence: a composer bar is learned even when pixels never prove a single pair (build 104 baked it in).
+        if (overlay.update(prevLuma, curLuma, dy)) {
             val oF = overlay.footer(); val oH = overlay.header()
             if (oF > 0 || oH > 0) note("overlay bar (stays at the same screen rows while the page moves): footer $oF rows, header $oH rows (evidence from ${overlay.pairs} pair(s))")
         }

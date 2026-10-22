@@ -52,5 +52,7 @@ class VocrApp : Application() {
         fun takePauseNote(f: File?): String? = f?.let { pauseNotes.remove(it.name) }
 
         fun lastError(): String? = runCatching { file()?.takeIf { it.exists() }?.readText()?.take(1800) }.getOrNull()
+        /** A new take starts a fresh diagnostic note: the footer of one job must not carry a note from an older one. */
+        fun clearNote() { runCatching { file()?.delete() } }
     }
 }
