@@ -50,6 +50,8 @@ class LongShotSession(private val ctx: Context, first: Bitmap, private val sysTo
     private val overlay = OverlayTracker(w, h, sysTop, sysBottom)
     private val writer = PartWriter(ctx, w)
     var frames = 1; private set
+    // Set when the images prove the phone's ~0px scroll reading wrong: its signal is ignored for the rest of the run.
+    private var phoneDistrusted = false
     // Opt-in debug option (settings, off by default): every capture of the run is also saved as a PNG named "ScrollRSI debug <time> NN.png" so a problem can be analysed. These files contain your screen content.
     private val debugOn = runCatching { ctx.getSharedPreferences("vocr", Context.MODE_PRIVATE).getBoolean("debug_frames", false) }.getOrDefault(false)
     private val debugStamp = java.text.SimpleDateFormat("yyyy-MM-dd HH-mm-ss", java.util.Locale.US).format(java.util.Date())
@@ -104,23 +106,28 @@ class LongShotSession(private val ctx: Context, first: Bitmap, private val sysTo
 
     /**
      * Adds the next capture (the page scrolled down by some rows). phoneDy is the distance the phone itself measured
-     * for the swipe (accessibility scroll events; -1 = no usable reading). It outranks pixel guessing: on uniform chat
-     * text the pixel matcher fails about half the time while the phone's number stays exact.
+     * for the swipe (accessibility scroll events; -1 = no usable reading). When it is usable it outranks pixel guessing:
+     * on uniform chat text the pixel matcher fails about half the time while the phone's number stays exact. A ~0px
+     * reading is not proof of the end on its own: the images get the veto (some pages report deltas that sum to 0 while
+     * the page really moves), and once proven wrong the signal is ignored for the rest of the run.
      */
     fun addFrame(cur: Bitmap, phoneDy: Int = -1): Outcome {
         lastTryDy = -1
         if (cur.width != w || cur.height != h) { note("size changed ${cur.width}x${cur.height} vs ${w}x$h"); return Outcome.MISMATCH }
-        // The phone says the page barely moved after a full drag: this is the end, whatever pixels make of it.
-        if (phoneDy in 0..11) { note("frame ${frames + 1}: phone measured only ${phoneDy}px of movement: the page has ended"); return Outcome.END }
+        // A ~0px phone reading after a full drag usually means the page ended - but some pages report scroll events whose
+        // deltas sum to 0 while the page really moves (the signal is broken, not the page). The images get the veto: when
+        // they show clear movement the phone is ignored for the rest of the run; only when they also show none is this the end.
+        val phoneZero = phoneDy in 0..11 && !phoneDistrusted
+        val hint = if (phoneDistrusted || phoneDy in 0..11) -1 else phoneDy
         dump(cur)
         val curLuma = luma(cur)
         val s = max(1, w / Pipeline.DET_W)
         val m: ShotMatch.Match
         var hintUsed = 0
-        if (phoneDy > 0) {
+        if (hint > 0) {
             // search around the phone's distance (agreement is within a few percent when pixels work at all)
-            m = ShotMatch.find(prevLuma, curLuma, w, h, phoneDy, max(s, phoneDy / 12 + 6), max(sysTop, overlay.header()), max(sysBottom, overlay.footer()))
-            hintUsed = phoneDy
+            m = ShotMatch.find(prevLuma, curLuma, w, h, hint, max(s, hint / 12 + 6), max(sysTop, overlay.header()), max(sysBottom, overlay.footer()))
+            hintUsed = hint
         } else {
             // coarse offset on a 360 px wide copy (the app's existing scroll detector); ShotMatch refines it at full resolution, or finds it itself
             val dyS = runCatching {
@@ -133,16 +140,27 @@ class LongShotSession(private val ctx: Context, first: Bitmap, private val sysTo
         }
         lastTryDy = m.dy
         note("frame ${frames + 1}: hint=$hintUsed dy=${m.dy} score=${"%.1f".format(m.score)} still=${"%.1f".format(m.still)} hdr=${m.hdr} ftr=${m.ftr} phone=$phoneDy -> ${m.status}")
-        val agree = m.status == ShotMatch.Status.OK && phoneDy > 0 && abs(m.dy - phoneDy) <= max(24, phoneDy / 10)
-        if (m.status == ShotMatch.Status.OK && (phoneDy <= 0 || agree))
+        if (phoneZero) {
+            if (!zeroReadingMeansEnd(phoneDy, m.dy)) {
+                phoneDistrusted = true
+                note("frame ${frames + 1}: the phone reported ${phoneDy}px but the images moved ${m.dy}px - its scroll signal is unreliable on this page: ignoring it for the rest of this capture")
+                if (m.status == ShotMatch.Status.OK)
+                    return applySeam(cur, curLuma, m.dy, m.hdr, m.ftr, m.score >= m.still * 0.9, false)
+                return Outcome.MISMATCH   // let the normal retries verify the offset and accept it (worst case a repeat)
+            }
+            note("frame ${frames + 1}: phone measured only ${phoneDy}px of movement and the images show none either: the page has ended")
+            return Outcome.END
+        }
+        val agree = m.status == ShotMatch.Status.OK && hint > 0 && abs(m.dy - hint) <= max(24, hint / 10)
+        if (m.status == ShotMatch.Status.OK && (hint <= 0 || agree))
             return applySeam(cur, curLuma, m.dy, m.hdr, m.ftr, m.score >= m.still * 0.9, false)
-        if (phoneDy >= 40) {
+        if (hint >= 40) {
             // Pixels cannot prove this seam (uniform text, a live page) but the phone measured the movement: seam at its distance.
             // Below 40 px the phone's nudge may be real yet tiny; there pixels decide.
-            if (m.status != ShotMatch.Status.OK) note("frame ${frames + 1}: pixels cannot prove this seam (${m.status} dy=${m.dy}); the phone measured ${phoneDy}px: seam placed by the phone")
-            else note("frame ${frames + 1}: pixels found dy=${m.dy} but the phone measured ${phoneDy}px (beyond tolerance): seam placed by the phone")
-            lastTryDy = phoneDy
-            return applySeam(cur, curLuma, phoneDy, m.hdr, m.ftr, false, false)
+            if (m.status != ShotMatch.Status.OK) note("frame ${frames + 1}: pixels cannot prove this seam (${m.status} dy=${m.dy}); the phone measured ${hint}px: seam placed by the phone")
+            else note("frame ${frames + 1}: pixels found dy=${m.dy} but the phone measured ${hint}px (beyond tolerance): seam placed by the phone")
+            lastTryDy = hint
+            return applySeam(cur, curLuma, hint, m.hdr, m.ftr, false, false)
         }
         return when (m.status) {
             ShotMatch.Status.END -> Outcome.END
@@ -218,6 +236,9 @@ class LongShotSession(private val ctx: Context, first: Bitmap, private val sysTo
     fun discard() { runCatching { prev.recycle() }; writer.discard() }
 
     companion object {
+        /** Pure: a phone reading of ~0px proves the end only when the images also show no movement (some pages report scroll deltas that sum to 0 while really moving). */
+        fun zeroReadingMeansEnd(phoneDy: Int, pixelDy: Int): Boolean = phoneDy in 0..11 && pixelDy <= 11
+
         const val PART_H = 8000
         const val MAX_ROWS = 120000   // default; the user can change it in settings ("max_rows")
 
