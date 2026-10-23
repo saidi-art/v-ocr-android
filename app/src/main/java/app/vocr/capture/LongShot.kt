@@ -37,6 +37,7 @@ object ChromeMap {
  */
 class LongShotSession(private val ctx: Context, first: Bitmap, private val sysTop: Int = 0, private val sysBottom: Int = 0) {
     enum class Outcome { ADDED, END, MISMATCH, CAP }
+    enum class SeamEv { PIXELS, PHONE, POSITION }
 
     private val w = first.width
     private val h = first.height
@@ -50,6 +51,10 @@ class LongShotSession(private val ctx: Context, first: Bitmap, private val sysTo
     private val overlay = OverlayTracker(w, h, sysTop, sysBottom)
     private val writer = PartWriter(ctx, w)
     var frames = 1; private set
+    // Coverage receipt evidence: how each accepted seam was established. The phone's distance is a measurement, never proof.
+    var pixelSeams = 0; private set
+    var phoneSeams = 0; private set
+    var positionSeams = 0; private set
     // Set when the images prove the phone's ~0px scroll reading wrong: its signal is ignored for the rest of the run.
     private var phoneDistrusted = false
     // Opt-in debug option (settings, off by default): every capture of the run is also saved as a PNG named "ScrollRSI debug <time> NN.png" so a problem can be analysed. These files contain your screen content.
@@ -81,6 +86,9 @@ class LongShotSession(private val ctx: Context, first: Bitmap, private val sysTo
     private val marks = ArrayList<Mark>()
     /** Text notes for the OCR output (gap at a re-anchor, mixed versions at a position-only seam), in stitched rows. */
     fun marks(): List<Mark> = marks
+    /** The coverage receipt for this run: plain language, only what the evidence supports. [parts] is the image-part count after finish(). */
+    fun receiptText(parts: Int, end: app.vocr.core.Receipt.End): String =
+        app.vocr.core.Receipt.text(app.vocr.core.Receipt.Counts(frames, parts, pixelSeams, phoneSeams, positionSeams, gaps, writer.rows, end, maxRows))
     /** Stitched row ranges kept in the image but left out of the OCR text: the first capture's header band and the last capture's footer band (the bands the shot log records per pair). */
     fun chromeRanges(): List<IntArray> = chrome
     /** One capture, no pair seen: only the system bars are provable chrome (status bar top, navigation bar bottom). */
@@ -145,7 +153,7 @@ class LongShotSession(private val ctx: Context, first: Bitmap, private val sysTo
                 phoneDistrusted = true
                 note("frame ${frames + 1}: the phone reported ${phoneDy}px but the images moved ${m.dy}px - its scroll signal is unreliable on this page: ignoring it for the rest of this capture")
                 if (m.status == ShotMatch.Status.OK)
-                    return applySeam(cur, curLuma, m.dy, m.hdr, m.ftr, m.score >= m.still * 0.9, false)
+                    return applySeam(cur, curLuma, m.dy, m.hdr, m.ftr, m.score >= m.still * 0.9, false, SeamEv.PIXELS)
                 return Outcome.MISMATCH   // let the normal retries verify the offset and accept it (worst case a repeat)
             }
             note("frame ${frames + 1}: phone measured only ${phoneDy}px of movement and the images show none either: the page has ended")
@@ -153,14 +161,14 @@ class LongShotSession(private val ctx: Context, first: Bitmap, private val sysTo
         }
         val agree = m.status == ShotMatch.Status.OK && hint > 0 && abs(m.dy - hint) <= max(24, hint / 10)
         if (m.status == ShotMatch.Status.OK && (hint <= 0 || agree))
-            return applySeam(cur, curLuma, m.dy, m.hdr, m.ftr, m.score >= m.still * 0.9, false)
+            return applySeam(cur, curLuma, m.dy, m.hdr, m.ftr, m.score >= m.still * 0.9, false, SeamEv.PIXELS)
         if (hint >= 40) {
             // Pixels cannot prove this seam (uniform text, a live page) but the phone measured the movement: seam at its distance.
             // Below 40 px the phone's nudge may be real yet tiny; there pixels decide.
             if (m.status != ShotMatch.Status.OK) note("frame ${frames + 1}: pixels cannot prove this seam (${m.status} dy=${m.dy}); the phone measured ${hint}px: seam placed by the phone")
             else note("frame ${frames + 1}: pixels found dy=${m.dy} but the phone measured ${hint}px (beyond tolerance): seam placed by the phone")
             lastTryDy = hint
-            return applySeam(cur, curLuma, hint, m.hdr, m.ftr, false, false)
+            return applySeam(cur, curLuma, hint, m.hdr, m.ftr, false, false, SeamEv.PHONE)
         }
         return when (m.status) {
             ShotMatch.Status.END -> Outcome.END
@@ -181,10 +189,10 @@ class LongShotSession(private val ctx: Context, first: Bitmap, private val sysTo
         // This pair's own fixedRows is not evidence here: a static region fakes a footer up to the 45% cap (would cut real content), a changed bar fakes
         // none. Only the offset is trusted, plus the system bars and the bands the run already accumulated from proven pairs.
         note("frame ${frames + 1}: seam accepted on position only: dy=$dy (system bars hdr=$sysTop ftr=$sysBottom), seam-trust=position-only")
-        return applySeam(cur, curLuma, dy, sysTop, sysBottom, false, true)
+        return applySeam(cur, curLuma, dy, sysTop, sysBottom, false, true, SeamEv.POSITION)
     }
 
-    private fun applySeam(cur: Bitmap, curLuma: ByteArray, dy: Int, mHdr: Int, mFtr: Int, matchTrusted: Boolean, positionOnly: Boolean): Outcome {
+    private fun applySeam(cur: Bitmap, curLuma: ByteArray, dy: Int, mHdr: Int, mFtr: Int, matchTrusted: Boolean, positionOnly: Boolean, ev: SeamEv): Outcome {
         // A bar that slides away while scrolling and back on a scroll up (X, Chrome) is only 'fixed' in the pairs where it is visible in both captures.
         // In another pair it looks like content and would be written into the middle of the image. Keep the largest bar seen so far, as long as it is a sane size.
         if (!bandSeeded) { bandSeeded = true; bands.see(ShotMatch.flatBand(prevLuma, w, h)) }   // the first capture counts as a sighting too
@@ -217,6 +225,7 @@ class LongShotSession(private val ctx: Context, first: Bitmap, private val sysTo
         note("seam: rows $start..$bottomW of the new capture appended, image rows now ${writer.rows} (dy=$best hdr=$top ftr=$ftr, detected hdr=$mHdr ftr=$mFtr, last ${ShotMatch.FADE} rows left for the next capture)")
         ftrPrev = sm[2]   // where the written rows end, in this capture's coordinates, counted from its bottom
         ftrBasePrev = ftr
+        when (ev) { SeamEv.PIXELS -> pixelSeams++; SeamEv.PHONE -> phoneSeams++; SeamEv.POSITION -> positionSeams++ }
         prev.recycle(); prev = cur; prevLuma = curLuma; frames++
         return if (writer.rows >= maxRows) Outcome.CAP else Outcome.ADDED
     }
@@ -345,7 +354,7 @@ object ShotSaver {
     class Result(val names: String, val images: List<android.net.Uri>, val textUri: android.net.Uri?, val text: String)
 
     /** Saves the parts. A single part keeps the plain name; several parts are numbered. */
-    fun save(ctx: Context, base: String, parts: List<File>, withText: Boolean, chrome: List<IntArray> = emptyList(), marks: List<Mark> = emptyList(), singleFrame: Boolean = false): Result {
+    fun save(ctx: Context, base: String, parts: List<File>, withText: Boolean, chrome: List<IntArray> = emptyList(), marks: List<Mark> = emptyList(), singleFrame: Boolean = false, receipt: String = ""): Result {
         val uris = ArrayList<android.net.Uri>()
         // Images are saved first under the timestamp name (nothing is lost if reading the text is cut short), then renamed after the text gives them a title.
         parts.forEachIndexed { i, f ->
@@ -364,6 +373,7 @@ object ShotSaver {
             if (ok.any { !it }) { renamed = false; title = base }   // partial failure: report the names Android really holds is not possible, so keep the plain name for the text too
         }
         val names = parts.indices.map { i -> if (parts.size == 1) "${if (renamed) title else base}.png" else "${if (renamed) title else base} part ${i + 1}.png" }
+        if (tt.isNotBlank() && receipt.isNotBlank()) tt += "\n\n" + receipt   // the receipt follows the text: the title still comes from the page itself
         var tu: android.net.Uri? = null
         if (tt.isNotBlank()) runCatching { tu = app.vocr.core.Saver.saveAs(ctx, if (renamed) title else base, tt).uri }
         parts.forEach { it.delete() }

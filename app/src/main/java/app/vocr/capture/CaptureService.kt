@@ -853,7 +853,14 @@ class CaptureService : Service() {
                 val st = stamp()
                 val base = (if (tall) "ScrollRSI long shot " else "ScrollRSI shot ") + st
                 writeLog(st)
-                val n = ShotSaver.save(this, base, parts, prefs(this).getBoolean("shot_text", true), chrome, s.marks(), singleFrame = s.frames <= 1)
+                val endBasis = when {
+                    endReason == "End of the page" -> app.vocr.core.Receipt.End.BOTTOM
+                    endReason == "Reached the size limit" -> app.vocr.core.Receipt.End.CAP
+                    endReason.isNotEmpty() -> app.vocr.core.Receipt.End.LOST
+                    else -> app.vocr.core.Receipt.End.USER
+                }
+                val receipt = if (s.frames > 1) s.receiptText(parts.size, endBasis) else ""
+                val n = ShotSaver.save(this, base, parts, prefs(this).getBoolean("shot_text", true), chrome, s.marks(), singleFrame = s.frames <= 1, receipt = receipt)
                 toast("Saved to Download/ScrollRSI: ${n.names}" + (if (s.gaps > 0) ". The page could not be lined up ${s.gaps} time(s): a section may be missing between image parts" else "")); postShotDone(n, tall)
                 firstShot = null
             } catch (e: Throwable) { toast("Could not save: " + (e.message ?: e.javaClass.simpleName)); runCatching { s.discard() } }
