@@ -603,7 +603,14 @@ class CaptureService : Service() {
                 true
             }
         }
-        row.addView(sc); row.addView(android.widget.Space(this), android.widget.LinearLayout.LayoutParams(dp(8), 1)); row.addView(done)
+        val rescue = glassChip(this, "\u2B05 Rescue chat", chipC()).apply {
+            contentDescription = "Scroll to the top of this chat, capture everything to the end and save it with its receipt"
+            setOnClickListener { it.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP)
+                ui.removeCallbacks(shotIdleRun)
+                startRescue()
+            }
+        }
+        row.addView(sc); row.addView(android.widget.Space(this), android.widget.LinearLayout.LayoutParams(dp(8), 1)); row.addView(rescue); row.addView(android.widget.Space(this), android.widget.LinearLayout.LayoutParams(dp(8), 1)); row.addView(done)
         row.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
         val q = WindowManager.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS, PixelFormat.TRANSLUCENT).apply {
@@ -641,6 +648,44 @@ class CaptureService : Service() {
         if (shotRunning) return
         shotRunning = true
         shotExec.execute { try { longLoop() } finally { shotRunning = false } }
+    }
+
+    @Volatile private var shotRescue = false   // a rescue run climbs to the top of the chat before the normal capture loop
+    /** One tap: scroll this chat back to its top, then capture everything down to the end and save it with its receipt. */
+    private fun startRescue() {
+        if (shotRunning) return
+        shotRescue = true
+        shotAuto = true
+        startLongLoop()
+    }
+
+    /**
+     * Rescue, phase 1: fast downward drags (the page climbs) until the picture stops changing - that is the top. The session is then
+     * re-anchored on the true top frame, so the text and the receipt cover the whole chat, not "from where you happened to be".
+     * Frames taken while climbing are discarded: they are transit, not content.
+     */
+    private fun rescueToTop(s: LongShotSession) {
+        val svc = ScrollService.instance ?: return
+        var still = 0; var n = 0
+        var last: Bitmap? = null
+        while (still < 3 && n < 200 && shotAuto) {
+            n++
+            holdHidden(true)
+            val ok = BooleanArray(1)
+            val l = java.util.concurrent.CountDownLatch(1)
+            val hPx = resources.displayMetrics.heightPixels
+            svc.swipe(screenW(), hPx, 0.15f, 0.85f, 380, xFrac = ScrollService.X0, tailMs = 120L) { ok[0] = it; l.countDown() }
+            l.await(8, java.util.concurrent.TimeUnit.SECONDS)
+            Thread.sleep(350)   // let any fling settle before judging movement
+            val b = snapBlocking()
+            holdHidden(false)
+            if (b == null) { last?.recycle(); return }
+            if (last != null && LongShotSession.same(last!!, b)) { still++; b.recycle() } else { still = 0; last?.recycle(); last = b }
+            s.logLine("rescue: climbing to the top, swipe $n, unchanged $still/3")
+        }
+        val top = last ?: return
+        s.discard()
+        shotSession = LongShotSession(this, top, sysBar("status_bar_height"), sysBar("navigation_bar_height"))
     }
 
     /** Numbers only (offsets, scores, row counts, statuses): no screen content. Saved next to the images so a failed capture can be explained. */
@@ -711,7 +756,12 @@ class CaptureService : Service() {
      * moving area. Repeats while auto is on or the button is held. The very first capture of a run is compared with the one already taken.
      */
     private fun longLoop() {
-        val s = shotSession ?: return
+        var s = shotSession ?: return
+        if (shotRescue) {
+            shotRescue = false
+            rescueToTop(s)
+            s = shotSession ?: return
+        }
         var ends = 0; var mmRound = 0; var reason = ""; var first = true; var firstCycle = true
         var afterBack = false; var backEnds = 0; var sawMm = false
         var lastPhoneDy = -1; var lastSwipeBack = false; var phoneSilent = false   // the phone's own measurement of the latest swipe (-1: none/ignored)
