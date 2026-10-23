@@ -1,7 +1,7 @@
 name: build-apk
 on:
   push:
-    branches: [main]
+    branches: [main, sphere-proto-1]   # sphere-proto-1: the sphere prototype branch builds its own APKs; main behaviour is unchanged
   workflow_dispatch:
 permissions:
   contents: write
@@ -99,8 +99,9 @@ jobs:
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: build-${{ github.run_number }}
-          name: V-OCR build ${{ github.run_number }}
+          # the sphere branch releases under its own sphere-sN tags: main's build-N tags and releases stay untouched
+          tag_name: ${{ github.ref_name == 'sphere-proto-1' && format('sphere-s{0}', github.run_number) || format('build-{0}', github.run_number) }}
+          name: ${{ github.ref_name == 'sphere-proto-1' && format('Sphere prototype s{0}', github.run_number) || format('V-OCR build {0}', github.run_number) }}
           files: |
             vocr-debug-${{ github.run_number }}.apk
             vocr-release-${{ github.run_number }}.aab
