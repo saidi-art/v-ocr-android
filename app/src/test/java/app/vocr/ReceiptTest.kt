@@ -12,7 +12,7 @@ class ReceiptTest {
         val t = Receipt.text(counts())
         assertTrue(t, t.contains("Every join in this capture is verified against the images."))
         assertTrue(t, t.contains("13 checked against the images: matched."))
-        assertTrue(t, t.contains("the bottom was reached"))
+        assertTrue(t, t.contains("looks like the bottom"))
     }
     @Test fun phonePlacedJoinsAreNotCalledVerified() {
         val t = Receipt.text(counts(pixel = 10, phone = 3))
@@ -36,7 +36,7 @@ class ReceiptTest {
     }
     @Test fun singleScreenHasNoJoins() {
         val t = Receipt.text(counts(pixel = 0))
-        assertTrue(t, t.contains("No joins: a single screen."))
+        assertTrue(t, t.contains("No joins: a single capture."))
     }
     @Test fun neverPromisesCompleteness() {
         for (e in Receipt.End.values()) {

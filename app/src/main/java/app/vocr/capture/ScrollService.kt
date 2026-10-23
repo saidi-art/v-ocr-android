@@ -15,6 +15,24 @@ class ScrollService : AccessibilityService() {
         if (e == null || e.eventType != AccessibilityEvent.TYPE_VIEW_SCROLLED) return
         signal.onScroll(e.packageName?.toString(), e.scrollDeltaY, e.scrollY)
     }
+    /**
+     * Experimental, opt-in (the direct-text menu chip): the visible text of the foreground app, read straight from its views
+     * instead of OCR. Called only while a capture runs with the setting on; the text never leaves the phone.
+     */
+    fun screenText(): List<String> {
+        val root = rootInActiveWindow ?: return emptyList()
+        val out = ArrayList<String>()
+        fun walk(n: android.view.accessibility.AccessibilityNodeInfo) {
+            if (n.isVisibleToUser) {
+                val t = n.text?.toString()?.trim()
+                if (!t.isNullOrEmpty()) out.add(t)
+            }
+            for (i in 0 until n.childCount) runCatching { n.getChild(i)?.let { walk(it) } }
+        }
+        runCatching { walk(root) }
+        return out
+    }
+
     override fun onInterrupt() {}
     override fun onServiceConnected() { super.onServiceConnected(); instance = this; app.vocr.homeTick.intValue++ }
     override fun onDestroy() { if (instance === this) instance = null; app.vocr.homeTick.intValue++; super.onDestroy() }

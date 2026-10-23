@@ -13,11 +13,11 @@ object Receipt {
         val sb = StringBuilder()
         sb.append("---\n")
         sb.append("ScrollRSI coverage receipt\n")
-        sb.append(c.frames).append(if (c.frames == 1) " screen captured" else " screens captured")
+        sb.append(c.frames).append(if (c.frames == 1) " capture" else " captures")
         sb.append(", joined into ").append(c.parts).append(if (c.parts == 1) " image part" else " image parts")
         sb.append(" (").append(c.rows).append(" rows).\n")
         val seams = c.pixelSeams + c.phoneSeams + c.positionSeams
-        if (seams == 0) sb.append("No joins: a single screen.\n")
+        if (seams == 0) sb.append("No joins: a single capture.\n")
         else {
             sb.append(seams).append(if (seams == 1) " join:\n" else " joins:\n")
             if (c.pixelSeams > 0) sb.append("- ").append(c.pixelSeams).append(" checked against the images: matched.\n")
@@ -25,9 +25,9 @@ object Receipt {
             if (c.positionSeams > 0) sb.append("- ").append(c.positionSeams).append(" accepted on position only: the page changed while scrolling, and text there may mix versions (marked in the text).\n")
         }
         if (c.gaps > 0) sb.append(c.gaps).append(if (c.gaps == 1) " known gap: a section may be missing" else " known gaps: sections may be missing").append(" (marked in the text; the image splits into parts there).\n")
-        else sb.append("No known gaps between the captured screens.\n")
+        else sb.append("No known gaps between the joined captures.\n")
         when (c.end) {
-            End.BOTTOM -> sb.append("End: the page stopped moving; the bottom was reached.\n")
+            End.BOTTOM -> sb.append("End: no further movement was seen - this looks like the bottom of the page.\n")
             End.USER -> sb.append("End: stopped by you. Anything below was not captured.\n")
             End.CAP -> sb.append("End: stopped at the safety limit of ").append(c.maxRows).append(" rows. Anything below was not captured.\n")
             End.LOST -> sb.append("End: the capture lost the page and stopped rather than guess. Anything below was not captured.\n")

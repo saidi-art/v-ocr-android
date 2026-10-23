@@ -438,6 +438,21 @@ class CaptureService : Service() {
             stChip.text = stText(); styleSt(); ui.removeCallbacks(hideMenuRun); ui.postDelayed(hideMenuRun, 4000)
         }
         overlay(stChip, p.x - dp(6), p.y + p.height + dp(126))
+        fun dtText() = if (prefs(this).getBoolean("direct_text", false)) "Direct text: ON" else "Direct text: off"
+        val dtChip = chip(dtText(), chipC()) {}
+        fun styleDt() {
+            val on = prefs(this).getBoolean("direct_text", false)
+            (dtChip.background as GradientDrawable).setColor(Color.parseColor(if (on) accentHex() else chipHex()))
+            dtChip.setTextColor(if (on) onAccentC() else mutedC())
+        }
+        styleDt()
+        dtChip.contentDescription = "Experimental: also read the text straight from the screen instead of only OCR. Off by default. The text is saved as a separate file and stays on this phone."
+        dtChip.setOnClickListener { it.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP)
+            val a = !prefs(this).getBoolean("direct_text", false); prefs(this).edit().putBoolean("direct_text", a).apply()
+            if (a) toast("Direct text on (experimental): a separate text file is read straight from the screen; OCR stays as fallback.")
+            dtChip.text = dtText(); styleDt(); ui.removeCallbacks(hideMenuRun); ui.postDelayed(hideMenuRun, 4000)
+        }
+        overlay(dtChip, p.x - dp(6), p.y + p.height + dp(166))
         if (!readMode) showPace(p)   // in Scroll mode the speed lives in the floating bar
         // Cover is parked (Cover.AVAILABLE = false): no menu entry for now.
         val cv: TextView? = if (Cover.AVAILABLE) {
@@ -448,9 +463,9 @@ class CaptureService : Service() {
                 cover?.edit()
             }
         }
-        overlay(c, p.x - dp(6), p.y + p.height + dp(166)); c
+        overlay(c, p.x - dp(6), p.y + p.height + dp(206)); c
         } else null
-        menu = listOfNotNull(close, mode, auto, rd, stChip, cv)
+        menu = listOfNotNull(close, mode, auto, rd, stChip, dtChip, cv)
         ui.postDelayed(hideMenuRun, 4000)
     }
 
@@ -539,6 +554,7 @@ class CaptureService : Service() {
             if (LongShotSession.blank(bm)) { shotRunning = false; bm.recycle(); toast("This app blocks screenshots (the picture is black)"); return@snap }
             app.vocr.VocrApp.clearNote()   // this run's diagnostics only
             shotStamp = stamp(); shotEndReason = ""; shotCause = ""; shotRec = ""; cEnd = 0; cMm = 0; cBack = 0
+            directCollected = if (prefs(this).getBoolean("direct_text", false)) java.util.ArrayList() else null
             val base = "ScrollRSI shot " + shotStamp
             val sTop = sysBar("status_bar_height"); val sBot = sysBar("navigation_bar_height")
             shotSaved = save
@@ -651,6 +667,7 @@ class CaptureService : Service() {
     }
 
     @Volatile private var shotRescue = false   // a rescue run climbs to the top of the chat before the normal capture loop
+    @Volatile private var directCollected: java.util.ArrayList<List<String>>? = null   // direct text per accepted capture, when the opt-in is on
     /** One tap: scroll this chat back to its top, then capture everything down to the end and save it with its receipt. */
     private fun startRescue() {
         if (shotRunning) return
@@ -786,10 +803,11 @@ class CaptureService : Service() {
             } finally { holdHidden(false) }
             if (a == null) { reason = "A screenshot failed"; break }
             s.logLine("capture settle tries=$tries settled=$settled after ${System.currentTimeMillis() - t0} ms"); shotRec = ""
+            val directPending = directCollected?.let { ScrollService.instance?.screenText().orEmpty() }
             if (firstCycle && s.sameAsLast(a)) { a.recycle(); s.logLine("first capture equals the one already taken") }
             else { val wasBack = afterBack; afterBack = false; when (s.addFrame(a, lastPhoneDy)) {
-                LongShotSession.Outcome.ADDED -> { ends = 0; backEnds = 0; mmRound = 0; shotSince = 0f; shotLonger = false; sizeSwipe(s) }
-                LongShotSession.Outcome.END -> { cEnd++; a.recycle(); if (wasBack && backEnds < 3) { backEnds++; shotLonger = true; s.logLine("same as the last accepted capture right after a drag back: the page is back where it was, not the end. Longer forward drag, try $backEnds of 3") } else if (++ends >= 3) reason = endReasonText(s.frames) }
+                LongShotSession.Outcome.ADDED -> { ends = 0; backEnds = 0; mmRound = 0; shotSince = 0f; shotLonger = false; sizeSwipe(s); if (!directPending.isNullOrEmpty()) directCollected!!.add(directPending) }
+                LongShotSession.Outcome.END -> { cEnd++; if (ends == 0 && !directPending.isNullOrEmpty()) directCollected!!.add(directPending); a.recycle(); if (wasBack && backEnds < 3) { backEnds++; shotLonger = true; s.logLine("same as the last accepted capture right after a drag back: the page is back where it was, not the end. Longer forward drag, try $backEnds of 3") } else if (++ends >= 3) reason = endReasonText(s.frames) }
                 LongShotSession.Outcome.MISMATCH -> {
                     cMm++
                     sawMm = true
@@ -811,7 +829,7 @@ class CaptureService : Service() {
                                 // Never after a drag-back: an unverified join there once stitched a whole screen twice - stop instead.
                                 val med = if (tries2 >= 3 && !wasBack) SeamTrust.positionOnlyDy(tryDys, shotRatio) else -1
                                 if (med > 0) when (s.forceSeamAt(c, med)) {
-                                    LongShotSession.Outcome.ADDED -> { ok = true; mmRound = 0; shotSince = 0f; shotLonger = false; sizeSwipe(s) }
+                                    LongShotSession.Outcome.ADDED -> { ok = true; mmRound = 0; shotSince = 0f; shotLonger = false; sizeSwipe(s); directCollected?.let { dc -> ScrollService.instance?.screenText()?.let { t -> if (t.isNotEmpty()) dc.add(t) } } }
                                     LongShotSession.Outcome.CAP -> { ok = true; reason = "Reached the size limit" }
                                     else -> c.recycle()
                                 } else c.recycle()
@@ -934,6 +952,11 @@ class CaptureService : Service() {
                 }
                 val receipt = if (s.frames > 1) s.receiptText(parts.size, endBasis) else ""
                 val n = ShotSaver.save(this, base, parts, prefs(this).getBoolean("shot_text", true), chrome, s.marks(), singleFrame = s.frames <= 1, receipt = receipt)
+                val dc = directCollected; directCollected = null
+                if (!dc.isNullOrEmpty()) runCatching {
+                    val merged = app.vocr.core.DirectText.merge(dc)
+                    if (merged.isNotEmpty()) app.vocr.core.Saver.saveAs(this, "$base direct", "ScrollRSI direct text (experimental)\nRead straight from the screen via Accessibility, not OCR. A marked join is one the text itself could not prove.\n---\n" + merged.joinToString("\n"))
+                }
                 toast("Saved to Download/ScrollRSI: ${n.names}" + (if (s.gaps > 0) ". The page could not be lined up ${s.gaps} time(s): a section may be missing between image parts" else "")); postShotDone(n, tall, s.gaps)
                 firstShot = null
             } catch (e: Throwable) { toast("Could not save: " + (e.message ?: e.javaClass.simpleName)); runCatching { s.discard() } }
