@@ -7,12 +7,12 @@ android {
     namespace = "app.vocr"
     compileSdk = 36
     defaultConfig {
-        applicationId = "app.scrollrsi"   // permanent Play package ID; the code namespace stays app.vocr
+        applicationId = "app.scrollrsi.sphere"   // sphere prototype variant: installs beside frozen 109, can never replace it
         minSdk = 30
         targetSdk = 36
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
-        versionCode = 109
-        versionName = "0.13.2-t1"
+        versionCode = 1
+        versionName = "0.1.0-s1"   // sphere slice 1: coverage receipt + sphere module on the frozen 109 base
     }
     val ksPath = System.getenv("VOCR_KS_PATH")
     signingConfigs {

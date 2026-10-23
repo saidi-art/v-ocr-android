@@ -52,6 +52,7 @@ class CaptureService : Service() {
         const val EXTRA_DATA = "data"
         private const val CH_STATUS = "vocr_status2"
         private const val CH_DONE = "vocr_done2"
+        private const val CH_SAVED = "vocr_saved"
         private const val ID_FG = 41
         fun prefs(ctx: Context) = ctx.getSharedPreferences("vocr", Context.MODE_PRIVATE)
     }
@@ -117,6 +118,7 @@ class CaptureService : Service() {
         runCatching { nm().deleteNotificationChannel("vocr_status"); nm().deleteNotificationChannel("vocr_done") }
         nm().createNotificationChannel(NotificationChannel(CH_STATUS, "Recorder status", NotificationManager.IMPORTANCE_LOW).apply { setShowBadge(false) })
         nm().createNotificationChannel(NotificationChannel(CH_DONE, "Text ready", NotificationManager.IMPORTANCE_HIGH).apply { setShowBadge(false) })
+        nm().createNotificationChannel(NotificationChannel(CH_SAVED, "Saved screenshots", NotificationManager.IMPORTANCE_LOW).apply { setShowBadge(false) })
     }
 
     private fun act(action: String, label: String): Notification.Action {
@@ -812,12 +814,17 @@ class CaptureService : Service() {
 
     @Volatile private var firstShot: ShotSaver.Result? = null
     private var shotNoteId = 5000
-    /** The "ready" notification for a screenshot or long shot, with Share (images, plus the text when Shot text is on). */
-    private fun postShotDone(r: ShotSaver.Result, tall: Boolean) = runCatching {
+    /**
+     * The "ready" surface for a screenshot or long shot. With the overlay permission the sphere card is the pop-up: the daily sphere
+     * appears under the status bar, one tap unfolds text / image / open / share, and it goes away by itself; the notification then
+     * rests silently in the shade and reopens the sphere panel. Without the permission the classic pop-up notification with Share stays.
+     */
+    private var savedCard: SavedCard? = null
+    private fun postShotDone(r: ShotSaver.Result, tall: Boolean, gaps: Int = 0) = runCatching {
         val imgs = r.images; if (imgs.isEmpty()) return@runCatching
         val title = if (tall) "Long shot saved" else "Screenshot saved"
+        val sub = (if (imgs.size > 1) "${imgs.size} parts" else "1 image") + (if (r.textUri != null) " and text" else "") + " in Download/ScrollRSI" + (if (gaps > 0) ". The page could not be lined up $gaps time(s): a section may be missing between image parts" else "")
         val id = shotNoteId++
-        val view = Intent(Intent.ACTION_VIEW).setDataAndType(imgs[0], "image/png").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
         val share = if (imgs.size == 1) Intent(Intent.ACTION_SEND).setType("image/png").putExtra(Intent.EXTRA_STREAM, imgs[0])
             else Intent(Intent.ACTION_SEND_MULTIPLE).setType("image/png").putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(imgs))
         share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
@@ -826,12 +833,28 @@ class CaptureService : Service() {
         share.clipData = cd
         if (r.text.isNotBlank() && r.text.length < 100_000) share.putExtra(Intent.EXTRA_TEXT, r.text)
         val chooser = Intent.createChooser(share, "Share").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        val b = Notification.Builder(this, CH_DONE).setSmallIcon(app.vocr.R.drawable.ic_stat_chevron)
-            .setContentTitle(title).setContentText((if (imgs.size > 1) "${imgs.size} parts" else "1 image") + " in Download/ScrollRSI. Tap to open, or Share.")
-            .setAutoCancel(true)
-            .setContentIntent(PendingIntent.getActivity(this, id, view, PendingIntent.FLAG_IMMUTABLE))
-            .addAction(Notification.Action.Builder(null, "Share", PendingIntent.getActivity(this, id + 10000, chooser, PendingIntent.FLAG_IMMUTABLE)).build())
-        nm().notify(id, b.build())
+        if (android.provider.Settings.canDrawOverlays(this)) {
+            val item = SavedItem(imgs, r.textUri, r.text, title, sub)
+            val panel = item.toExtras(Intent(this, SavedPanelActivity::class.java)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            val d = (resources.displayMetrics.density * 48).toInt()
+            val icon = runCatching { val bmp = Bitmap.createBitmap(d, d, Bitmap.Config.ARGB_8888); val v = Ball(this, SphereShade.big(SphereShade.today()), 0.38f, 0f, true); v.measure(View.MeasureSpec.makeMeasureSpec(d, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(d, View.MeasureSpec.EXACTLY)); v.layout(0, 0, d, d); v.draw(Canvas(bmp)); bmp }.getOrNull()
+            val b = Notification.Builder(this, CH_SAVED).setSmallIcon(app.vocr.R.drawable.ic_stat_chevron)
+                .setContentTitle(title).setContentText(sub).setStyle(Notification.BigTextStyle().bigText(sub))
+                .setAutoCancel(true)
+                .setContentIntent(PendingIntent.getActivity(this, id, panel, PendingIntent.FLAG_IMMUTABLE))
+                .addAction(Notification.Action.Builder(null, "Share", PendingIntent.getActivity(this, id + 10000, chooser, PendingIntent.FLAG_IMMUTABLE)).build())
+            icon?.let { b.setLargeIcon(it) }
+            nm().notify(id, b.build())
+            ui.post { runCatching { (savedCard ?: SavedCard(this, wm ?: getSystemService(WINDOW_SERVICE) as WindowManager, ui).also { savedCard = it }).show(item, sysBar("status_bar_height")) } }
+        } else {
+            val view = Intent(Intent.ACTION_VIEW).setDataAndType(imgs[0], "image/png").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            val b = Notification.Builder(this, CH_DONE).setSmallIcon(app.vocr.R.drawable.ic_stat_chevron)
+                .setContentTitle(title).setContentText("$sub. Tap to open, or Share.")
+                .setAutoCancel(true)
+                .setContentIntent(PendingIntent.getActivity(this, id, view, PendingIntent.FLAG_IMMUTABLE))
+                .addAction(Notification.Action.Builder(null, "Share", PendingIntent.getActivity(this, id + 10000, chooser, PendingIntent.FLAG_IMMUTABLE)).build())
+            nm().notify(id, b.build())
+        }
     }
 
     private fun finishLong() {
@@ -861,7 +884,7 @@ class CaptureService : Service() {
                 }
                 val receipt = if (s.frames > 1) s.receiptText(parts.size, endBasis) else ""
                 val n = ShotSaver.save(this, base, parts, prefs(this).getBoolean("shot_text", true), chrome, s.marks(), singleFrame = s.frames <= 1, receipt = receipt)
-                toast("Saved to Download/ScrollRSI: ${n.names}" + (if (s.gaps > 0) ". The page could not be lined up ${s.gaps} time(s): a section may be missing between image parts" else "")); postShotDone(n, tall)
+                toast("Saved to Download/ScrollRSI: ${n.names}" + (if (s.gaps > 0) ". The page could not be lined up ${s.gaps} time(s): a section may be missing between image parts" else "")); postShotDone(n, tall, s.gaps)
                 firstShot = null
             } catch (e: Throwable) { toast("Could not save: " + (e.message ?: e.javaClass.simpleName)); runCatching { s.discard() } }
         }
