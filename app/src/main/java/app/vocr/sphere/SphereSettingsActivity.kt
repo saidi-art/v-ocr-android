@@ -48,7 +48,7 @@ class SphereSettingsActivity : Activity() {
             if (SphereService.isOn(this)) startService(Intent(this@SphereSettingsActivity, SphereService::class.java).setAction(SphereService.ACTION_THEME))   // the sphere re-themes in place
         }
         root.addView(group)
-        root.addView(body("The sphere re-themes the moment you pick. Default on first launch is an open brief decision; until it settles, the sphere follows the phone."))
+        root.addView(body("The sphere re-themes the moment you pick. Until you choose, it follows the phone."))
 
         // Direct text (experimental, opt-in, off by default, behind the disclosure)
         root.addView(h("Direct text"))
@@ -68,12 +68,12 @@ class SphereSettingsActivity : Activity() {
         // Account + plan (foundation for the future service; all v1 features free)
         root.addView(h("Account"))
         val a = Account.current(this)
-        root.addView(body("Account: ${a.label}. Every v1 feature is part of the free plan; future AI and agent layers will be paid options, shaped by real use. Sign-in arrives with the account service."))
+        root.addView(body("Account: ${a.label}. Every v1 feature is part of the free plan. Sign-in is not available yet; nothing here asks for it."))
 
         // Privacy wording (user-confirmed direction): captured content stays on the phone; account and any
         // analytics traffic are explained separately, not implied away by "everything stays on your phone".
         root.addView(h("Privacy"))
-        root.addView(body("Everything you capture stays on your phone. Captures live in Download/Sphere and are easy to delete. Account sign-in and any analytics (not yet chosen) communicate online only for their own purpose and will be described separately."))
+        root.addView(body("Everything you capture stays on your phone. Captures live in Download/Sphere and are easy to delete. If account sign-in arrives, what it sends will be described here before you use it."))
 
         setContentView(root)
     }

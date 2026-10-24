@@ -314,8 +314,8 @@ class CaptureService : Service() {
         slideFloat(if (on) fbarFoldX() else fbarOpenX())
         if (!on) ui.postDelayed(foldRun, 3000)
     }
-    private fun showFloatBar() {
-        hideFloatBar()
+    /** The Speed sub-tool's pill (brief): built on its own so the pixel harness renders the real view. */
+    internal fun buildSpeedPill(): View {
         val pr = prefs(this)
         val sp = app.vocr.sphere.Palette.current(this)   // the shell's palette: Speed is Auto-scroll's sub-tool (brief)
         val bar = android.widget.SeekBar(this).apply {
@@ -343,6 +343,13 @@ class CaptureService : Service() {
             pauseBtns = pauseBtns + pb
             addView(pb, android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8); gravity = Gravity.CENTER_HORIZONTAL })
         }
+        return pill
+    }
+
+    private fun showFloatBar() {
+        hideFloatBar()
+        val pr = prefs(this)
+        val pill = buildSpeedPill()
         pill.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
         fbarRight = if (pr.contains("fbar_right")) pr.getBoolean("fbar_right", true) else sideRight
         val b = lp

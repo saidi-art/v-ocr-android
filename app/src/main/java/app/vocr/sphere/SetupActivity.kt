@@ -69,7 +69,7 @@ class SetupActivity : Activity() {
         }
         root.addView(TextView(this).apply {
             val a = Account.current(this@SetupActivity)
-            text = "Account: ${a.label} - every v1 feature is on the free plan. Sign-in arrives with the account service; captured content stays on your phone."
+            text = "Account: ${a.label} - every v1 feature is on the free plan. Sign-in is not available yet; captured content stays on your phone."
             setTextColor(Color.parseColor("#99F3E7CB")); textSize = 13f; setPadding(0, (16 * d).toInt(), 0, (6 * d).toInt())
         })
         val on = SphereService.isOn(this)

@@ -31,7 +31,7 @@ object Motions {
     const val STAGGER = F55              // tools/minis pop out staggered 55 ms
     const val POPUP_VANISH = 3000L       // minis vanish about 3 s after the last touch (2-4 s band)
     const val DOCK_AFTER = 5000L         // after 5 s idle the sphere docks
-    const val DOCK_FRACTION = 0.50f      // ... sliding half off its edge (brief)
+    const val DOCK_FRACTION = 0.40f      // docks 40% off the edge (the authored motion value)
     const val POPUP_VANISH_MIN = 2000L; const val POPUP_VANISH_MAX = 4000L
 }
 
