@@ -29,6 +29,13 @@ object AccountService {
     @Volatile private var app: FirebaseApp? = null
     @Volatile private var config: Config? = null
 
+    /** Test hook: overrides the asset read so tests decide whether a config "exists", regardless of the
+     *  development environment's real (gitignored) assets/google-services.json. Null in production. */
+    @Volatile internal var assetOverride: (() -> String?)? = null
+
+    /** Clears cached config/app and the test hook so each test starts from a clean service. */
+    internal fun resetForTesting() { app = null; config = null; assetOverride = null }
+
     /** Parses a google-services.json body; null when required fields are absent. Pure: unit-tested without Firebase. */
     fun parseConfig(json: String): Config? = runCatching {
         val root = JSONObject(json)
@@ -47,8 +54,10 @@ object AccountService {
 
     private fun config(ctx: Context): Config? {
         config?.let { return it }
-        val parsed = runCatching { ctx.assets.open("google-services.json").bufferedReader().readText() }.getOrNull()
-            ?.let { parseConfig(it) } ?: return null
+        val override = assetOverride
+        val body = if (override != null) override()   // test hook is decisive: its null means "no config"
+                   else runCatching { ctx.assets.open("google-services.json").bufferedReader().readText() }.getOrNull()
+        val parsed = body?.let { parseConfig(it) } ?: return null
         config = parsed
         return parsed
     }
