@@ -56,6 +56,9 @@ class CaptureService : Service() {
         const val ACTION_RESCUE = "app.vocr.sphere.RESCUE"
         const val ACTION_REC = "app.vocr.sphere.REC"
         const val ACTION_AUTOSCROLL = "app.vocr.sphere.AUTOSCROLL"
+        const val ACTION_SHOT_FINISH = "app.vocr.sphere.SHOT_FINISH"   // sphere tap Done: finish the current capture and save it
+        const val ACTION_SHOT_CANCEL = "app.vocr.sphere.SHOT_CANCEL"   // sphere double-tap Cancel: throw the run away, nothing saved
+        const val ACTION_REC_CANCEL = "app.vocr.sphere.REC_CANCEL"   // sphere double-tap Cancel for REC: stop the recording and throw it away
         const val EXTRA_CODE = "code"
         const val EXTRA_DATA = "data"
         private const val CH_STATUS = "vocr_status2"
@@ -111,8 +114,12 @@ class CaptureService : Service() {
             ACTION_QUICK -> { if (recording || starting) fgRecording() else fgIdle("Sphere"); quickShot() }
             ACTION_AUTO_CAPTURE -> { if (recording || starting) fgRecording() else fgIdle("Sphere"); startSphereShot(rescue = false) }
             ACTION_RESCUE -> { if (recording || starting) fgRecording() else fgIdle("Sphere"); startSphereShot(rescue = true) }
+            ACTION_SHOT_FINISH -> finishShotRun()
+            ACTION_SHOT_CANCEL -> cancelShotRun()
+            ACTION_REC_CANCEL -> cancelRecording()
             ACTION_REC -> {
                 if (recording || starting) { fgRecording(); stopRecording() }
+                else if (shotRunning || shotSession != null) { toast("Stop the capture first") }   // mirrors startSphereShot's recording guard, so a Cancel always has one target
                 else { fgIdle("Sphere"); startActivity(Intent(this, ConsentActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
             }
             ACTION_AUTOSCROLL -> { if (recording || starting) fgRecording() else fgIdle("Sphere"); if (readMode) stopReadMode() else startReadMode() }
@@ -125,7 +132,7 @@ class CaptureService : Service() {
         return START_NOT_STICKY
     }
 
-    override fun onDestroy() { app.vocr.sphere.SphereBridge.recState(false); readMode = false; stopAutoScroll(); removeWidget(); releaseRecording(); super.onDestroy() }
+    override fun onDestroy() { app.vocr.sphere.SphereBridge.recState(false); app.vocr.sphere.SphereBridge.shotState(false); readMode = false; stopAutoScroll(); removeWidget(); releaseRecording(); super.onDestroy() }
     override fun onConfigurationChanged(c: android.content.res.Configuration) { super.onConfigurationChanged(c); hideMenu(); ui.post { if (widget != null) { lp?.let { it.y = it.y.coerceIn(0, (resources.displayMetrics.heightPixels - dp(60)).coerceAtLeast(0)) }; tuck(true) } } }
 
     // ---- notifications --------------------------------------------------------------------------------------------
@@ -502,7 +509,7 @@ class CaptureService : Service() {
 
     private fun closeWidget() { removeWidget(); stopForeground(STOP_FOREGROUND_REMOVE); stopSelf() }
 
-    private fun removeWidget() { ui.removeCallbacks(shotPoll); shotBubble?.let { v -> runCatching { wm?.removeView(v) } }; shotBubble = null; hidePace(); hideFloatBar(); hideShotBar(); shotSession?.discard(); shotSession = null; cover?.remove(); app.vocr.core.JobQueue.listener = null; hideAddChip(); hideMenu(); ui.removeCallbacks(tuckRun); widget?.let { runCatching { wm?.removeView(it) } }; widget = null }
+    private fun removeWidget() { ui.removeCallbacks(shotPoll); shotBubble?.let { v -> runCatching { wm?.removeView(v) } }; shotBubble = null; hidePace(); hideFloatBar(); hideShotBar(); shotSession?.discard(); shotSession = null; SphereBridge.shotState(false); cover?.remove(); app.vocr.core.JobQueue.listener = null; hideAddChip(); hideMenu(); ui.removeCallbacks(tuckRun); widget?.let { runCatching { wm?.removeView(it) } }; widget = null }
 
     private fun setWidgetIdle() {
         widget?.apply { label = "REC"; alpha = 1f; labelSp = 11f; fill = Color.parseColor("#3A3B42"); ring = -1f; invalidate() }
@@ -593,6 +600,7 @@ class CaptureService : Service() {
                 } catch (e: Throwable) { toast("Could not save: " + (e.message ?: e.javaClass.simpleName)); shotSaved = false }
             }
             shotSession = LongShotSession(this, bm, sTop, sBot); shotY0 = 0.72f; shotY1 = 0.46f; shotProbed = false; shotLoopRan = false; shotRatio = 1.0f; shotReqPx = 0f
+            SphereBridge.shotState(true)
             shotRunning = false
             if (sphereAction != null) {
                 // Sphere auto capture / Rescue: the run drives itself from here; the bar stays as the Stop surface
@@ -647,7 +655,7 @@ class CaptureService : Service() {
                 if (e.actionMasked == MotionEvent.ACTION_DOWN && !fired) {
                     fired = true
                     v.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP, android.view.HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING)
-                    shotAuto = false; shotCause = "Stopped by you (stop button)"; ui.removeCallbacks(shotIdleRun); finishLong()
+                    finishShotRun()
                 }
                 true
             }
@@ -664,11 +672,7 @@ class CaptureService : Service() {
             setOnClickListener {
                 it.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP, android.view.HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING)
                 // a cancelled run stops climbing/capturing and saves nothing: no exit path falls into a capture
-                shotAuto = false; shotHolding = false; shotCause = "Cancelled by you - nothing saved"
-                ui.removeCallbacks(shotIdleRun)
-                shotSession?.discard(); shotSession = null; shotLoopRan = false; firstShot = null; shotSaved = false
-                directCollected = null
-                hideShotBar()
+                cancelShotRun()
             }
         }
         row.addView(sc); row.addView(android.widget.Space(this), android.widget.LinearLayout.LayoutParams(dp(8), 1)); row.addView(rescue); row.addView(android.widget.Space(this), android.widget.LinearLayout.LayoutParams(dp(8), 1)); row.addView(done); row.addView(android.widget.Space(this), android.widget.LinearLayout.LayoutParams(dp(8), 1)); row.addView(cancel)
@@ -958,13 +962,47 @@ class CaptureService : Service() {
         SphereBridge.ready(m)
     }
 
+    /** Stop the current capture and save what it gathered - the bar's Done, now also the sphere tap's Done. */
+    private fun finishShotRun() {
+        shotAuto = false; shotCause = "Stopped by you (stop button)"; ui.removeCallbacks(shotIdleRun); finishLong()
+    }
+
+    /** Throw the current capture away without saving anything - the bar's X, now also the sphere double-tap's Cancel. */
+    private fun cancelShotRun() {
+        shotAuto = false; shotHolding = false; shotCause = "Cancelled by you - nothing saved"
+        ui.removeCallbacks(shotIdleRun)
+        shotSession?.discard(); shotSession = null; shotLoopRan = false; firstShot = null; shotSaved = false
+        directCollected = null
+        hideShotBar()
+        SphereBridge.shotState(false)
+    }
+
+    /** REC's Cancel (sphere double-tap): stop the recording and throw it away - nothing joins the queue, nothing is saved. */
+    private fun cancelRecording() {
+        app.vocr.sphere.SphereBridge.recState(false)
+        if (!recording) return
+        runCatching { stopAutoScroll() }
+        endPauseTracking(true)
+        recording = false; starting = false; syncSecure()
+        if (!readMode) hideFloatBar()
+        cover?.remove()
+        val f = recFile; recFile = null
+        pauseCount = 0; pauseMs = 0L
+        runCatching { recorder?.stop() }
+        releaseRecording()
+        setWidgetIdle()
+        if (f != null) runCatching { f.delete() }   // the partial clip is thrown away, not processed
+        toast("Recording discarded - nothing saved")
+        ui.post { setWidgetIdle(); fgIdle("Tap the floating button to record"); refreshQueueUi() }
+    }
+
     private fun finishLong() {
         val s = shotSession ?: return
         if (shotRunning) { ui.postDelayed(shotIdleRun, 600); return }   // a capture step is still being joined
         val endReason = shotEndReason; shotEndReason = ""
         val logTxt = if (shotLoopRan) runCatching { shotLogText(s, (if (endReason.isNotEmpty()) endReason else shotCause.ifEmpty { "Ended by you" }) + (if (s.frames <= 1) " (only one image captured)" else "")) }.getOrNull() else null
         shotLoopRan = false
-        shotSession = null; hideShotBar(); shotHolding = false
+        shotSession = null; hideShotBar(); shotHolding = false; SphereBridge.shotState(false)
         val alreadySaved = shotSaved; shotSaved = false
         shotExec.execute {
             try {

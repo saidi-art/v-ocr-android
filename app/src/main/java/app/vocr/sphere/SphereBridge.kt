@@ -13,6 +13,8 @@ object SphereBridge {
         fun onCaptureFailed(kind: CaptureStore.CaptureType, reason: String)
         /** REC started or stopped: the sphere carries the red dot while it runs. */
         fun onRecState(active: Boolean) {}
+        /** A capture session opened or closed: sphere taps mean Done/Cancel while one runs. */
+        fun onShotState(active: Boolean) {}
     }
 
     @Volatile var listener: Listener? = null
@@ -20,4 +22,5 @@ object SphereBridge {
     fun ready(m: CaptureStore.Meta) { listener?.onCaptureReady(m) }
     fun failed(kind: CaptureStore.CaptureType, reason: String) { listener?.onCaptureFailed(kind, reason) }
     fun recState(active: Boolean) { listener?.onRecState(active) }
+    fun shotState(active: Boolean) { listener?.onShotState(active) }
 }

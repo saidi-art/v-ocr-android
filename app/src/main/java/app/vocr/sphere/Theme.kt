@@ -28,6 +28,7 @@ object Geo {
 object Motions {
     const val F34 = 34L; const val F55 = 55L; const val F89 = 89L; const val F144 = 144L; const val F233 = 233L; const val F377 = 377L
     const val LONG_PRESS = F377          // long press fires at 377 ms
+    const val DOUBLE_TAP = F233          // two taps within 233 ms (tap alone was too sensitive)
     const val STAGGER = F55              // tools/minis pop out staggered 55 ms
     const val POPUP_VANISH = 3000L       // minis vanish about 3 s after the last touch (2-4 s band)
     const val DOCK_AFTER = 5000L         // after 5 s idle the sphere docks

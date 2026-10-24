@@ -13,6 +13,7 @@ import android.graphics.Rect
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.SystemClock
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -27,7 +28,8 @@ import app.vocr.capture.SphereShade
 
 /**
  * The sphere is the whole interface (brief). It stays on screen across every app and rides along on each switch:
- * capture here, switch, drop there. Tap = quick capture. Long press (377 ms) = tool splash. Drag = move, tools
+ * capture here, switch, drop there. Idle: double tap = quick capture. While a capture or recording runs: one tap = Done
+ * (finish and keep), two taps = Cancel (discard). Long press (377 ms) = tool splash. Drag = move, tools
  * follow elastically, release snaps to the nearest edge and remembers the position. Idle 5 s = dock 40% off the edge.
  * After a capture, the four minis pop out; the capture also rests in the shade as the fallback.
  *
@@ -59,6 +61,10 @@ class SphereService : Service(), SphereBridge.Listener {
     private var docked = false
     private var dragging = false
     private var longFired = false
+    private var shotActive = false
+    private var lastTapAt = 0L
+    private var pendingDone: Runnable? = null
+    private var tapLocked = false   // a Done/Cancel already fired: ignore further taps until the run actually ends
     private var snapAnim: SpringAnimation? = null
     private val dockRun = Runnable { dock(true) }
     private val longRun = Runnable {
@@ -127,7 +133,7 @@ class SphereService : Service(), SphereBridge.Listener {
     private fun nm() = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
     private fun statusNote(): Notification =
         Notification.Builder(this, CH).setSmallIcon(app.vocr.R.drawable.ic_stat_chevron)
-            .setContentTitle("Sphere").setContentText("On screen. Tap to capture; hold for tools.").setOngoing(true).build()
+            .setContentTitle("Sphere").setContentText("On screen. Double tap to capture; hold for tools.").setOngoing(true).build()
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
     private fun screenW() = resources.displayMetrics.widthPixels
@@ -151,7 +157,7 @@ class SphereService : Service(), SphereBridge.Listener {
         val c = FrameLayout(this).apply {
             // the Ball view is the 44 dp sphere PLUS its 10 dp halo pad: 64 dp, so the sphere itself is the brief's 44 dp
             addView(b, FrameLayout.LayoutParams(dp(Geo.SPHERE_DP + 20), dp(Geo.SPHERE_DP + 20), Gravity.CENTER))
-            contentDescription = "Sphere. Tap to capture; hold for tools; drag to move."
+            contentDescription = "Sphere. Double tap to capture; hold for tools; drag to move."
         }
         val q = WindowManager.LayoutParams(size, size, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS, PixelFormat.TRANSLUCENT)
@@ -201,7 +207,33 @@ class SphereService : Service(), SphereBridge.Listener {
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     ui.removeCallbacks(longRun)
                     if (e.actionMasked == MotionEvent.ACTION_UP && !dragging && !longFired) {
-                        if (popup.isShowing()) { popup.touch() } else quickCapture()
+                        val modeActive = shotActive || recActive
+                        when {
+                            modeActive && tapLocked -> Unit   // Done/Cancel already fired; taps wait for the run to end
+                            modeActive -> {
+                                // active run: one tap = Done (after the double-tap window), two taps = Cancel (at once)
+                                val now = SystemClock.uptimeMillis()
+                                if (SphereTools.secondTapFires(lastTapAt, now, Motions.DOUBLE_TAP)) {
+                                    lastTapAt = 0L; tapLocked = true
+                                    pendingDone?.let { ui.removeCallbacks(it) }; pendingDone = null
+                                    SphereTools.activeTapAction(true, shotActive, recActive)?.let { engine(it) }
+                                } else {
+                                    lastTapAt = now
+                                    val r = Runnable {
+                                        pendingDone = null; lastTapAt = 0L
+                                        if (!tapLocked) SphereTools.activeTapAction(false, shotActive, recActive)?.let { tapLocked = true; engine(it) }
+                                    }
+                                    pendingDone = r; ui.postDelayed(r, Motions.DOUBLE_TAP)
+                                }
+                            }
+                            popup.isShowing() -> popup.touch()   // the capture-ready popup keeps its single tap (idle only)
+                            else -> {
+                                // idle: two taps to capture (one tap alone was too sensitive): first tap arms, the second fires
+                                val now = SystemClock.uptimeMillis()
+                                if (SphereTools.secondTapFires(lastTapAt, now, Motions.DOUBLE_TAP)) { lastTapAt = 0L; quickCapture() }
+                                else lastTapAt = now
+                            }
+                        }
                     } else if (dragging) {
                         val drop = dropBar?.hot == true
                         hideDropBar()
@@ -338,10 +370,25 @@ class SphereService : Service(), SphereBridge.Listener {
 
     // ---- REC state: the sphere carries the red dot while recording runs ----------------------------------------------
 
+    override fun onShotState(active: Boolean) {
+        ui.post {
+            if (active == shotActive) return@post
+            shotActive = active
+            resetTapGesture()
+        }
+    }
+
+    /** Every mode start/end reopens the tap gesture: no pending Done, no lock, no armed first tap. */
+    private fun resetTapGesture() {
+        pendingDone?.let { ui.removeCallbacks(it) }; pendingDone = null
+        tapLocked = false; lastTapAt = 0L
+    }
+
     override fun onRecState(active: Boolean) {
         ui.post {
             if (active == recActive) return@post
             recActive = active
+            resetTapGesture()
             val c = container ?: return@post
             if (active) {
                 val dot = RecDot(this)
@@ -350,10 +397,10 @@ class SphereService : Service(), SphereBridge.Listener {
                     topMargin = dp(13); marginEnd = dp(13)
                 })
                 recDot = dot
-                c.contentDescription = "Sphere. Recording. Tap to capture; hold for tools; drag to move."
+                c.contentDescription = "Sphere. Recording. Tap to finish and read; double tap to discard; hold for tools; drag to move."
             } else {
                 recDot?.let { c.removeView(it) }; recDot = null
-                c.contentDescription = "Sphere. Tap to capture; hold for tools; drag to move."
+                c.contentDescription = "Sphere. Double tap to capture; hold for tools; drag to move."
             }
         }
     }
