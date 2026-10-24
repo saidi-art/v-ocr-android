@@ -147,6 +147,7 @@ class SphereService : Service(), SphereBridge.Listener {
         val d = resources.displayMetrics.density
         val size = dp(64)   // the 44 dp sphere + glow room inside a generous touch wrapper (48 dp minimum)
         val b = Ball(this, palette.sphere, 0.55f, 10f * d, true)
+        if (palette.night) { b.trimColor = palette.trim; b.poolColor = palette.glow }   // cased glass, lamp pool (brief)
         val c = FrameLayout(this).apply {
             // the Ball view is the 44 dp sphere PLUS its 10 dp halo pad: 64 dp, so the sphere itself is the brief's 44 dp
             addView(b, FrameLayout.LayoutParams(dp(Geo.SPHERE_DP + 20), dp(Geo.SPHERE_DP + 20), Gravity.CENTER))

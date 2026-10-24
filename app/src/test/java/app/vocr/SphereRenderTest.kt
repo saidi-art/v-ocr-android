@@ -21,10 +21,10 @@ import java.io.File
  * as pixels, not assumed from code. Day and Night desk: the sphere, the four splash tools, the four popup minis.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [34], qualifiers = "xhdpi")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class SphereRenderTest {
-    private fun dp(v: Float) = (v * 3f).toInt()   // render at 3x density for visible detail
+    private fun dp(v: Float) = (v * 2f).toInt()   // xhdpi: the density the views read via resources
 
     private fun draw(v: View, w: Int, h: Int): Bitmap {
         v.measure(View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(h, View.MeasureSpec.EXACTLY))

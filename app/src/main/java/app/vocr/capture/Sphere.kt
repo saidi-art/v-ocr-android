@@ -68,6 +68,10 @@ class Ball(ctx: Context, val colors: IntArray, private val bodyStop: Float, priv
     var pulse = 0f; set(v) { field = v; invalidate() }
     var ring = false; set(v) { field = v; invalidate() }
     var dim = false; set(v) { field = v; invalidate() }
+    /** Night desk: the brass casing around the emerald sphere (TRANSPARENT = none). */
+    var trimColor = Color.TRANSPARENT; set(v) { field = v; invalidate() }
+    /** Night desk: the soft pool of light the lamp casts below the sphere (TRANSPARENT = none). */
+    var poolColor = Color.TRANSPARENT; set(v) { field = v; invalidate() }
     private var anim: ValueAnimator? = null
     fun startPulse() {
         if (!big || anim != null) return
@@ -80,6 +84,11 @@ class Ball(ctx: Context, val colors: IntArray, private val bodyStop: Float, priv
         val s = minOf(width, height) - 2 * padPx; val r = s / 2f
         val a = if (dim) 0.4f else 1f
         val body = colors[1]
+        // the lamp's pool of light, cast below the sphere before anything else
+        if (poolColor != Color.TRANSPARENT) {
+            p.shader = RadialGradient(cx, cy + r * 1.5f, r * 1.1f, intArrayOf(withAlpha(poolColor, 0.42f * a), withAlpha(poolColor, 0.18f * a), 0), floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP)
+            c.save(); c.translate(cx, cy + r * 1.5f); c.scale(1f, 0.30f); c.drawCircle(0f, 0f, r * 1.1f, p); c.restore()
+        }
         // glow
         val glow = if (big) (20f + 10f * pulse) * d else 10f * d
         val ga = if (big) 0.6f else 0.8f
@@ -97,6 +106,11 @@ class Ball(ctx: Context, val colors: IntArray, private val bodyStop: Float, priv
         // thin light ring
         p.shader = null; p.style = Paint.Style.STROKE; p.strokeWidth = 1.5f * d; p.color = Color.argb((255 * (if (big) 0.45f else 0.55f) * a).toInt(), 255, 255, 255); c.drawCircle(cx, cy, r, p)
         if (ring) { p.strokeWidth = 2.5f * d; p.color = Color.WHITE; c.drawCircle(cx, cy, r + 3f * d, p) }
+        // the brass casing
+        if (trimColor != Color.TRANSPARENT) {
+            p.shader = null; p.style = Paint.Style.STROKE; p.strokeWidth = 1.8f * d; p.color = withAlpha(trimColor, a)
+            c.drawCircle(cx, cy, r + 1.4f * d, p); p.style = Paint.Style.FILL
+        }
         p.style = Paint.Style.FILL
         if (big) {   // wax-like glint: a soft white ellipse upper left, turned 32 degrees
             val ex = left + (0.17f + 0.18f) * s; val ey = top + (0.11f + 0.11f) * s; val rx = 0.18f * s; val ry = 0.11f * s

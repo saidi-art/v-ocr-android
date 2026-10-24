@@ -26,7 +26,7 @@ import java.io.File
  * the after-capture popup, and the charcoal drop bar. Geometry mirrors Splash.params / Popup.params exactly.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [34], qualifiers = "xhdpi")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class SphereSceneTest {
     private val D = 2f                      // render density: 2x
@@ -40,7 +40,7 @@ class SphereSceneTest {
     private fun sphereWin(p: Palette, rec: Boolean): FrameLayout {
         val ctx = RuntimeEnvironment.getApplication()
         return FrameLayout(ctx).apply {
-            addView(Ball(ctx, p.sphere, 0.55f, 10f * D, true), FrameLayout.LayoutParams(dp(Geo.SPHERE_DP + 20), dp(Geo.SPHERE_DP + 20), Gravity.CENTER))
+            addView(Ball(ctx, p.sphere, 0.55f, 10f * D, true).apply { if (p.night) { trimColor = p.trim; poolColor = p.glow } }, FrameLayout.LayoutParams(dp(Geo.SPHERE_DP + 20), dp(Geo.SPHERE_DP + 20), Gravity.CENTER))
             if (rec) addView(RecDot(ctx), FrameLayout.LayoutParams(dp(6), dp(6), Gravity.TOP or Gravity.END).apply { topMargin = dp(13); marginEnd = dp(13) })
         }
     }
@@ -137,6 +137,14 @@ class SphereSceneTest {
                     place(screen, background(bg), W, H, 0, 0)
                     val splash = splashCol(p)
                     splash.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
+                    // touch targets: every tool measures at least the 44 dp minimum in both dimensions (brief)
+                    for (i in 0 until splash.childCount) {
+                        val t = splash.getChildAt(i)
+                        check(t.measuredWidth >= dp(Geo.MIN_TOUCH_DP) && t.measuredHeight >= dp(Geo.MIN_TOUCH_DP)) { "tool $i below the 44 dp touch minimum: ${t.measuredWidth}x${t.measuredHeight}" }
+                    }
+                    // visible geometry: the ovals are exactly the brief's sizes at this density (Rescue 50x40 dp)
+                    val rescueLp = (splash.getChildAt(0) as ToolView).oval.layoutParams
+                    check(rescueLp.width == dp(Geo.LARGE_W_DP) && rescueLp.height == dp(Geo.LARGE_H_DP)) { "rescue oval ${rescueLp.width}x${rescueLp.height}px, expected ${dp(Geo.LARGE_W_DP)}x${dp(Geo.LARGE_H_DP)}px" }
                     place(screen, splash, splash.measuredWidth, splash.measuredHeight,
                         sphereRect.left - splash.measuredWidth - 8, (sphereRect.centerY() - splash.measuredHeight / 2).coerceAtLeast(0))
                     place(screen, sphereWin(p, rec = true), dp(64), dp(64), sphereX, sphereY)
