@@ -11,8 +11,8 @@ android {
         minSdk = 30
         targetSdk = 36
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
-        versionCode = 1
-        versionName = "0.1.0-s1"   // sphere slice 1: coverage receipt + sphere module on the frozen 109 base
+        versionCode = 2
+        versionName = "0.2.0-f1"   // sphere v1 foundation slice 1: the sphere is the interface (brief v2)
     }
     val ksPath = System.getenv("VOCR_KS_PATH")
     signingConfigs {
@@ -33,6 +33,7 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.activity:activity-compose:1.9.2")
+    implementation("androidx.dynamicanimation:dynamicanimation:1.1.0")
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.22.0")
     testImplementation("junit:junit:4.13.2")
     testImplementation("com.microsoft.onnxruntime:onnxruntime:1.22.0")

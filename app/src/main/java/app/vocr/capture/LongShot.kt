@@ -353,30 +353,26 @@ class PartWriter(private val ctx: Context, private val w: Int) {
 object ShotSaver {
     class Result(val names: String, val images: List<android.net.Uri>, val textUri: android.net.Uri?, val text: String)
 
-    /** Saves the parts. A single part keeps the plain name; several parts are numbered. */
-    fun save(ctx: Context, base: String, parts: List<File>, withText: Boolean, chrome: List<IntArray> = emptyList(), marks: List<Mark> = emptyList(), singleFrame: Boolean = false, receipt: String = ""): Result {
+    /**
+     * Saves a Sphere capture into the structured folder (brief: "Hand-off and folder"): predictable
+     * sphere-YYYYMMDD-HHmmss-<type>-<source> names, image parts as standard image files, the text as plain text
+     * with the small header (source app, time, format, capture type, text source). The OCR text is the fallback
+     * text; the caller swaps in direct text when the opt-in produced it.
+     */
+    fun save(ctx: Context, meta: app.vocr.sphere.CaptureStore.Meta, parts: List<File>, withText: Boolean, chrome: List<IntArray> = emptyList(), marks: List<Mark> = emptyList(), singleFrame: Boolean = false, receipt: String = ""): Result {
         val uris = ArrayList<android.net.Uri>()
-        // Images are saved first under the timestamp name (nothing is lost if reading the text is cut short), then renamed after the text gives them a title.
         parts.forEachIndexed { i, f ->
-            val name = if (parts.size == 1) "$base.png" else "$base part ${i + 1}.png"
-            val r = app.vocr.core.Saver.saveFile(ctx, name, "image/png", f)
-            if (r.uri == null) throw java.io.IOException(r.error)
-            uris.add(r.uri)
+            val u = app.vocr.sphere.CaptureStore.saveImage(ctx, meta, i + 1, parts.size, f)
+                ?: throw java.io.IOException("Android refused to save image part ${i + 1}")
+            uris.add(u)
         }
         var tt = ""
         if (withText) runCatching { tt = ocr(ctx, parts, chrome, marks, singleFrame) }
-        var title = base
-        if (tt.isNotBlank() && !app.vocr.core.Title.looksLikeList(tt)) runCatching { title = app.vocr.core.Saver.titleFor(ctx, tt, base) }   // a file list has no page title: keep the timestamp name
-        var renamed = title != base
-        if (renamed) {
-            val ok = uris.mapIndexed { i, u -> app.vocr.core.Saver.rename(ctx, u, if (parts.size == 1) "$title.png" else "$title part ${i + 1}.png") }
-            if (ok.any { !it }) { renamed = false; title = base }   // partial failure: report the names Android really holds is not possible, so keep the plain name for the text too
-        }
-        val names = parts.indices.map { i -> if (parts.size == 1) "${if (renamed) title else base}.png" else "${if (renamed) title else base} part ${i + 1}.png" }
-        if (tt.isNotBlank() && receipt.isNotBlank()) tt += "\n\n" + receipt   // the receipt follows the text: the title still comes from the page itself
+        if (tt.isNotBlank() && receipt.isNotBlank()) tt += "\n\n" + receipt   // the receipt follows the text
         var tu: android.net.Uri? = null
-        if (tt.isNotBlank()) runCatching { tu = app.vocr.core.Saver.saveAs(ctx, if (renamed) title else base, tt).uri }
+        if (tt.isNotBlank()) runCatching { tu = app.vocr.sphere.CaptureStore.saveText(ctx, meta.withTextSource(app.vocr.sphere.CaptureStore.TextSource.OCR), tt) }
         parts.forEach { it.delete() }
+        val names = parts.indices.map { i -> if (parts.size == 1) meta.baseName() + ".png" else "${meta.baseName()}-part${i + 1}-of-${parts.size}.png" }
         return Result(names.joinToString(", "), uris, tu, tt)
     }
 

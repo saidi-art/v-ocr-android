@@ -10,33 +10,31 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <application
         android:name=".VocrApp"
-        android:label="ScrollRSI Sphere"
+        android:label="Sphere"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
         android:theme="@style/Theme.Vocr"
         android:allowBackup="false">
-        <activity android:name=".MainActivity" android:exported="true"
+        <!-- The sphere is the whole interface: no home page. Setup exists only because Android cannot host these permissions. -->
+        <activity android:name=".sphere.SetupActivity" android:exported="true"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|uiMode|density">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
-        <activity android:name=".ManualActivity" android:exported="false" />
-        <activity android:name=".SavedActivity" android:exported="false" />
-        <activity android:name=".SettingsActivity" android:exported="false" />
-        <activity android:name=".AboutActivity" android:exported="false" />
+        <activity android:name=".sphere.SphereSettingsActivity" android:exported="false" />
         <activity android:name=".DisclosureActivity" android:exported="false" android:noHistory="true" android:excludeFromRecents="true" />
         <activity android:name=".capture.ConsentActivity" android:exported="false" android:taskAffinity=""
-            android:theme="@android:style/Theme.Translucent.NoTitleBar" android:excludeFromRecents="true"/>
-        <activity android:name=".capture.SavedPanelActivity" android:exported="false" android:taskAffinity=""
-            android:theme="@android:style/Theme.Translucent.NoTitleBar" android:excludeFromRecents="true"/>
-        <activity android:name=".capture.AddActivity" android:exported="false" android:taskAffinity=""
             android:theme="@android:style/Theme.Translucent.NoTitleBar" android:excludeFromRecents="true"/>
         <provider android:name="androidx.core.content.FileProvider" android:authorities="${applicationId}.share"
             android:exported="false" android:grantUriPermissions="true">
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/share_paths"/>
         </provider>
+        <service android:name=".sphere.SphereService" android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="the floating sphere shown over other apps, started by the user, to capture and carry context; closed by the user"/>
+        </service>
         <service android:name=".capture.CaptureService" android:exported="false"
             android:foregroundServiceType="specialUse|mediaProjection">
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="floating shortcut shown over other apps, started by the user, to begin a screen capture; closed by the user"/>

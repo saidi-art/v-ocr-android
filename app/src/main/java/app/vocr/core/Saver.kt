@@ -12,11 +12,11 @@ object Saver {
     fun save(ctx: Context, text: String): Saved {
         val stamp = java.text.SimpleDateFormat("yyyy-MM-dd HH-mm", java.util.Locale.US).format(java.util.Date())
         val dict = runCatching { ctx.assets.open("words.txt").use { String(it.readBytes(), Charsets.UTF_8) }.split("\n").map { it.trim().lowercase() }.filter { it.isNotEmpty() }.toHashSet() }.getOrNull()
-        val title = if (Title.looksLikeList(text)) "ScrollRSI recording $stamp" else Title.from(text, "ScrollRSI $stamp", dict)   // a file list has no page title
+        val title = if (Title.looksLikeList(text)) "Sphere recording $stamp" else Title.from(text, "Sphere $stamp", dict)   // a file list has no page title
         val cv = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, "$title.txt")
             put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
-            put(MediaStore.MediaColumns.RELATIVE_PATH, "Download/ScrollRSI")
+            put(MediaStore.MediaColumns.RELATIVE_PATH, "Download/Sphere")
         }
         var err = ""
         val uri = runCatching {
@@ -44,7 +44,7 @@ object Saver {
         val cv = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, "$title.txt")
             put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
-            put(MediaStore.MediaColumns.RELATIVE_PATH, "Download/ScrollRSI")
+            put(MediaStore.MediaColumns.RELATIVE_PATH, "Download/Sphere")
         }
         var err = ""
         val uri = runCatching {
@@ -61,7 +61,7 @@ object Saver {
         val cv = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, name)
             put(MediaStore.MediaColumns.MIME_TYPE, mime)
-            put(MediaStore.MediaColumns.RELATIVE_PATH, "Download/ScrollRSI")
+            put(MediaStore.MediaColumns.RELATIVE_PATH, "Download/Sphere")
         }
         var err = ""
         val uri = runCatching {

@@ -35,6 +35,8 @@ import android.graphics.RectF
 import app.vocr.core.Pipeline
 import app.vocr.core.Reader
 import app.vocr.core.Title
+import app.vocr.sphere.CaptureStore
+import app.vocr.sphere.SphereBridge
 import java.io.File
 
 /**
@@ -48,12 +50,19 @@ class CaptureService : Service() {
         const val ACTION_DENIED = "app.vocr.DENIED"
         const val ACTION_STOP = "app.vocr.STOP"
         const val ACTION_CLOSE = "app.vocr.CLOSE"
+        // Sphere shell entry points (the sphere is the interface; it drives the engine through these)
+        const val ACTION_QUICK = "app.vocr.sphere.QUICK"
+        const val ACTION_AUTO_CAPTURE = "app.vocr.sphere.AUTO_CAPTURE"
+        const val ACTION_RESCUE = "app.vocr.sphere.RESCUE"
+        const val ACTION_REC = "app.vocr.sphere.REC"
+        const val ACTION_AUTOSCROLL = "app.vocr.sphere.AUTOSCROLL"
         const val EXTRA_CODE = "code"
         const val EXTRA_DATA = "data"
         private const val CH_STATUS = "vocr_status2"
         private const val CH_DONE = "vocr_done2"
         private const val CH_SAVED = "vocr_saved"
         private const val ID_FG = 41
+        private const val SPHERE_SHELL = true
         fun prefs(ctx: Context) = ctx.getSharedPreferences("vocr", Context.MODE_PRIVATE)
     }
 
@@ -99,6 +108,14 @@ class CaptureService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
+            ACTION_QUICK -> { if (recording || starting) fgRecording() else fgIdle("Sphere"); quickShot() }
+            ACTION_AUTO_CAPTURE -> { if (recording || starting) fgRecording() else fgIdle("Sphere"); startSphereShot(rescue = false) }
+            ACTION_RESCUE -> { if (recording || starting) fgRecording() else fgIdle("Sphere"); startSphereShot(rescue = true) }
+            ACTION_REC -> {
+                if (recording || starting) { fgRecording(); stopRecording() }
+                else { fgIdle("Sphere"); startActivity(Intent(this, ConsentActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+            }
+            ACTION_AUTOSCROLL -> { if (recording || starting) fgRecording() else fgIdle("Sphere"); if (readMode) stopReadMode() else startReadMode() }
             ACTION_BEGIN -> beginRecording(intent)
             ACTION_DENIED -> { setWidgetIdle(); toast("Screen recording was not allowed") }
             ACTION_STOP -> stopRecording()
@@ -184,6 +201,8 @@ class CaptureService : Service() {
     }
 
     private fun addWidget() {
+        // Sphere is the interface (SphereService owns every overlay): the old record bubble never appears on this branch.
+        if (SPHERE_SHELL) return
         if (widget != null) return
         app.vocr.core.JobQueue.listener = { ui.post { refreshQueueUi() } }
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
@@ -540,7 +559,7 @@ class CaptureService : Service() {
 
     private fun stamp() = java.text.SimpleDateFormat("yyyy-MM-dd HH-mm-ss", java.util.Locale.US).format(java.util.Date())
 
-    private fun startShot(save: Boolean) {
+    private fun startShot(save: Boolean, sphereAction: String? = null) {
         if (recording || starting) { toast("Stop recording first"); return }
         if (shotRunning || shotSession != null) { toast("A screenshot is already open"); return }
         if (ScrollService.instance == null) {
@@ -555,21 +574,27 @@ class CaptureService : Service() {
             app.vocr.VocrApp.clearNote()   // this run's diagnostics only
             shotStamp = stamp(); shotEndReason = ""; shotCause = ""; shotRec = ""; cEnd = 0; cMm = 0; cBack = 0
             directCollected = if (prefs(this).getBoolean("direct_text", false)) java.util.ArrayList() else null
-            val base = "ScrollRSI shot " + shotStamp
             val sTop = sysBar("status_bar_height"); val sBot = sysBar("navigation_bar_height")
             shotSaved = save
             if (save) shotExec.execute {
                 try {
                     val f = java.io.File(cacheDir, "shot_${System.nanoTime()}_0.png")
                     f.outputStream().use { bm.compress(Bitmap.CompressFormat.PNG, 100, it) }
-                    val n = ShotSaver.save(this, base, listOf(f), prefs(this).getBoolean("shot_text", true), ChromeMap.systemBars(bm.height, sTop, sBot), singleFrame = true)
+                    val n = ShotSaver.save(this, sphereMeta(CaptureStore.CaptureType.TAP), listOf(f), true, ChromeMap.systemBars(bm.height, sTop, sBot), singleFrame = true)
                     firstShot = n   // no toast or pop-up now: they would end up inside the next capture
                 } catch (e: Throwable) { toast("Could not save: " + (e.message ?: e.javaClass.simpleName)); shotSaved = false }
             }
             shotSession = LongShotSession(this, bm, sTop, sBot); shotY0 = 0.72f; shotY1 = 0.46f; shotProbed = false; shotLoopRan = false; shotRatio = 1.0f; shotReqPx = 0f
             shotRunning = false
-            showShotBar()
-            ui.removeCallbacks(shotIdleRun); ui.postDelayed(shotIdleRun, 7000)   // nothing pressed: the bar goes away
+            if (sphereAction != null) {
+                // Sphere auto capture / Rescue: the run drives itself from here; the bar stays as the Stop surface
+                ui.removeCallbacks(shotIdleRun)
+                if (sphereAction == "rescue") startRescue() else { shotAuto = true; startLongLoop() }
+                showShotBar()
+            } else {
+                showShotBar()
+                ui.removeCallbacks(shotIdleRun); ui.postDelayed(shotIdleRun, 7000)   // nothing pressed: the bar goes away
+            }
         }
     }
 
@@ -877,52 +902,40 @@ class CaptureService : Service() {
                 }
             }
         }
-        if (reason.isNotEmpty()) { app.vocr.VocrApp.note("longshot: loop ended: $reason", null); shotEndReason = reason; shotHolding = false; shotAuto = false; ui.post { toast(reason); ui.removeCallbacks(shotIdleRun); finishLong(); ui.postDelayed({ if (shotSession == null && !shotRunning) showAgainBar() }, 1200) } }
+        if (reason.isNotEmpty()) { app.vocr.VocrApp.note("longshot: loop ended: $reason", null); shotEndReason = reason; shotHolding = false; shotAuto = false; ui.post { toast(reason); ui.removeCallbacks(shotIdleRun); finishLong() } }
     }
 
     @Volatile private var firstShot: ShotSaver.Result? = null
     private var shotNoteId = 5000
     /**
-     * The "ready" surface for a screenshot or long shot. With the overlay permission the sphere card is the pop-up: the daily sphere
-     * appears under the status bar, one tap unfolds text / image / open / share, and it goes away by itself; the notification then
-     * rests silently in the shade and reopens the sphere panel. Without the permission the classic pop-up notification with Share stays.
+     * The "ready" surface for a finished capture. The sphere shows the four minis (Image, Text, Open, Share) through
+     * SphereBridge; the capture also rests in the notification shade as the fallback the brief requires if the popup
+     * is missed, with Open and Share actions on it.
      */
-    private var savedCard: SavedCard? = null
-    private fun postShotDone(r: ShotSaver.Result, tall: Boolean, gaps: Int = 0) = runCatching {
-        val imgs = r.images; if (imgs.isEmpty()) return@runCatching
-        val title = if (tall) "Long shot saved" else "Screenshot saved"
-        val sub = (if (imgs.size > 1) "${imgs.size} parts" else "1 image") + (if (r.textUri != null) " and text" else "") + " in Download/ScrollRSI" + (if (gaps > 0) ". The page could not be lined up $gaps time(s): a section may be missing between image parts" else "")
+    private fun postShotDone(r: ShotSaver.Result, meta: CaptureStore.Meta, tall: Boolean, gaps: Int = 0) = runCatching {
+        val imgs = r.images; if (imgs.isEmpty() && r.textUri == null) return@runCatching
+        val m = meta.withFiles(imgs, r.textUri)
+        val sub = (if (imgs.size > 1) "${imgs.size} image parts" else if (imgs.isEmpty()) "text" else "1 image") +
+            (if (r.textUri != null) " + text" else "") + " in Sphere's folder (Download/Sphere)" +
+            (if (gaps > 0) ". The page could not be lined up $gaps time(s): a section may be missing between image parts" else "")
         val id = shotNoteId++
-        val share = if (imgs.size == 1) Intent(Intent.ACTION_SEND).setType("image/png").putExtra(Intent.EXTRA_STREAM, imgs[0])
-            else Intent(Intent.ACTION_SEND_MULTIPLE).setType("image/png").putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(imgs))
+        val first = imgs.firstOrNull() ?: r.textUri ?: return@runCatching
+        val view = Intent(Intent.ACTION_VIEW).setDataAndType(first, if (imgs.isEmpty()) "text/plain" else "image/png").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        val shareUris = if (imgs.isNotEmpty()) imgs else listOfNotNull(r.textUri)
+        val share = if (shareUris.size == 1) Intent(Intent.ACTION_SEND).setType(if (imgs.isEmpty()) "text/plain" else "image/png").putExtra(Intent.EXTRA_STREAM, shareUris[0])
+            else Intent(Intent.ACTION_SEND_MULTIPLE).setType("image/png").putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(shareUris))
         share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        val cd = android.content.ClipData.newRawUri(title, imgs[0]); imgs.drop(1).forEach { cd.addItem(android.content.ClipData.Item(it)) }
-        r.textUri?.let { cd.addItem(android.content.ClipData.Item(it)) }
+        val cd = android.content.ClipData.newRawUri("Sphere capture", shareUris[0]); shareUris.drop(1).forEach { cd.addItem(android.content.ClipData.Item(it)) }
         share.clipData = cd
         if (r.text.isNotBlank() && r.text.length < 100_000) share.putExtra(Intent.EXTRA_TEXT, r.text)
-        val chooser = Intent.createChooser(share, "Share").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        if (android.provider.Settings.canDrawOverlays(this)) {
-            val item = SavedItem(imgs, r.textUri, r.text, title, sub)
-            val panel = item.toExtras(Intent(this, SavedPanelActivity::class.java)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            val d = (resources.displayMetrics.density * 48).toInt()
-            val icon = runCatching { val bmp = Bitmap.createBitmap(d, d, Bitmap.Config.ARGB_8888); val v = Ball(this, SphereShade.big(SphereShade.today()), 0.38f, 0f, true); v.measure(View.MeasureSpec.makeMeasureSpec(d, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(d, View.MeasureSpec.EXACTLY)); v.layout(0, 0, d, d); v.draw(Canvas(bmp)); bmp }.getOrNull()
-            val b = Notification.Builder(this, CH_SAVED).setSmallIcon(app.vocr.R.drawable.ic_stat_chevron)
-                .setContentTitle(title).setContentText(sub).setStyle(Notification.BigTextStyle().bigText(sub))
-                .setAutoCancel(true)
-                .setContentIntent(PendingIntent.getActivity(this, id, panel, PendingIntent.FLAG_IMMUTABLE))
-                .addAction(Notification.Action.Builder(null, "Share", PendingIntent.getActivity(this, id + 10000, chooser, PendingIntent.FLAG_IMMUTABLE)).build())
-            icon?.let { b.setLargeIcon(it) }
-            nm().notify(id, b.build())
-            ui.post { runCatching { (savedCard ?: SavedCard(this, wm ?: getSystemService(WINDOW_SERVICE) as WindowManager, ui).also { savedCard = it }).show(item, sysBar("status_bar_height")) } }
-        } else {
-            val view = Intent(Intent.ACTION_VIEW).setDataAndType(imgs[0], "image/png").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-            val b = Notification.Builder(this, CH_DONE).setSmallIcon(app.vocr.R.drawable.ic_stat_chevron)
-                .setContentTitle(title).setContentText("$sub. Tap to open, or Share.")
-                .setAutoCancel(true)
-                .setContentIntent(PendingIntent.getActivity(this, id, view, PendingIntent.FLAG_IMMUTABLE))
-                .addAction(Notification.Action.Builder(null, "Share", PendingIntent.getActivity(this, id + 10000, chooser, PendingIntent.FLAG_IMMUTABLE)).build())
-            nm().notify(id, b.build())
-        }
+        val chooser = Intent.createChooser(share, "Hand to").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val b = Notification.Builder(this, CH_SAVED).setSmallIcon(app.vocr.R.drawable.ic_stat_chevron)
+            .setContentTitle("Sphere capture").setContentText(sub).setStyle(Notification.BigTextStyle().bigText(sub))
+            .setAutoCancel(true)
+            .setContentIntent(PendingIntent.getActivity(this, id, view, PendingIntent.FLAG_IMMUTABLE))
+            .addAction(Notification.Action.Builder(null, "Share", PendingIntent.getActivity(this, id + 10000, chooser, PendingIntent.FLAG_IMMUTABLE)).build())
+        nm().notify(id, b.build())
+        SphereBridge.ready(m)
     }
 
     private fun finishLong() {
@@ -930,20 +943,17 @@ class CaptureService : Service() {
         if (shotRunning) { ui.postDelayed(shotIdleRun, 600); return }   // a capture step is still being joined
         val endReason = shotEndReason; shotEndReason = ""
         val logTxt = if (shotLoopRan) runCatching { shotLogText(s, (if (endReason.isNotEmpty()) endReason else shotCause.ifEmpty { "Ended by you" }) + (if (s.frames <= 1) " (only one image captured)" else "")) }.getOrNull() else null
-        val firstStamp = shotStamp
         shotLoopRan = false
         shotSession = null; hideShotBar(); shotHolding = false
         val alreadySaved = shotSaved; shotSaved = false
         shotExec.execute {
             try {
-                fun writeLog(st: String) { logTxt?.let { l -> runCatching { app.vocr.core.Saver.saveAs(this, "ScrollRSI shot log $st", l.replaceFirst("ScrollRSI shot log ", "ScrollRSI shot log $st")) } } }
-                if (s.frames == 1 && alreadySaved) { writeLog(if (firstStamp.isNotEmpty()) firstStamp else stamp()); s.discard(); firstShot?.let { toast("Saved to Download/ScrollRSI: ${it.names}"); postShotDone(it, false) }; firstShot = null; return@execute }
+                val meta = sphereMeta(if (s.frames > 1) CaptureStore.CaptureType.AUTO else CaptureStore.CaptureType.TAP)
+                if (s.frames == 1 && alreadySaved) { s.discard(); firstShot?.let { postShotDone(it, meta, false) }; firstShot = null; return@execute }
                 val parts = s.finish()
                 val chrome = if (s.frames > 1) s.chromeRanges() else s.systemChrome()   // one capture, no pair: only the system bars are provable chrome
                 val tall = s.frames > 1
-                val st = stamp()
-                val base = (if (tall) "ScrollRSI long shot " else "ScrollRSI shot ") + st
-                writeLog(st)
+                logTxt?.let { l -> runCatching { CaptureStore.saveCompanion(this, meta, "capture log", l) } }   // the run/climb log survives next to the capture
                 val endBasis = when {
                     endReason == "End of the page" -> app.vocr.core.Receipt.End.BOTTOM
                     endReason == "Reached the size limit" -> app.vocr.core.Receipt.End.CAP
@@ -951,15 +961,13 @@ class CaptureService : Service() {
                     else -> app.vocr.core.Receipt.End.USER
                 }
                 val receipt = if (s.frames > 1) s.receiptText(parts.size, endBasis) else ""
-                val n = ShotSaver.save(this, base, parts, prefs(this).getBoolean("shot_text", true), chrome, s.marks(), singleFrame = s.frames <= 1, receipt = receipt)
+                val n = ShotSaver.save(this, meta, parts, true, chrome, s.marks(), singleFrame = s.frames <= 1, receipt = receipt)
                 val dc = directCollected; directCollected = null
-                if (!dc.isNullOrEmpty()) runCatching {
-                    val merged = app.vocr.core.DirectText.merge(dc)
-                    if (merged.isNotEmpty()) app.vocr.core.Saver.saveAs(this, "$base direct", "ScrollRSI direct text (experimental)\nRead straight from the screen via Accessibility, not OCR. A marked join is one the text itself could not prove.\n---\n" + merged.joinToString("\n"))
-                }
-                toast("Saved to Download/ScrollRSI: ${n.names}" + (if (s.gaps > 0) ". The page could not be lined up ${s.gaps} time(s): a section may be missing between image parts" else "")); postShotDone(n, tall, s.gaps)
+                // Brief: direct on-screen text where explicitly enabled, OCR otherwise - one text output, honestly labelled
+                val textUri = if (!dc.isNullOrEmpty()) saveDirectText(meta, app.vocr.core.DirectText.merge(dc), n.textUri) else n.textUri
+                postShotDone(ShotSaver.Result(n.names, n.images, textUri, n.text), meta, tall, s.gaps)
                 firstShot = null
-            } catch (e: Throwable) { toast("Could not save: " + (e.message ?: e.javaClass.simpleName)); runCatching { s.discard() } }
+            } catch (e: Throwable) { toast("Could not save: " + (e.message ?: e.javaClass.simpleName)); runCatching { s.discard() }; SphereBridge.failed(CaptureStore.CaptureType.AUTO, e.message ?: e.javaClass.simpleName) }
         }
     }
 
@@ -1252,23 +1260,9 @@ class CaptureService : Service() {
         runCatching { wm?.addView(c, q); addChip = c; ui.postDelayed(chipPoll, 300) }
     }
 
-    /** The (+) offers both: queue old recordings, or start a new (auto-scroll) recording while earlier ones are still being read. */
+    /** Queue-old-recordings lived here in the home-shell app; Sphere v1 does not import recordings (open brief decision, defaulting to ScrollRSI-exclusive). */
     private fun showAddMenu() {
-        val q = lp ?: return
         hideMenu()
-        val x = (q.x - dp(176)).coerceAtLeast(dp(4)); val y = (q.y - dp(46)).coerceAtLeast(dp(4))
-        val old = chip("Add old recordings", chipC()) {
-            hideMenu(); startActivity(Intent(this, AddActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        }
-        val neu = chip(if (recording) "Recording now" else "New recording" + (if (prefs(this).getBoolean("autoscroll", false) && ScrollService.instance != null) " (auto-scroll)" else ""), accentC()) {
-            hideMenu()
-            if (recording) toast("Already recording - tap the bubble to stop")
-            else startActivity(Intent(this, ConsentActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        }
-        overlay(old, x, y)
-        overlay(neu, x, y + dp(42))
-        menu = listOf(old, neu)
-        ui.postDelayed(hideMenuRun, 5000)
     }
 
     private fun hideAddChip() { ui.removeCallbacks(chipPoll); addChip?.let { runCatching { wm?.removeView(it) } }; addChip = null }
@@ -1281,6 +1275,65 @@ class CaptureService : Service() {
             val j = app.vocr.core.JobQueue.current()
             if (j != null) { setRing(j.frac, j.ringLabel) } else if (n == 0) { widget?.let { it.ring = -1f; it.label = "REC"; it.invalidate() } }
         }
+    }
+
+    // ---- Sphere shell entry points (the sphere drives the engine through these) ---------------------------------------
+
+    /** The facts every capture is filed under: source app (best effort from the accessibility feed), time, capture type, text source. */
+    private fun sphereMeta(type: CaptureStore.CaptureType): CaptureStore.Meta {
+        val pkg = ScrollService.instance?.lastPackage ?: ""
+        val label = if (pkg.isEmpty()) "" else runCatching { packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString() }.getOrDefault("")
+        val ts = if (prefs(this).getBoolean("direct_text", false)) CaptureStore.TextSource.DIRECT else CaptureStore.TextSource.OCR
+        return CaptureStore.Meta(type, if (label.isEmpty()) "unknown app" else label, pkg, ts)
+    }
+
+    /** Sphere tap = quick capture: one or a few messages. One screenshot saved as image + text; no bar, no session. */
+    private fun quickShot() {
+        if (recording || starting) { toast("Stop the recording first"); return }
+        if (shotRunning || shotSession != null) { toast("A capture is already running"); return }
+        val svc = ScrollService.instance
+        if (svc == null) { toast("Captures need Accessibility. Read the notice first."); app.vocr.DisclosureActivity.openAccessibility(this); return }
+        if (android.os.Build.VERSION.SDK_INT < 30) { toast("Captures need Android 11 or newer"); return }
+        val meta = sphereMeta(CaptureStore.CaptureType.TAP)
+        CaptureStore.logStep(this, meta.baseName(), "capture-start", "tap")
+        shotRunning = true
+        snap { bm ->
+            if (bm == null) { shotRunning = false; SphereBridge.failed(meta.type, "no screenshot"); toast("Could not take the screenshot"); return@snap }
+            if (LongShotSession.blank(bm)) { shotRunning = false; bm.recycle(); SphereBridge.failed(meta.type, "blocked"); toast("This app blocks screenshots (the picture is black)"); return@snap }
+            val h = bm.height; val sTop = sysBar("status_bar_height"); val sBot = sysBar("navigation_bar_height")
+            val direct = if (prefs(this).getBoolean("direct_text", false)) svc.screenText() else emptyList()
+            shotExec.execute {
+                try {
+                    val f = java.io.File(cacheDir, "shot_${System.nanoTime()}_0.png")
+                    f.outputStream().use { bm.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                    bm.recycle()
+                    val n = ShotSaver.save(this, meta, listOf(f), true, ChromeMap.systemBars(h, sTop, sBot), singleFrame = true)
+                    val textUri = if (direct.isNotEmpty()) saveDirectText(meta, app.vocr.core.DirectText.merge(listOf(direct)), n.textUri) else n.textUri
+                    postShotDone(ShotSaver.Result(n.names, n.images, textUri, n.text), meta, tall = false)
+                } catch (e: Throwable) { toast("Could not save: " + (e.message ?: e.javaClass.simpleName)); SphereBridge.failed(meta.type, e.message ?: e.javaClass.simpleName) }
+            }
+            shotRunning = false
+        }
+    }
+
+    /** Sphere auto capture / Rescue: take the first frame, then let the run drive itself (Stop is on the bar). */
+    private fun startSphereShot(rescue: Boolean) {
+        if (recording || starting) { toast("Stop the recording first"); return }
+        if (shotRunning || shotSession != null) { toast("A capture is already running"); return }
+        startShot(save = false, sphereAction = if (rescue) "rescue" else "auto")
+    }
+
+    /**
+     * Direct on-screen text where explicitly enabled, OCR otherwise (brief): when the accessibility read produced text,
+     * it becomes the capture's one text file (honestly labelled); the OCR fallback file is removed. Returns the Uri the
+     * capture really offers as text.
+     */
+    private fun saveDirectText(meta: CaptureStore.Meta, merged: List<String>, ocrTextUri: android.net.Uri?): android.net.Uri? {
+        if (merged.isEmpty()) return ocrTextUri
+        val m2 = meta.withTextSource(CaptureStore.TextSource.DIRECT)
+        val u = CaptureStore.saveText(this, m2, merged.joinToString("\n")) ?: return ocrTextUri
+        ocrTextUri?.let { CaptureStore.delete(this, it) }
+        return u
     }
 
 }

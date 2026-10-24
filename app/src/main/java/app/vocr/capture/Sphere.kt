@@ -37,6 +37,13 @@ object SphereShade {
     }
     private fun day(d: Int) = d.coerceIn(1, 365)
     private fun hue(d: Int) = (day(d) * GOLDEN) % 360.0
+    /** The day's raw OKLCH hue: the fixed offsets of the Sphere shell's tools are measured from it. */
+    fun hueOf(dayOfYear: Int): Double = hue(day(dayOfYear))
+    /** A [highlight, body, shadow] triplet at any hue, for the shell's offset tools (Rescue +120, Auto-scroll +240, REC +300, minis +180). */
+    fun tool(l: Double, c: Double, h: Double): IntArray {
+        val hh = (h % 360.0 + 360.0) % 360.0
+        return intArrayOf(oklch(Math.min(0.95, l + 0.15), c * 0.6, hh), oklch(l, c, hh), oklch(l - 0.20, c * 0.9, hh))
+    }
     /** Large sphere: [highlight side, body, shadow side]. */
     fun big(dayOfYear: Int): IntArray {
         val d = day(dayOfYear); val h = hue(d)

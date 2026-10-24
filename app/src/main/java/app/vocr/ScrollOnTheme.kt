@@ -48,6 +48,12 @@ val TrackOff: Color get() = pick(0x33FFFFFF, 0x240C0C0C)
 val TickOff: Color get() = pick(0x55FFFFFF, 0x590C0C0C)
 val WordO: Color get() = pick(0xFFE3C7A2, 0xFF0C0C0C)
 
+val Ink: Color get() = Ground
+val Card: Color get() = if (Pal.paper) Color(0xFFFDFBF7) else Color(0xFF1A1B20)
+val Violet: Color get() = if (Pal.paper) Color(0xFF0C0C0C) else Color(0xFFD2B08A)
+val Lilac: Color get() = if (Pal.paper) Color(0xFF0C0C0C) else Color(0xFFE3C7A2)
+val Muted: Color get() = if (Pal.paper) Color(0xD60C0C0C) else Color(0xFFA9A6A0)
+
 /** Material scheme for the active palette. */
 @Composable
 fun scrollScheme() = if (Pal.paper) androidx.compose.material3.lightColorScheme(primary = Violet, background = Ink, surface = Card, onBackground = TextMain, onSurface = TextMain)

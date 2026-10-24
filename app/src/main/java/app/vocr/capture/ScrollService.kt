@@ -11,8 +11,13 @@ import android.graphics.Bitmap
 class ScrollService : AccessibilityService() {
     /** How far the page really moved during the current swipe (scroll-event numbers only, never content). Armed per swipe by the capture loop. */
     val signal = ScrollSignal()
+    /** The foreground app's package as far as the accessibility feed has told us (numbers only, never content); used to label captures. */
+    @Volatile var lastPackage: String? = null; private set
     override fun onAccessibilityEvent(e: AccessibilityEvent?) {
-        if (e == null || e.eventType != AccessibilityEvent.TYPE_VIEW_SCROLLED) return
+        if (e == null) return
+        if (e.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) lastPackage = e.packageName?.toString()
+        if (e.eventType != AccessibilityEvent.TYPE_VIEW_SCROLLED) return
+        lastPackage = e.packageName?.toString() ?: lastPackage
         signal.onScroll(e.packageName?.toString(), e.scrollDeltaY, e.scrollY)
     }
     /**
@@ -34,8 +39,8 @@ class ScrollService : AccessibilityService() {
     }
 
     override fun onInterrupt() {}
-    override fun onServiceConnected() { super.onServiceConnected(); instance = this; app.vocr.homeTick.intValue++ }
-    override fun onDestroy() { if (instance === this) instance = null; app.vocr.homeTick.intValue++; super.onDestroy() }
+    override fun onServiceConnected() { super.onServiceConnected(); instance = this }
+    override fun onDestroy() { if (instance === this) instance = null; super.onDestroy() }
 
     /** One swipe from y0 to y1 (fractions of the screen height) at the horizontal centre, lasting durMs. */
     fun swipe(w: Int, h: Int, y0: Float, y1: Float, durMs: Long, xFrac: Float = X0, tailMs: Long = 0L, done: (Boolean) -> Unit) {
