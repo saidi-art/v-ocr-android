@@ -1,7 +1,7 @@
 name: build-apk
 on:
   push:
-    branches: [main, sphere-proto-1]   # sphere-proto-1: the sphere prototype branch builds its own APKs; main behaviour is unchanged
+    branches: [main, sphere-proto-1, sphere-v1]   # sphere branches build their own APKs; main behaviour is unchanged
   workflow_dispatch:
 permissions:
   contents: write
@@ -34,6 +34,14 @@ jobs:
           cp "$M/ch_PP-OCRv4_rec_infer.onnx" app/src/main/assets/ocr/rec.onnx
           python -c "import onnxruntime as o;s=o.InferenceSession('app/src/main/assets/ocr/rec.onnx');open('app/src/main/assets/ocr/keys.txt','w').write(s.get_modelmeta().custom_metadata_map['character'])"
           ls -la app/src/main/assets/ocr
+      - name: Restore Firebase config (secret-injected, never committed)
+        env:
+          FIREBASE_CFG: ${{ secrets.FIREBASE_CONFIG_JSON }}
+        run: |
+          if [ -n "$FIREBASE_CFG" ]; then
+            printf '%s' "$FIREBASE_CFG" > app/src/main/assets/google-services.json
+            echo "Firebase config injected from secret"
+          else echo "no FIREBASE_CONFIG_JSON secret - config-optional build"; fi
       - name: Unit tests
         run: gradle --no-daemon testDebugUnitTest
       - name: Build debug APK
@@ -100,8 +108,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           # the sphere branch releases under its own sphere-sN tags: main's build-N tags and releases stay untouched
-          tag_name: ${{ github.ref_name == 'sphere-proto-1' && format('sphere-s{0}', github.run_number) || format('build-{0}', github.run_number) }}
-          name: ${{ github.ref_name == 'sphere-proto-1' && format('Sphere prototype s{0}', github.run_number) || format('V-OCR build {0}', github.run_number) }}
+          tag_name: ${{ github.ref_name == 'sphere-proto-1' && format('sphere-s{0}', github.run_number) || (github.ref_name == 'sphere-v1' && format('sphere-v1-{0}', github.run_number) || format('build-{0}', github.run_number)) }}
+          name: ${{ github.ref_name == 'sphere-proto-1' && format('Sphere prototype s{0}', github.run_number) || (github.ref_name == 'sphere-v1' && format('Sphere v1 test {0}', github.run_number) || format('V-OCR build {0}', github.run_number)) }}
           files: |
             vocr-debug-${{ github.run_number }}.apk
             vocr-release-${{ github.run_number }}.aab
