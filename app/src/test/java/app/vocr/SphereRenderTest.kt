@@ -89,7 +89,7 @@ class SphereRenderTest {
             val name = if (night) "night-desk" else "day"
             // the sphere carrying the REC dot while recording runs
             val recWrap = FrameLayout(ctx).apply {
-                addView(Ball(ctx, p.sphere, 0.55f, dp(10f).toFloat(), true), FrameLayout.LayoutParams(dp(44f), dp(44f), android.view.Gravity.CENTER))
+                addView(Ball(ctx, p.sphere, 0.55f, dp(10f).toFloat(), true), FrameLayout.LayoutParams(dp(64f), dp(64f), android.view.Gravity.CENTER))
                 addView(RecDot(ctx), FrameLayout.LayoutParams(dp(12f), dp(12f), android.view.Gravity.TOP or android.view.Gravity.END).apply { topMargin = dp(10f); marginEnd = dp(10f) })
             }
             val recBm = draw(recWrap, dp(64f), dp(64f))

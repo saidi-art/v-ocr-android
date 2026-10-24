@@ -83,8 +83,12 @@ class Ball(ctx: Context, val colors: IntArray, private val bodyStop: Float, priv
         // glow
         val glow = if (big) (20f + 10f * pulse) * d else 10f * d
         val ga = if (big) 0.6f else 0.8f
-        p.shader = RadialGradient(cx, cy, r + glow, intArrayOf(withAlpha(body, ga * a * 0.55f), withAlpha(body, ga * a * 0.55f), 0), floatArrayOf(0f, r / (r + glow), 1f), Shader.TileMode.CLAMP)
-        c.drawCircle(cx, cy, r + glow, p)
+        // never let the halo reach the view's bounds: a clipped glow reads as a coloured square (pixel finding)
+        val grGlow = minOf(r + glow, minOf(width, height) / 2f - d)
+        if (grGlow > r) {
+            p.shader = RadialGradient(cx, cy, grGlow, intArrayOf(withAlpha(body, ga * a * 0.55f), withAlpha(body, ga * a * 0.55f), 0), floatArrayOf(0f, r / grGlow, 1f), Shader.TileMode.CLAMP)
+            c.drawCircle(cx, cy, grGlow, p)
+        }
         // body: radial gradient at 32% 28%, highlight - body - shadow side
         val left = cx - r; val top = cy - r
         val gr = (Math.hypot(0.68, 0.72) * s).toFloat()

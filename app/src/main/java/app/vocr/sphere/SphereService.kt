@@ -148,7 +148,8 @@ class SphereService : Service(), SphereBridge.Listener {
         val size = dp(64)   // the 44 dp sphere + glow room inside a generous touch wrapper (48 dp minimum)
         val b = Ball(this, palette.sphere, 0.55f, 10f * d, true)
         val c = FrameLayout(this).apply {
-            addView(b, FrameLayout.LayoutParams(dp(Geo.SPHERE_DP), dp(Geo.SPHERE_DP), Gravity.CENTER))
+            // the Ball view is the 44 dp sphere PLUS its 10 dp halo pad: 64 dp, so the sphere itself is the brief's 44 dp
+            addView(b, FrameLayout.LayoutParams(dp(Geo.SPHERE_DP + 20), dp(Geo.SPHERE_DP + 20), Gravity.CENTER))
             contentDescription = "Sphere. Tap to capture; hold for tools; drag to move."
         }
         val q = WindowManager.LayoutParams(size, size, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
@@ -343,9 +344,9 @@ class SphereService : Service(), SphereBridge.Listener {
             val c = container ?: return@post
             if (active) {
                 val dot = RecDot(this)
-                val size = dp(12)
-                c.addView(dot, FrameLayout.LayoutParams(size, size, Gravity.TOP or Gravity.END).apply {
-                    topMargin = dp(10); marginEnd = dp(10)
+                // same dot the REC tool carries (brief): 6 dp, seated on the ball's top-right edge
+                c.addView(dot, FrameLayout.LayoutParams(dp(6), dp(6), Gravity.TOP or Gravity.END).apply {
+                    topMargin = dp(13); marginEnd = dp(13)
                 })
                 recDot = dot
                 c.contentDescription = "Sphere. Recording. Tap to capture; hold for tools; drag to move."

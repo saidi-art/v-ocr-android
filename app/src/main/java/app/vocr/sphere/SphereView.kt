@@ -30,10 +30,13 @@ class OvalView(ctx: Context) : View(ctx) {
         val d = resources.displayMetrics.density
         val a = if (dimmed) 0.5f else 1f
         val body = colors[1]
-        // glow (theme supplies the halo colour through the highlight side; soft, local, never a dim layer behind tools)
-        val gw = w * 0.35f
-        p.shader = RadialGradient(w / 2, h / 2, w / 2 + gw, intArrayOf(withA(body, 0.35f * a), withA(body, 0.12f * a), 0), floatArrayOf(0f, w / 2 / (w / 2 + gw), 1f), Shader.TileMode.CLAMP)
-        c.drawOval(-gw, -(gw * h / w) + h / 2 - h / 2, w + gw, h + (gw * h / w), p)
+        // glow: a local halo that fades to zero BEFORE the view's bounds - a glow that touches the bounds
+        // clips at the view rectangle and reads as a coloured backplate (found by pixel inspection)
+        val grGlow = minOf(w, h) / 2f - d
+        if (grGlow > 0) {
+            p.shader = RadialGradient(w / 2, h / 2, grGlow, intArrayOf(withA(body, 0.35f * a), withA(body, 0.12f * a), 0), floatArrayOf(0f, 0.72f, 1f), Shader.TileMode.CLAMP)
+            c.drawCircle(w / 2, h / 2, grGlow, p)
+        }
         // body: radial gradient centred upper-left (the fixed light), highlight -> body -> shadow
         val hx = w * 0.32f; val hy = h * 0.28f
         val gr = Math.hypot(w * 0.75.toDouble(), h * 0.75.toDouble()).toFloat()
