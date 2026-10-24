@@ -651,7 +651,19 @@ class CaptureService : Service() {
                 startRescue()
             }
         }
-        row.addView(sc); row.addView(android.widget.Space(this), android.widget.LinearLayout.LayoutParams(dp(8), 1)); row.addView(rescue); row.addView(android.widget.Space(this), android.widget.LinearLayout.LayoutParams(dp(8), 1)); row.addView(done)
+        val cancel = glassChip(this, "✕", chipC()).apply {
+            contentDescription = "Cancel: throw this run away without saving anything"
+            setOnClickListener {
+                it.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP, android.view.HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING)
+                // a cancelled run stops climbing/capturing and saves nothing: no exit path falls into a capture
+                shotAuto = false; shotHolding = false; shotCause = "Cancelled by you - nothing saved"
+                ui.removeCallbacks(shotIdleRun)
+                shotSession?.discard(); shotSession = null; shotLoopRan = false; firstShot = null; shotSaved = false
+                directCollected = null
+                hideShotBar()
+            }
+        }
+        row.addView(sc); row.addView(android.widget.Space(this), android.widget.LinearLayout.LayoutParams(dp(8), 1)); row.addView(rescue); row.addView(android.widget.Space(this), android.widget.LinearLayout.LayoutParams(dp(8), 1)); row.addView(done); row.addView(android.widget.Space(this), android.widget.LinearLayout.LayoutParams(dp(8), 1)); row.addView(cancel)
         row.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
         val q = WindowManager.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS, PixelFormat.TRANSLUCENT).apply {
@@ -1329,10 +1341,12 @@ class CaptureService : Service() {
      * capture really offers as text.
      */
     private fun saveDirectText(meta: CaptureStore.Meta, merged: List<String>, ocrTextUri: android.net.Uri?): android.net.Uri? {
-        if (merged.isEmpty()) return ocrTextUri
+        if (merged.isEmpty()) return ocrTextUri   // the tree gave no text: OCR stays the capture's text, honestly labelled
         val m2 = meta.withTextSource(CaptureStore.TextSource.DIRECT)
-        val u = CaptureStore.saveText(this, m2, merged.joinToString("\n")) ?: return ocrTextUri
-        ocrTextUri?.let { CaptureStore.delete(this, it) }
+        val note = "Read straight from the screen via Accessibility, not OCR. A marked join is one the text itself could not prove; text the app does not expose to Accessibility can be missing.\n\n"
+        val u = CaptureStore.saveText(this, m2, note + merged.joinToString("\n")) ?: return ocrTextUri
+        // the OCR pass is kept as a named fallback next to the capture - original evidence is never silently destroyed
+        ocrTextUri?.let { app.vocr.core.Saver.rename(this, it, meta.baseName() + "-ocr-fallback.txt") }
         return u
     }
 

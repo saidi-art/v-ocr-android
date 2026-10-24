@@ -12,6 +12,8 @@ import androidx.compose.runtime.*
 import java.io.File
 import app.vocr.capture.QueueService
 import app.vocr.Haptics
+import app.vocr.sphere.CaptureStore
+import app.vocr.sphere.SphereBridge
 import app.vocr.VocrApp
 
 /**
@@ -124,22 +126,24 @@ object JobQueue {
                 listener?.invoke()
             }
             val ft = RunStats.footer(res, rd).let { b -> VocrApp.takePauseNote(job.tmp)?.let { n -> b + (if (b.endsWith("\n")) "" else "\n") + n } ?: b }
-            val sv = Saver.save(app, rd.text.trimEnd() + "\n\n" + ft)
-            if (sv.uri == null) throw RuntimeException("could not save the text file to Download/ScrollRSI (" + sv.error + ")")
-            // Keep the recording next to its text (same name, .mp4). Picked videos are the user's own files and are not copied.
+            // Sphere structured folder: the REC text is a capture like any other - header, predictable name, easy delete.
+            val meta = CaptureStore.Meta(CaptureStore.CaptureType.REC, "unknown app", "", CaptureStore.TextSource.OCR)
+            val textUri: Uri? = CaptureStore.saveText(app, meta, rd.text.trimEnd() + "\n\n" + ft)
+            if (textUri == null) throw RuntimeException("could not save the text file to Sphere's folder")
             job.tmp?.takeIf { it.name.startsWith("rec-") && it.exists() && app.getSharedPreferences("vocr", Context.MODE_PRIVATE).getBoolean("save_video", true) }?.let { t ->
-                val vs = runCatching { Saver.saveFile(app, sv.title + ".mp4", "video/mp4", t) }.getOrElse { Saver.Saved(sv.title + ".mp4", null, it.message ?: it.javaClass.simpleName) }
+                val vs = runCatching { Saver.saveFile(app, meta.baseName() + ".mp4", "video/mp4", t) }.getOrElse { Saver.Saved(meta.baseName() + ".mp4", null, it.message ?: it.javaClass.simpleName) }
                 if (vs.uri == null) VocrApp.note("video NOT saved: " + vs.error, null)
             }
-            job.title = sv.title; job.result = sv.uri; job.lines = rd.mergedLines; job.secs = (rd.ms / 1000).toInt()
+            job.title = meta.baseName(); job.result = textUri; job.lines = rd.mergedLines; job.secs = (rd.ms / 1000).toInt()
             job.stage = "Done"; job.state = 2; job.frac = 1f; Haptics.saved(app)
             postDone(app, job, rd.text)
+            SphereBridge.ready(meta.withFiles(emptyList(), textUri))   // the sphere pops its minis; the shade notification stays as the fallback
         } catch (e: JobCancelled) {
             job.state = 4; job.stage = "Cancelled"
         } catch (e: Throwable) {
             job.state = 3; Haptics.failure(app); job.stage = "Failed: " + (e.message ?: e.javaClass.simpleName)
             nm(app).notify(100 + job.id, Notification.Builder(app, CH_DONE).setSmallIcon(android.R.drawable.stat_notify_error)
-                .setContentTitle("ScrollRSI could not read " + job.label).setContentText(e.message ?: e.javaClass.simpleName).setAutoCancel(true).build())
+                .setContentTitle("Sphere could not read " + job.label).setContentText(e.message ?: e.javaClass.simpleName).setAutoCancel(true).build())
         } finally {
             Sfx.scan(app, false); if (job.state != 2) Sfx.stopCue(app)
             job.tmp?.delete(); runCatching { stripDir?.deleteRecursively() }; runCatching { if (wl.isHeld) wl.release() }
