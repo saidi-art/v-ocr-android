@@ -2,6 +2,7 @@ package app.vocr.sphere
 
 import android.app.Activity
 import android.graphics.Color
+import android.content.Intent
 import android.os.Bundle
 import android.view.WindowManager
 import android.widget.LinearLayout
@@ -44,10 +45,10 @@ class SphereSettingsActivity : Activity() {
         when (p.getString("theme", "system")) { "day" -> day.isChecked = true; "night" -> night.isChecked = true; else -> sys.isChecked = true }
         group.setOnCheckedChangeListener { _, id ->
             p.edit().putString("theme", if (id == day.id) "day" else if (id == night.id) "night" else "system").apply()
-            // the sphere re-reads its palette when it next wakes
+            if (SphereService.isOn(this)) startService(Intent(this@SphereSettingsActivity, SphereService::class.java).setAction(SphereService.ACTION_THEME))   // the sphere re-themes in place
         }
         root.addView(group)
-        root.addView(body("Default on first launch is an open brief decision; until it settles, the sphere follows the phone."))
+        root.addView(body("The sphere re-themes the moment you pick. Default on first launch is an open brief decision; until it settles, the sphere follows the phone."))
 
         // Direct text (experimental, opt-in, off by default, behind the disclosure)
         root.addView(h("Direct text"))

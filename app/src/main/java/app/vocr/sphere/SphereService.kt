@@ -37,6 +37,7 @@ class SphereService : Service(), SphereBridge.Listener {
     companion object {
         const val ACTION_SHOW = "app.vocr.sphere.SHOW"
         const val ACTION_HIDE = "app.vocr.sphere.HIDE"
+        const val ACTION_THEME = "app.vocr.sphere.THEME"
         private const val CH = "sphere_status"
         private const val ID_FG = 71
         fun prefs(ctx: Context) = ctx.getSharedPreferences("sphere", Context.MODE_PRIVATE)
@@ -80,6 +81,11 @@ class SphereService : Service(), SphereBridge.Listener {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_HIDE -> { hide(); return START_NOT_STICKY }
+            ACTION_THEME -> {
+                // the theme choice changed in settings: re-resolve the palette and rebuild in place
+                resolvePalette()
+                if (container != null) retheme() else stopSelf()
+            }
             else -> show()
         }
         return START_STICKY
@@ -293,6 +299,18 @@ class SphereService : Service(), SphereBridge.Listener {
                 }
             }
         })
+    }
+
+    /** Rebuild the sphere with the freshly resolved palette, keeping its position, dock state and REC dot. */
+    private fun retheme() {
+        val q = lp ?: return
+        val wasX = q.x; val wasY = q.y; val wasDocked = docked; val recOn = recActive
+        splash.close(false); popup.close(false)
+        removeSphere()
+        addSphere()
+        lp?.let { it.x = wasX; it.y = wasY; runCatching { wm.updateViewLayout(container ?: return@let, it) } }
+        if (wasDocked) dock(true)
+        if (recOn) { recActive = false; onRecState(true) }
     }
 
     // ---- the charcoal bottom bar (auto capture) ---------------------------------------------------------------------
