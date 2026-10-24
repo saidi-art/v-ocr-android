@@ -6,9 +6,15 @@ import android.content.Intent
 import android.os.Bundle
 import android.view.WindowManager
 import android.widget.LinearLayout
-import com.google.android.gms.auth.api.signin.GoogleSignIn
-import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import androidx.credentials.CredentialManager
+import androidx.credentials.GetCredentialRequest
+import androidx.credentials.exceptions.GetCredentialCancellationException
+import androidx.credentials.exceptions.GetCredentialException
+import androidx.lifecycle.lifecycleScope
+import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.firebase.auth.GoogleAuthProvider
+import kotlinx.coroutines.launch
 import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.TextView
@@ -22,13 +28,35 @@ import app.vocr.capture.CaptureService
 class SphereSettingsActivity : ComponentActivity() {   // ComponentActivity: the sign-in result launcher needs it
     private val dp get() = resources.displayMetrics.density
 
-    /** Google sign-in: mints a Google ID token and hands it to Firebase Auth. Cancel leaves the status signed out. */
-    private val signIn = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) { r ->
-        val auth = AccountService.auth(this) ?: return@registerForActivityResult
-        runCatching {
-            val acct = GoogleSignIn.getSignedInAccountFromIntent(r.data).getResult(com.google.android.gms.common.api.ApiException::class.java)
-            val token = acct.idToken ?: return@runCatching
-            auth.signInWithCredential(GoogleAuthProvider.getCredential(token, null)).addOnCompleteListener { recreate() }
+    /** Google sign-in (supported path): Credential Manager mints a Google ID token; Firebase Auth consumes it. */
+    private fun googleSignIn(err: android.widget.TextView) {
+        val webId = AccountService.webClientId(this) ?: return
+        val req = GetCredentialRequest.Builder()
+            .addCredentialOption(GetGoogleIdOption.Builder().setServerClientId(webId).setFilterByAuthorizedAccounts(false).build())
+            .build()
+        lifecycleScope.launch {
+            try {
+                val res = CredentialManager.create(this@SphereSettingsActivity).getCredential(this@SphereSettingsActivity, req)
+                val token = GoogleIdTokenCredential.createFrom(res.credential.data).idToken
+                AccountService.auth(this@SphereSettingsActivity)
+                    ?.signInWithCredential(GoogleAuthProvider.getCredential(token, null))
+                    ?.addOnCompleteListener { t -> if (t.isSuccessful) recreate() else err.text = "Sign-in failed: ${t.exception?.localizedMessage ?: "unknown error"}" }
+            } catch (e: GetCredentialCancellationException) {
+                // the user cancelled: not an error, stay signed out
+            } catch (e: GetCredentialException) {
+                err.text = "Google sign-in is unavailable here: ${e.localizedMessage ?: e.javaClass.simpleName}"
+            }
+        }
+    }
+
+    /** Email sign-in / account creation on the configured service; errors are shown as returned, never hidden. */
+    private fun emailAuth(create: Boolean, email: String, pass: String, err: android.widget.TextView) {
+        val auth = AccountService.auth(this) ?: return
+        if (email.isBlank() || pass.length < 6) { err.text = "Enter an email and a password of at least 6 characters."; return }
+        val task = if (create) auth.createUserWithEmailAndPassword(email, pass) else auth.signInWithEmailAndPassword(email, pass)
+        task.addOnCompleteListener { t ->
+            if (t.isSuccessful) recreate()
+            else err.text = (if (create) "Could not create the account: " else "Sign-in failed: ") + (t.exception?.localizedMessage ?: "unknown error")
         }
     }
 
@@ -85,14 +113,25 @@ class SphereSettingsActivity : ComponentActivity() {   // ComponentActivity: the
                 root.addView(body("Every v1 feature is part of the free plan. Account sign-in is not connected in this development build."))
             is AccountService.Status.SignedOut -> {
                 root.addView(body("Not signed in. Every v1 feature is part of the free plan."))
+                val err = android.widget.TextView(this).apply { setTextColor(Color.parseColor("#E8A0A0")); textSize = 13f; setPadding(0, (8 * d).toInt(), 0, 0) }
                 val webId = AccountService.webClientId(this)
                 root.addView(android.widget.Button(this).apply {
-                    text = "Sign in with Google"
+                    text = if (webId != null) "Sign in with Google" else "Sign in with Google (configuration incomplete)"
                     isEnabled = webId != null
-                    if (webId == null) text = "Sign in with Google (configuration incomplete)"
-                    setOnClickListener { webId?.let { id -> signIn.launch(GoogleSignIn.getClient(this@SphereSettingsActivity,
-                        GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN).requestIdToken(id).requestEmail().build()).signInIntent) } }
+                    setOnClickListener { googleSignIn(err) }
                 })
+                root.addView(body("Or with email:"))
+                val em = android.widget.EditText(this).apply { hint = "Email"; setHintTextColor(Color.parseColor("#77F3E7CB")); setTextColor(Color.parseColor("#F3E7CB"))
+                    inputType = android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS; setSingleLine() }
+                val pw = android.widget.EditText(this).apply { hint = "Password (6+ characters)"; setHintTextColor(Color.parseColor("#77F3E7CB")); setTextColor(Color.parseColor("#F3E7CB"))
+                    inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD; setSingleLine() }
+                root.addView(em); root.addView(pw)
+                val btnRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+                btnRow.addView(android.widget.Button(this).apply { text = "Sign in"; setOnClickListener { emailAuth(false, em.text.toString().trim(), pw.text.toString(), err) } })
+                btnRow.addView(android.widget.Button(this).apply { text = "Create account"; setOnClickListener { emailAuth(true, em.text.toString().trim(), pw.text.toString(), err) } })
+                root.addView(btnRow)
+                root.addView(body("Creating an account stores your email and sign-in details on the configured account service. Captures stay on this phone either way."))
+                root.addView(err)
             }
             is AccountService.Status.SignedIn -> {
                 root.addView(body("Signed in as ${st.label}. Free plan - every v1 feature is included."))

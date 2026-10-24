@@ -40,10 +40,13 @@ dependencies {
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.22.0")
     // Account service (scaffold): Firebase Auth + Google sign-in. No google-services plugin: the app stays
     // buildable and usable with NO configuration; Firebase initialises only if a local google-services.json exists.
-    // pinned, not the latest BoM: firebase-auth 24+ needs Kotlin 2.1+ metadata; this project is on Kotlin 2.0.20.
-    // play-services-auth 22 removed the legacy GoogleSignIn API this scaffold uses.
+    // firebase-auth pinned: 24+ requires Kotlin 2.1+ metadata; this project is on Kotlin 2.0.20.
+    // Google sign-in uses the supported Credential Manager integration (androidx.credentials + googleid),
+    // not the legacy GoogleSignIn client removed from play-services-auth 22.
     implementation("com.google.firebase:firebase-auth:23.2.1")
-    implementation("com.google.android.gms:play-services-auth:21.5.1")
+    implementation("androidx.credentials:credentials:1.5.0")
+    implementation("androidx.credentials:credentials-play-services-auth:1.5.0")
+    implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
     testImplementation("junit:junit:4.13.2")
     testImplementation("com.microsoft.onnxruntime:onnxruntime:1.22.0")
     testImplementation("org.robolectric:robolectric:4.14.1")
