@@ -68,12 +68,12 @@ class SphereSettingsActivity : Activity() {
         // Account + plan (foundation for the future service; all v1 features free)
         root.addView(h("Account"))
         val a = Account.current(this)
-        root.addView(body("Account: ${a.label}. Every v1 feature is part of the free plan. Sign-in is not available yet; nothing here asks for it."))
+        root.addView(body("Account: ${a.label}. Every v1 feature is part of the free plan. Account sign-in is not connected in this development build."))
 
         // Privacy wording (user-confirmed direction): captured content stays on the phone; account and any
         // analytics traffic are explained separately, not implied away by "everything stays on your phone".
         root.addView(h("Privacy"))
-        root.addView(body("Everything you capture stays on your phone. Captures live in Download/Sphere and are easy to delete. If account sign-in arrives, what it sends will be described here before you use it."))
+        root.addView(body("Everything you capture stays on your phone. Captures live in Download/Sphere and are easy to delete. Captured content stays on this phone; what an account sends, once connected, will be described here before you use it."))
 
         setContentView(root)
     }
