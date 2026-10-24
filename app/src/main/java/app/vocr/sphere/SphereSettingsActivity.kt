@@ -1,11 +1,14 @@
 package app.vocr.sphere
 
-import android.app.Activity
+import androidx.activity.ComponentActivity
 import android.graphics.Color
 import android.content.Intent
 import android.os.Bundle
 import android.view.WindowManager
 import android.widget.LinearLayout
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.firebase.auth.GoogleAuthProvider
 import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.TextView
@@ -16,8 +19,18 @@ import app.vocr.capture.CaptureService
  * the direct-text opt-in behind its disclosure, the account placeholder, and the privacy wording. Everything else
  * lives in Android's own settings screens.
  */
-class SphereSettingsActivity : Activity() {
+class SphereSettingsActivity : ComponentActivity() {   // ComponentActivity: the sign-in result launcher needs it
     private val dp get() = resources.displayMetrics.density
+
+    /** Google sign-in: mints a Google ID token and hands it to Firebase Auth. Cancel leaves the status signed out. */
+    private val signIn = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) { r ->
+        val auth = AccountService.auth(this) ?: return@registerForActivityResult
+        runCatching {
+            val acct = GoogleSignIn.getSignedInAccountFromIntent(r.data).getResult(com.google.android.gms.common.api.ApiException::class.java)
+            val token = acct.idToken ?: return@runCatching
+            auth.signInWithCredential(GoogleAuthProvider.getCredential(token, null)).addOnCompleteListener { recreate() }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -65,10 +78,27 @@ class SphereSettingsActivity : Activity() {
         root.addView(direct)
         root.addView(body("Both read on the device, and the capture's header says which one was used."))
 
-        // Account + plan (foundation for the future service; all v1 features free)
+        // Account (a decided v1 requirement): honest status, and the sign-in control only when this build is configured
         root.addView(h("Account"))
-        val a = Account.current(this)
-        root.addView(body("Account: ${a.label}. Every v1 feature is part of the free plan. Account sign-in is not connected in this development build."))
+        when (val st = AccountService.status(this)) {
+            is AccountService.Status.NotConnected ->
+                root.addView(body("Every v1 feature is part of the free plan. Account sign-in is not connected in this development build."))
+            is AccountService.Status.SignedOut -> {
+                root.addView(body("Not signed in. Every v1 feature is part of the free plan."))
+                val webId = AccountService.webClientId(this)
+                root.addView(android.widget.Button(this).apply {
+                    text = "Sign in with Google"
+                    isEnabled = webId != null
+                    if (webId == null) text = "Sign in with Google (configuration incomplete)"
+                    setOnClickListener { webId?.let { id -> signIn.launch(GoogleSignIn.getClient(this@SphereSettingsActivity,
+                        GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN).requestIdToken(id).requestEmail().build()).signInIntent) } }
+                })
+            }
+            is AccountService.Status.SignedIn -> {
+                root.addView(body("Signed in as ${st.label}. Free plan - every v1 feature is included."))
+                root.addView(android.widget.Button(this).apply { text = "Sign out"; setOnClickListener { AccountService.signOut(this@SphereSettingsActivity); recreate() } })
+            }
+        }
 
         // Privacy wording (user-confirmed direction): captured content stays on the phone; account and any
         // analytics traffic are explained separately, not implied away by "everything stays on your phone".

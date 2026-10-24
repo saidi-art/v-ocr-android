@@ -5,3 +5,6 @@ build/
 local.properties
 shots/
 .kotlin/
+
+# Local Firebase config for the account service (never committed)
+app/src/main/assets/google-services.json
