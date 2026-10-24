@@ -60,3 +60,19 @@ question stays open until tested, and these rules apply to everything new built 
   day-theme finish on device; night-desk motion values; long-press/popup/dock timings to confirm in testing.
 - "Drop" mechanics of the hand-off (share sheet vs remembered destinations that land text ready to send) -
   the load-bearing product question; measure the real tap count first, then decide.
+
+## Presentation slice 2 (bar / Speed / REC state)
+
+- **Bottom bar** (`DropBar.kt`): while the sphere is dragged, the charcoal auto-capture bar rises from the bottom
+  edge; it lights (hot) while the sphere hovers over it, and dropping the sphere there starts auto capture - a
+  measured part of the conversation, ended with Stop on the engine's shot bar (existing flow, unchanged).
+- **Speed**: the floating speed bar shown only while Auto-scroll or REC runs (existing engine surface) is restyled
+  as the brief's Speed sub-tool: palette-driven (Day: the +240 Auto-scroll hue; Night desk: brushed brass), label
+  "Speed". Behaviour (0-10 pace, fold to edge handle, drag) unchanged.
+- **REC state**: while REC records, the sphere carries the fixed red dot (`RecDot`), signalled engine -> shell over
+  `SphereBridge.recState`; cleared on stop and on engine teardown.
+
+The render harness (`SphereRenderTest`) draws every shell surface above to PNG (build/outputs/sphere-render) in both
+themes - Day and Night desk - so design-token changes are inspected as pixels.
+
+

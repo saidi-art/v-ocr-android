@@ -51,6 +51,10 @@ class SphereService : Service(), SphereBridge.Listener {
     private var palette: Palette = Palette.day(SphereShade.today())
     private lateinit var splash: Splash
     private lateinit var popup: Popup
+    private var dropBar: DropBar? = null
+    private var dropLp: WindowManager.LayoutParams? = null
+    private var recDot: RecDot? = null
+    private var recActive = false
     private var docked = false
     private var dragging = false
     private var longFired = false
@@ -86,7 +90,7 @@ class SphereService : Service(), SphereBridge.Listener {
     override fun onConfigurationChanged(c: Configuration) {
         super.onConfigurationChanged(c)
         resolvePalette()
-        ui.post { val q = lp ?: return@post; clampY(q); if (!docked) snap(q, instant = true) else dock(true); splash.close(false); popup.close(false) }
+        ui.post { val q = lp ?: return@post; clampY(q); if (!docked) snap(q, instant = true) else dock(true); splash.close(false); popup.close(false); hideDropBar() }
     }
 
     // ---- lifecycle ------------------------------------------------------------------------------------------------
@@ -108,6 +112,7 @@ class SphereService : Service(), SphereBridge.Listener {
     }
 
     private fun removeSphere() {
+        hideDropBar()
         ui.removeCallbacks(dockRun); ui.removeCallbacks(longRun)
         snapAnim?.cancel(); snapAnim = null
         container?.let { runCatching { wm.removeView(it) } }; container = null; ball = null; lp = null
@@ -122,13 +127,7 @@ class SphereService : Service(), SphereBridge.Listener {
     private fun screenW() = resources.displayMetrics.widthPixels
     private fun screenH() = resources.displayMetrics.heightPixels
 
-    private fun resolvePalette() {
-        val choice = when (prefs(this).getString("theme", "system")) {
-            "day" -> ThemeChoice.DAY; "night" -> ThemeChoice.NIGHT_DESK; else -> ThemeChoice.SYSTEM
-        }
-        val night = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
-        palette = Palette.resolve(choice, night, SphereShade.today())
-    }
+    private fun resolvePalette() { palette = Palette.current(this) }
 
     // ---- the sphere -----------------------------------------------------------------------------------------------
 
@@ -179,8 +178,10 @@ class SphereService : Service(), SphereBridge.Listener {
                         dragging = true
                         ui.removeCallbacks(longRun)
                         popup.pauseVanish()   // the vanish timer pauses while the sphere is dragged (brief)
+                        showDropBar()
                     }
                     if (dragging) {
+                        dropBar?.hot = e.rawY > screenH() - dp(72)
                         // the sphere follows the finger 1:1; open tools chase it with Trail
                         q.x = (startX + dx).toInt().coerceIn(-dp(40), screenW() - dp(24))
                         q.y = (startY + dy).toInt(); clampY(q)
@@ -194,12 +195,19 @@ class SphereService : Service(), SphereBridge.Listener {
                     if (e.actionMasked == MotionEvent.ACTION_UP && !dragging && !longFired) {
                         if (popup.isShowing()) { popup.touch() } else quickCapture()
                     } else if (dragging) {
+                        val drop = dropBar?.hot == true
+                        hideDropBar()
+                        if (drop) {
+                            // dropped on the charcoal bar: auto capture - a measured part of the conversation, ended with Stop
+                            v.performHapticFeedback(Haptic.CAPTURE)
+                            engine(CaptureService.ACTION_AUTO_CAPTURE)
+                        }
                         // release: snap to the nearest edge with Settle, remember the position, tools re-fan towards the centre
                         snap(q) {
                             prefs(this).edit().putBoolean("edge_right", q.x > screenW() / 2 - dp(32)).putInt("y", q.y).apply()
                             splash.close(); popup.close()
                         }
-                    }
+                    } else hideDropBar()
                     dragging = false
                     armDock()
                     true
@@ -285,6 +293,49 @@ class SphereService : Service(), SphereBridge.Listener {
                 }
             }
         })
+    }
+
+    // ---- the charcoal bottom bar (auto capture) ---------------------------------------------------------------------
+
+    private fun showDropBar() {
+        if (dropBar != null) return
+        val bar = DropBar(this, palette)
+        val q = WindowManager.LayoutParams(WindowManager.LayoutParams.MATCH_PARENT, dp(56), WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS, PixelFormat.TRANSLUCENT)
+        q.gravity = Gravity.BOTTOM or Gravity.START
+        runCatching { wm.addView(bar, q) }.onSuccess {
+            dropBar = bar; dropLp = q
+            if (!app.vocr.VocrApp.reducedMotion()) {
+                bar.translationY = dp(56).toFloat()
+                bar.animate().translationY(0f).setDuration(Motions.F233).start()
+            }
+        }
+    }
+
+    private fun hideDropBar() {
+        dropBar?.let { runCatching { wm.removeView(it) } }; dropBar = null; dropLp = null
+    }
+
+    // ---- REC state: the sphere carries the red dot while recording runs ----------------------------------------------
+
+    override fun onRecState(active: Boolean) {
+        ui.post {
+            if (active == recActive) return@post
+            recActive = active
+            val c = container ?: return@post
+            if (active) {
+                val dot = RecDot(this)
+                val size = dp(12)
+                c.addView(dot, FrameLayout.LayoutParams(size, size, Gravity.TOP or Gravity.END).apply {
+                    topMargin = dp(10); marginEnd = dp(10)
+                })
+                recDot = dot
+                c.contentDescription = "Sphere. Recording. Tap to capture; hold for tools; drag to move."
+            } else {
+                recDot?.let { c.removeView(it) }; recDot = null
+                c.contentDescription = "Sphere. Tap to capture; hold for tools; drag to move."
+            }
+        }
     }
 
     // ---- the after-capture popup (SphereBridge.Listener) -----------------------------------------------------------

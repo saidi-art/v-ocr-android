@@ -125,7 +125,7 @@ class CaptureService : Service() {
         return START_NOT_STICKY
     }
 
-    override fun onDestroy() { readMode = false; stopAutoScroll(); removeWidget(); releaseRecording(); super.onDestroy() }
+    override fun onDestroy() { app.vocr.sphere.SphereBridge.recState(false); readMode = false; stopAutoScroll(); removeWidget(); releaseRecording(); super.onDestroy() }
     override fun onConfigurationChanged(c: android.content.res.Configuration) { super.onConfigurationChanged(c); hideMenu(); ui.post { if (widget != null) { lp?.let { it.y = it.y.coerceIn(0, (resources.displayMetrics.heightPixels - dp(60)).coerceAtLeast(0)) }; tuck(true) } } }
 
     // ---- notifications --------------------------------------------------------------------------------------------
@@ -317,11 +317,12 @@ class CaptureService : Service() {
     private fun showFloatBar() {
         hideFloatBar()
         val pr = prefs(this)
+        val sp = app.vocr.sphere.Palette.current(this)   // the shell's palette: Speed is Auto-scroll's sub-tool (brief)
         val bar = android.widget.SeekBar(this).apply {
             max = 10; progress = speedLevel()
-            val bronze = android.content.res.ColorStateList.valueOf(accentC())
-            progressTintList = bronze; thumbTintList = bronze
-            progressBackgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#55FFFFFF"))
+            val inkT = android.content.res.ColorStateList.valueOf(sp.ink)
+            progressTintList = inkT; thumbTintList = inkT
+            progressBackgroundTintList = android.content.res.ColorStateList.valueOf(sp.ink and 0x00FFFFFF or 0x55000000)
             setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(sb: android.widget.SeekBar?, v: Int, fromUser: Boolean) {
                     sb?.let { androidx.core.view.ViewCompat.setStateDescription(it, "$v of 10") }
@@ -334,8 +335,8 @@ class CaptureService : Service() {
         val pill = android.widget.LinearLayout(this).apply {
             orientation = android.widget.LinearLayout.VERTICAL
             setPadding(dp(14), dp(8), dp(14), dp(6))
-            background = GradientDrawable().apply { setColor(if (app.vocr.Pal.paper) Color.parseColor("#EBF9F6F0") else Color.parseColor("#E625262B")); cornerRadius = dp(18).toFloat() }
-            addView(android.widget.TextView(this@CaptureService).apply { text = "Pace  (10 = normal, 0 = pause)  \u2630"; setTextColor(mutedC()); textSize = 11f })
+            background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(sp.auto[0], sp.auto[1], sp.auto[2])).apply { cornerRadius = dp(18).toFloat(); alpha = 0xEB }
+            addView(android.widget.TextView(this@CaptureService).apply { text = "Speed  (10 = normal, 0 = pause)  \u2630"; setTextColor(sp.ink); textSize = 11f })
             addView(bar, android.widget.LinearLayout.LayoutParams(dp(190), android.widget.LinearLayout.LayoutParams.WRAP_CONTENT))
             val pb = chip(pauseLabel(), chipC()) { togglePause(); ui.removeCallbacks(foldRun); ui.postDelayed(foldRun, 3000) }
             pb.contentDescription = "Pause. Stops scrolling"
@@ -1067,7 +1068,7 @@ class CaptureService : Service() {
                 if (cv != null && !recording) return@postDelayed
                 try {
                     r.start()
-                    recording = true; starting = false; paused = false; pauseCount = 0; pauseMs = 0L; app.vocr.Haptics.recStart(this)
+                    recording = true; starting = false; paused = false; pauseCount = 0; pauseMs = 0L; app.vocr.Haptics.recStart(this); app.vocr.sphere.SphereBridge.recState(true)
                     setWidgetRecording()
                     showFloatBar()   // speed bar + Pause stay on screen during a take too (folds to the edge handle like in Scroll on)
                     if (prefs(this).getBoolean("autoscroll", false) && ScrollService.instance != null) startAutoScroll()
@@ -1235,6 +1236,7 @@ class CaptureService : Service() {
     private fun stopReadMode() { if (!readMode) return; endPauseTracking(false); readMode = false; hidePace(); hideFloatBar(); stopAutoScroll(); setWidgetIdle(); syncSecure(); ui.post { refreshQueueUi() } }
 
     private fun stopRecording() {
+        app.vocr.sphere.SphereBridge.recState(false)
         if (!recording) return
         runCatching { stopAutoScroll() }
         endPauseTracking(true)

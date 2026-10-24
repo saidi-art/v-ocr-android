@@ -107,6 +107,16 @@ class Palette private constructor(
             trim = BRASS.toInt(), glow = WARM_GLOW.toInt()
         )
 
+        /** The palette in force right now, from the saved theme choice and the phone's dark mode. */
+        fun current(ctx: android.content.Context): Palette {
+            val p = ctx.getSharedPreferences("sphere", android.content.Context.MODE_PRIVATE)
+            val choice = when (p.getString("theme", "system")) {
+                "day" -> ThemeChoice.DAY; "night" -> ThemeChoice.NIGHT_DESK; else -> ThemeChoice.SYSTEM
+            }
+            val night = (ctx.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
+            return resolve(choice, night, SphereShade.today())
+        }
+
         fun resolve(choice: ThemeChoice, systemNight: Boolean, dayOfYear: Int): Palette = when (choice) {
             ThemeChoice.DAY -> day(dayOfYear)
             ThemeChoice.NIGHT_DESK -> nightDesk()

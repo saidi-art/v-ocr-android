@@ -21,6 +21,9 @@ android {
             keyAlias = "vocr"; keyPassword = System.getenv("VOCR_KS_PASSWORD")
         }
     }
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
     buildTypes { release { isMinifyEnabled = false; isDebuggable = false
         signingConfig = if (ksPath != null) signingConfigs.getByName("vocrRelease") else signingConfigs.getByName("debug") } }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
@@ -37,5 +40,6 @@ dependencies {
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.22.0")
     testImplementation("junit:junit:4.13.2")
     testImplementation("com.microsoft.onnxruntime:onnxruntime:1.22.0")
+    testImplementation("org.robolectric:robolectric:4.14.1")
 }
 tasks.withType<Test> { System.getProperty("nb")?.let { systemProperty("nb", it) }; maxHeapSize = "768m" }   // the OCR tests load two ONNX models: cap the forked JVM so small dev boxes survive

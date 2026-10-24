@@ -11,10 +11,13 @@ object SphereBridge {
         fun onCaptureReady(m: CaptureStore.Meta)
         /** A capture failed honestly (nothing silently lost): the shell may say so and log the step. */
         fun onCaptureFailed(kind: CaptureStore.CaptureType, reason: String)
+        /** REC started or stopped: the sphere carries the red dot while it runs. */
+        fun onRecState(active: Boolean) {}
     }
 
     @Volatile var listener: Listener? = null
 
     fun ready(m: CaptureStore.Meta) { listener?.onCaptureReady(m) }
     fun failed(kind: CaptureStore.CaptureType, reason: String) { listener?.onCaptureFailed(kind, reason) }
+    fun recState(active: Boolean) { listener?.onRecState(active) }
 }
